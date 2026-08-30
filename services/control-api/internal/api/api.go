@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -18,6 +19,7 @@ import (
 
 	"golang.org/x/crypto/bcrypt"
 
+	"github.com/msaliheroglu/tekses/packages/manifest"
 	"github.com/msaliheroglu/tekses/services/control-api/internal/model"
 	"github.com/msaliheroglu/tekses/services/control-api/internal/store"
 )
@@ -59,6 +61,14 @@ func (s *Server) Handler() http.Handler {
 
 	mux.HandleFunc("GET /api/v1/shows", s.authed(s.handleListShows))
 	mux.HandleFunc("POST /api/v1/shows", s.authedJSON(s.handleCreateShow))
+	mux.HandleFunc("GET /api/v1/shows/{id}/versions", s.authed(s.handleListShowVersions))
+	mux.HandleFunc("POST /api/v1/shows/{id}/versions", s.authedJSON(s.handlePublishShowVersion))
+	mux.HandleFunc("GET /api/v1/show-versions/{id}", s.authed(s.handleGetShowVersion))
+	mux.HandleFunc("POST /api/v1/rooms/{id}/activate", s.authedJSON(s.handleActivateRoom))
+
+	// Herkese açık katılım ucu: telefon, kodla oda + aktif gösteri sürümünü
+	// çeker. Kimlik istemez (katılımcı hesapsızdır, karar §1).
+	mux.HandleFunc("GET /api/v1/join/{code}", s.handleJoin)
 
 	return mux
 }
@@ -356,6 +366,134 @@ func (s *Server) handleListShows(w http.ResponseWriter, _ *http.Request, sess mo
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"shows": emptyIfNil(shows)})
+}
+
+// --- gösteri sürümleri ve yayınlama ---
+
+// handlePublishShowVersion, gövde olarak ham manifest alır; doğrular,
+// kanonikleştirir, SHA-256 özetini alır ve DEĞİŞMEZ bir sürüm yaratır.
+// Sürüm numarası gösteri başına 1'den artar.
+func (s *Server) handlePublishShowVersion(w http.ResponseWriter, r *http.Request, sess model.Session) {
+	show, err := s.store.ShowByID(sess.OrgID, r.PathValue("id"))
+	if err != nil {
+		writeErr(w, http.StatusNotFound, "gösteri bulunamadı")
+		return
+	}
+	raw, err := io.ReadAll(r.Body)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "gövde okunamadı")
+		return
+	}
+	m, err := manifest.Parse(raw)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	canonical, sum, err := m.Canonical()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "manifest kanonikleştirilemedi")
+		return
+	}
+	sv, err := s.store.CreateShowVersion(model.ShowVersion{
+		ID:           newID("sv"),
+		OrgID:        sess.OrgID,
+		ShowID:       show.ID,
+		ManifestJSON: canonical,
+		SHA256:       sum,
+		CreatedAt:    time.Now().UTC(),
+	})
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "sürüm oluşturulamadı")
+		return
+	}
+	s.log.Info("gösteri sürümü yayınlandı", "show", show.ID, "sürüm", sv.Version, "sha256", sum[:12])
+	writeJSON(w, http.StatusCreated, sv)
+}
+
+func (s *Server) handleListShowVersions(w http.ResponseWriter, r *http.Request, sess model.Session) {
+	if _, err := s.store.ShowByID(sess.OrgID, r.PathValue("id")); err != nil {
+		writeErr(w, http.StatusNotFound, "gösteri bulunamadı")
+		return
+	}
+	versions, err := s.store.ListShowVersions(sess.OrgID, r.PathValue("id"))
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "sürümler listelenemedi")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"versions": emptyIfNil(versions)})
+}
+
+func (s *Server) handleGetShowVersion(w http.ResponseWriter, r *http.Request, sess model.Session) {
+	sv, err := s.store.ShowVersionByID(sess.OrgID, r.PathValue("id"))
+	if err != nil {
+		writeErr(w, http.StatusNotFound, "sürüm bulunamadı")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"version":  sv,
+		"manifest": json.RawMessage(sv.ManifestJSON),
+	})
+}
+
+type activateRequest struct {
+	ShowVersionID string `json:"show_version_id"`
+}
+
+func (s *Server) handleActivateRoom(w http.ResponseWriter, r *http.Request, sess model.Session) {
+	room, err := s.store.RoomByID(sess.OrgID, r.PathValue("id"))
+	if err != nil {
+		writeErr(w, http.StatusNotFound, "oda bulunamadı")
+		return
+	}
+	var req activateRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, "gövde çözülemedi")
+		return
+	}
+	if _, err := s.store.ShowVersionByID(sess.OrgID, req.ShowVersionID); err != nil {
+		writeErr(w, http.StatusNotFound, "sürüm bulunamadı")
+		return
+	}
+	if err := s.store.SetRoomActiveVersion(sess.OrgID, room.ID, req.ShowVersionID); err != nil {
+		writeErr(w, http.StatusInternalServerError, "oda güncellenemedi")
+		return
+	}
+	s.log.Info("odada gösteri etkinleştirildi", "oda", room.ID, "sürüm", req.ShowVersionID)
+	writeJSON(w, http.StatusOK, map[string]any{"room_id": room.ID, "active_show_version_id": req.ShowVersionID})
+}
+
+// --- katılım (herkese açık) ---
+
+func (s *Server) handleJoin(w http.ResponseWriter, r *http.Request) {
+	code := strings.ToUpper(strings.TrimSpace(r.PathValue("code")))
+	room, err := s.store.RoomByJoinCode(code)
+	if err != nil {
+		writeErr(w, http.StatusNotFound, "katılım kodu geçersiz")
+		return
+	}
+	event, err := s.store.EventByID(room.OrgID, room.EventID)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "oda tutarsız")
+		return
+	}
+
+	resp := map[string]any{
+		"room_id":    room.ID,
+		"room_name":  room.Name,
+		"event_name": event.Name,
+	}
+	if room.ActiveShowVersionID != "" {
+		sv, err := s.store.ShowVersionByID(room.OrgID, room.ActiveShowVersionID)
+		if err == nil {
+			resp["show_version"] = map[string]any{
+				"id":       sv.ID,
+				"version":  sv.Version,
+				"sha256":   sv.SHA256,
+				"manifest": json.RawMessage(sv.ManifestJSON),
+			}
+		}
+	}
+	writeJSON(w, http.StatusOK, resp)
 }
 
 // --- yardımcılar ---

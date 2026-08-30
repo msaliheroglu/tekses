@@ -18,6 +18,14 @@ aynı `store.Store` arayüzünün arkasına gelecek.
 | `GET /api/v1/events/{id}` | Etkinlik ayrıntısı |
 | `GET/POST /api/v1/events/{id}/rooms` | Oda listesi / oluşturma (joinCode üretilir) |
 | `GET/POST /api/v1/shows` | Gösteri listesi / oluşturma |
+| `GET/POST /api/v1/shows/{id}/versions` | Sürüm listesi / manifest yayınlama (doğrulama + kanonik JSON + SHA-256) |
+| `GET /api/v1/show-versions/{id}` | Sürüm + tam manifest |
+| `POST /api/v1/rooms/{id}/activate` | Odada gösteri sürümünü etkinleştir |
+| `GET /api/v1/join/{code}` | **Herkese açık:** oda + aktif sürüm + manifest (telefon katılımı) |
+
+Manifest sözleşmesi `packages/manifest` paketindedir; sürümler değişmezdir
+(yayınlandıktan sonra hiçbir uç manifest baytlarını değiştiremez, telefon
+SHA-256 ile doğrular).
 
 Kiracılık: her istek oturumun organizasyonuna daraltılır; başka kiracının
 kaynağı 404 görünür. Katılım kodları karışması kolay karakterler (0/O, 1/I/L)

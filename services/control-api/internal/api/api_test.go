@@ -167,6 +167,105 @@ func TestTenantIsolation(t *testing.T) {
 	}
 }
 
+const testManifest = `{
+  "title": "Marş Seti",
+  "sequences": [{
+    "id": "seq-1", "title": "Açılış", "duration_ms": 60000,
+    "lyric_lines": [{"at_ms": 0, "duration_ms": 4000, "text": "Hep beraber!"}],
+    "cue_lanes": [{"id": "ekran", "kind": "screen", "cues": [
+      {"at_ms": 0, "duration_ms": 4000, "color": "#FF2A2A", "flash_hz": 2}
+    ]}]
+  }]
+}`
+
+func TestPublishActivateJoinFlow(t *testing.T) {
+	c := newTestAPI(t)
+	c.register("Stadyum AŞ", "mod@stadyum.com")
+
+	var event struct {
+		ID string `json:"id"`
+	}
+	c.do(http.MethodPost, "/api/v1/events", map[string]string{"name": "Final"}, &event)
+	var room struct {
+		ID       string `json:"id"`
+		JoinCode string `json:"join_code"`
+	}
+	c.do(http.MethodPost, "/api/v1/events/"+event.ID+"/rooms", map[string]string{"name": "Tribün"}, &room)
+	var show struct {
+		ID string `json:"id"`
+	}
+	c.do(http.MethodPost, "/api/v1/shows", map[string]string{"title": "Marş Seti"}, &show)
+
+	// Yayınlama: sürüm 1, sonra sürüm 2; aynı içerik aynı özeti verir.
+	var v1, v2 struct {
+		ID      string `json:"id"`
+		Version int    `json:"version"`
+		SHA256  string `json:"sha256"`
+	}
+	if status := c.do(http.MethodPost, "/api/v1/shows/"+show.ID+"/versions", json.RawMessage(testManifest), &v1); status != http.StatusCreated {
+		t.Fatalf("yayınlama durumu = %d", status)
+	}
+	if status := c.do(http.MethodPost, "/api/v1/shows/"+show.ID+"/versions", json.RawMessage(testManifest), &v2); status != http.StatusCreated {
+		t.Fatalf("ikinci yayınlama durumu = %d", status)
+	}
+	if v1.Version != 1 || v2.Version != 2 {
+		t.Fatalf("sürüm numaraları = %d, %d; beklenen 1, 2", v1.Version, v2.Version)
+	}
+	if v1.SHA256 != v2.SHA256 || len(v1.SHA256) != 64 {
+		t.Fatalf("özetler tutarsız: %s / %s", v1.SHA256, v2.SHA256)
+	}
+
+	// Geçersiz manifest reddedilir.
+	bad := `{"title":"X","sequences":[{"id":"a","title":"t","duration_ms":1000,
+	  "cue_lanes":[{"id":"l","kind":"screen","cues":[{"at_ms":0,"color":"#FFFFFF","flash_hz":9}]}]}]}`
+	if status := c.do(http.MethodPost, "/api/v1/shows/"+show.ID+"/versions", json.RawMessage(bad), nil); status != http.StatusBadRequest {
+		t.Fatalf("geçersiz manifest durumu = %d, beklenen 400", status)
+	}
+
+	// Etkinleştir ve kodla katıl (kimliksiz).
+	if status := c.do(http.MethodPost, "/api/v1/rooms/"+room.ID+"/activate",
+		map[string]string{"show_version_id": v2.ID}, nil); status != http.StatusOK {
+		t.Fatalf("etkinleştirme durumu = %d", status)
+	}
+	anon := &client{t: t, base: c.base} // token yok
+	var join struct {
+		RoomID      string `json:"room_id"`
+		EventName   string `json:"event_name"`
+		ShowVersion struct {
+			ID       string          `json:"id"`
+			SHA256   string          `json:"sha256"`
+			Manifest json.RawMessage `json:"manifest"`
+		} `json:"show_version"`
+	}
+	if status := anon.do(http.MethodGet, "/api/v1/join/"+room.JoinCode, nil, &join); status != http.StatusOK {
+		t.Fatalf("katılım durumu = %d", status)
+	}
+	if join.RoomID != room.ID || join.ShowVersion.ID != v2.ID || len(join.ShowVersion.Manifest) == 0 {
+		t.Fatalf("katılım yanıtı eksik: %+v", join)
+	}
+
+	// Bilinmeyen kod 404.
+	if status := anon.do(http.MethodGet, "/api/v1/join/YOKKOD", nil, nil); status != http.StatusNotFound {
+		t.Fatalf("bilinmeyen kod durumu = %d, beklenen 404", status)
+	}
+
+	// Başka kiracının sürümü odada etkinleştirilemez.
+	other := &client{t: t, base: c.base}
+	other.register("Org B", "b@ornek.com")
+	var otherShow struct {
+		ID string `json:"id"`
+	}
+	other.do(http.MethodPost, "/api/v1/shows", map[string]string{"title": "B Gösterisi"}, &otherShow)
+	var otherV struct {
+		ID string `json:"id"`
+	}
+	other.do(http.MethodPost, "/api/v1/shows/"+otherShow.ID+"/versions", json.RawMessage(testManifest), &otherV)
+	if status := c.do(http.MethodPost, "/api/v1/rooms/"+room.ID+"/activate",
+		map[string]string{"show_version_id": otherV.ID}, nil); status != http.StatusNotFound {
+		t.Fatalf("çapraz kiracı etkinleştirme durumu = %d, beklenen 404", status)
+	}
+}
+
 func TestAuthRequired(t *testing.T) {
 	c := newTestAPI(t)
 	for _, path := range []string{"/api/v1/events", "/api/v1/shows"} {

@@ -24,7 +24,7 @@ adım sırasını izler.
   (Organization→Event→Room; Show→ShowVersion), depolama arayüzü + bellek içi
   store, e-posta+şifre kaydı/girişi (bcrypt, bearer token), çok kiracılı
   Event/Room CRUD; uçtan uca httptest'ler.
-- [ ] **3. Gösteri manifesti + yayınlama** — değişmez ShowVersion (kanonik
+- [x] **3. Gösteri manifesti + yayınlama** — değişmez ShowVersion (kanonik
   JSON + SHA-256), Sequence/LyricLine/CueLane/Cue doğrulaması (flashHz ≤ 3),
   `POST /shows/{id}/versions`, `POST /rooms/{id}/activate`, herkese açık
   `GET /join/{code}`.
