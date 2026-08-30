@@ -1,0 +1,30 @@
+syntax = "proto3";
+
+package tekses.v1;
+
+option go_package = "github.com/msaliheroglu/tekses/packages/proto/gen/go/tekses/v1;teksesv1";
+
+// NTP benzeri saat senkronu değişimi.
+//
+// İstemci t0'da isteği yollar, sunucu t1'de alır ve t2'de yanıtlar,
+// istemci t3'te yanıtı alır. Ofset = ((t1 - t0) + (t2 - t3)) / 2.
+// İstemci 8–12 örnek toplar, düşük RTT'li yarıyı seçer, medyan ofseti kullanır
+// ve her 1–2 dakikada bir yeniler. Cihazda daima MONOTON saat kullanılır.
+
+message ClockSyncRequest {
+  // İstemcinin örnek sayacı; yanıt eşleştirmede kullanılır.
+  uint32 seq = 1;
+  // t0: istemcinin monoton saatinden milisaniye. Sunucu yorumlamaz,
+  // yanıtta aynen geri yansıtır.
+  int64 client_mono_ms = 2;
+}
+
+message ClockSyncResponse {
+  uint32 seq = 1;
+  // t0 yansıması.
+  int64 client_mono_ms = 2;
+  // t1: isteğin sunucuya ulaştığı an (sunucu saati, ms).
+  int64 server_recv_ms = 3;
+  // t2: yanıtın sunucudan çıktığı an (sunucu saati, ms).
+  int64 server_send_ms = 4;
+}

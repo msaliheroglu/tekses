@@ -1,0 +1,8 @@
+version: v2
+plugins:
+  # Go üretimi (Faz 1'de devreye girer): buf generate
+  - remote: buf.build/protocolbuffers/go
+    out: gen/go
+    opt: paths=source_relative
+  # Dart üretimi Flutter araç zinciriyle birlikte eklenecek:
+  # dart pub global activate protoc_plugin && protoc --dart_out=...

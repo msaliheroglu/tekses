@@ -1,0 +1,27 @@
+name: tekses_participant
+description: "TekSes katılımcı uygulaması — Faz 0 senkron denemesi: saat senkronu + zamanlanmış ekran/fener kue."
+publish_to: "none"
+version: 0.1.0
+
+environment:
+  # Color.withValues vb. için Flutter 3.27+ (Dart 3.6+) gerekir.
+  sdk: ">=3.6.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  # WebSocket istemcisi (gateway bağlantısı).
+  web_socket_channel: ^3.0.0
+  # Telefon feneri. Karar: zamanlanmış ses ve hassas fener Faz 2'de native
+  # platform kanallarına taşınacak; Faz 0'da bu eklenti yeterli.
+  torch_light: ^1.1.0
+  # Gösteri boyunca ekranın açık kalması (yalnızca ön planda çalışma kararı).
+  wakelock_plus: ^1.2.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+flutter:
+  uses-material-design: true
