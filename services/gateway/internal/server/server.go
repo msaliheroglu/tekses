@@ -9,6 +9,7 @@
 package server
 
 import (
+	"context"
 	"crypto/rand"
 	"embed"
 	"encoding/hex"
@@ -25,10 +26,12 @@ import (
 	"github.com/msaliheroglu/tekses/packages/proto/wire"
 	"github.com/msaliheroglu/tekses/services/gateway/internal/clock"
 	"github.com/msaliheroglu/tekses/services/gateway/internal/hub"
+	"github.com/msaliheroglu/tekses/services/gateway/internal/rooms"
 )
 
 const (
-	roomID = "faz0"
+	// Katılım kodu çözümlemesi için control-api'ye tanınan süre.
+	resolveTimeout = 3 * time.Second
 
 	// Okuma sınırı: telde küçük kontrol mesajlarından başka bir şey akmaz.
 	maxMessageBytes = 4096
@@ -65,17 +68,20 @@ type Server struct {
 	clock      *clock.ServerClock
 	hub        *hub.Hub
 	adminToken string
+	resolver   rooms.Resolver
 	upgrader   websocket.Upgrader
 }
 
 // New, bir gateway sunucusu kurar. adminToken boş değilse /api/* uçları
-// "Authorization: Bearer <token>" başlığı ister.
-func New(log *slog.Logger, adminToken string) *Server {
+// "Authorization: Bearer <token>" başlığı ister. resolver nil ise katılım
+// kodu doğrulanmaz ve herkes varsayılan odaya düşer (Faz 0 yerel denemesi).
+func New(log *slog.Logger, adminToken string, resolver rooms.Resolver) *Server {
 	return &Server{
 		log:        log,
 		clock:      clock.New(),
 		hub:        hub.New(log),
 		adminToken: adminToken,
+		resolver:   resolver,
 		upgrader: websocket.Upgrader{
 			ReadBufferSize:  1024,
 			WriteBufferSize: 1024,
@@ -114,6 +120,7 @@ func (s *Server) handleHealthz(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"status":         "ok",
 		"clients":        s.hub.Count(),
+		"rooms":          s.hub.RoomCounts(),
 		"server_time_ms": s.clock.NowMs(),
 	})
 }
@@ -195,10 +202,25 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 				s.log.Warn("uyumsuz protokol sürümü", "istemci", hello.ProtocolVersion)
 				return
 			}
+			room := hub.DefaultRoom
+			code := strings.ToUpper(strings.TrimSpace(hello.JoinCode))
+			if code != "" && s.resolver != nil {
+				ctx, cancel := context.WithTimeout(r.Context(), resolveTimeout)
+				resolved, err := s.resolver.ResolveJoinCode(ctx, code)
+				cancel()
+				if err != nil {
+					// Geçersiz kod da geçici control-api arızası da katılımı
+					// reddeder; istemci jitter'lı geri çekilmeyle yeniden dener.
+					s.log.Warn("katılım kodu çözülemedi", "kod", code, "hata", err)
+					return
+				}
+				room = resolved
+			}
+			s.hub.JoinRoom(client, room)
 			s.send(client, wire.TypeWelcome, wire.Welcome{
 				ServerTimeMs:    s.clock.NowMs(),
 				ProtocolVersion: wire.ProtocolVersion,
-				RoomID:          roomID,
+				RoomID:          room,
 			})
 
 		case wire.TypeClockSyncRequest:
@@ -243,6 +265,7 @@ func (s *Server) send(c *hub.Client, msgType string, msg any) {
 
 type cueRequest struct {
 	CueID      string `json:"cue_id"`
+	RoomID     string `json:"room_id"` // boş: tüm odalara (Faz 0 davranışı)
 	DelayMs    int64  `json:"delayMs"`
 	DurationMs uint32 `json:"durationMs"`
 	Color      string `json:"color"`
@@ -306,24 +329,30 @@ func (s *Server) handleCue(w http.ResponseWriter, r *http.Request) {
 			DurationMs: req.DurationMs,
 		},
 	}
-	s.broadcastCueWithRepeats(cue)
+	s.broadcastCueWithRepeats(cue, req.RoomID)
 
+	targetCount := s.hub.Count()
+	if req.RoomID != "" {
+		targetCount = s.hub.RoomCounts()[req.RoomID]
+	}
 	s.log.Info("kue yayınlandı",
-		"run_id", cue.RunID, "cue_id", cue.CueID,
-		"fire_at", cue.FireAtServerMs, "istemci", s.hub.Count())
+		"run_id", cue.RunID, "cue_id", cue.CueID, "oda", req.RoomID,
+		"fire_at", cue.FireAtServerMs, "istemci", targetCount)
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"run_id":            cue.RunID,
 		"cue_id":            cue.CueID,
+		"room_id":           req.RoomID,
 		"fire_at_server_ms": cue.FireAtServerMs,
 		"server_time_ms":    s.clock.NowMs(),
-		"clients":           s.hub.Count(),
+		"clients":           targetCount,
 	})
 }
 
 // broadcastCueWithRepeats, aynı kueyi cueRepeats kez yayınlar; istemciler
 // run_id ile tekilleştirir. İlk tekrar hemen, sonrakiler aralıklarla gider.
-func (s *Server) broadcastCueWithRepeats(cue wire.CueStart) {
+// room boşsa tüm istemcilere, doluysa yalnızca o odaya gider.
+func (s *Server) broadcastCueWithRepeats(cue wire.CueStart, room string) {
 	for i := uint32(1); i <= cueRepeats; i++ {
 		repeat := cue
 		repeat.RepeatSeq = i
@@ -333,13 +362,20 @@ func (s *Server) broadcastCueWithRepeats(cue wire.CueStart) {
 			return
 		}
 		delay := time.Duration(i-1) * cueRepeatInterval
-		time.AfterFunc(delay, func() { s.hub.Broadcast(data) })
+		time.AfterFunc(delay, func() {
+			if room == "" {
+				s.hub.Broadcast(data)
+			} else {
+				s.hub.BroadcastRoom(room, data)
+			}
+		})
 	}
 }
 
 type interventionRequest struct {
-	RunID string `json:"run_id"`
-	Kind  string `json:"kind"`
+	RunID  string `json:"run_id"`
+	RoomID string `json:"room_id"` // boş: tüm odalara
+	Kind   string `json:"kind"`
 }
 
 func (s *Server) handleIntervention(w http.ResponseWriter, r *http.Request) {
@@ -363,9 +399,13 @@ func (s *Server) handleIntervention(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "mesaj kodlanamadı"})
 		return
 	}
-	s.hub.Broadcast(data)
-	s.log.Info("müdahale yayınlandı", "kind", req.Kind, "run_id", req.RunID)
-	writeJSON(w, http.StatusOK, map[string]any{"kind": req.Kind, "clients": s.hub.Count()})
+	if req.RoomID == "" {
+		s.hub.Broadcast(data)
+	} else {
+		s.hub.BroadcastRoom(req.RoomID, data)
+	}
+	s.log.Info("müdahale yayınlandı", "kind", req.Kind, "run_id", req.RunID, "oda", req.RoomID)
+	writeJSON(w, http.StatusOK, map[string]any{"kind": req.Kind, "room_id": req.RoomID, "clients": s.hub.Count()})
 }
 
 // --- yardımcılar ---

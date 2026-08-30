@@ -20,6 +20,9 @@ const writeTimeout = 5 * time.Second
 type Client struct {
 	conn *websocket.Conn
 	mu   sync.Mutex
+
+	// room yalnızca hub kilidi altında okunur/yazılır.
+	room string
 }
 
 // NewClient, bağlantıyı saran bir istemci oluşturur.
@@ -61,25 +64,64 @@ func (c *Client) Ping() error {
 // Close, bağlantıyı kapatır.
 func (c *Client) Close() error { return c.conn.Close() }
 
-// Hub, bağlı istemcilerin kaydıdır.
+// DefaultRoom, hello'sunda katılım kodu olmayan istemcilerin odasıdır
+// (Faz 0 denemesi ve loadgen bu odada yaşar).
+const DefaultRoom = "faz0"
+
+// Hub, bağlı istemcilerin oda bazlı kaydıdır. Faz 2'de oda dağıtımı NATS
+// JetStream'e taşınınca hub tek düğümün yerel kaydı olarak kalacak.
 type Hub struct {
 	log     *slog.Logger
 	mu      sync.RWMutex
 	clients map[*Client]struct{}
+	rooms   map[string]map[*Client]struct{}
 }
 
 // New, boş bir hub oluşturur.
 func New(log *slog.Logger) *Hub {
-	return &Hub{log: log, clients: make(map[*Client]struct{})}
+	return &Hub{
+		log:     log,
+		clients: make(map[*Client]struct{}),
+		rooms:   make(map[string]map[*Client]struct{}),
+	}
 }
 
-// Register, istemciyi kayda ekler.
+// Register, istemciyi varsayılan odaya kaydeder.
 func (h *Hub) Register(c *Client) {
 	h.mu.Lock()
 	h.clients[c] = struct{}{}
+	h.placeLocked(c, DefaultRoom)
 	n := len(h.clients)
 	h.mu.Unlock()
 	h.log.Info("istemci bağlandı", "toplam", n)
+}
+
+// JoinRoom, istemciyi (varsa eski odasından çıkarıp) odaya taşır.
+func (h *Hub) JoinRoom(c *Client, room string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if _, ok := h.clients[c]; !ok {
+		return
+	}
+	h.removeFromRoomLocked(c)
+	h.placeLocked(c, room)
+}
+
+func (h *Hub) placeLocked(c *Client, room string) {
+	c.room = room
+	if h.rooms[room] == nil {
+		h.rooms[room] = make(map[*Client]struct{})
+	}
+	h.rooms[room][c] = struct{}{}
+}
+
+func (h *Hub) removeFromRoomLocked(c *Client) {
+	if members, ok := h.rooms[c.room]; ok {
+		delete(members, c)
+		if len(members) == 0 {
+			delete(h.rooms, c.room)
+		}
+	}
 }
 
 // Unregister, istemciyi kayıttan düşürür ve bağlantısını kapatır.
@@ -87,6 +129,7 @@ func (h *Hub) Unregister(c *Client) {
 	h.mu.Lock()
 	_, ok := h.clients[c]
 	delete(h.clients, c)
+	h.removeFromRoomLocked(c)
 	n := len(h.clients)
 	h.mu.Unlock()
 	if ok {
@@ -102,14 +145,39 @@ func (h *Hub) Count() int {
 	return len(h.clients)
 }
 
-// Broadcast, çerçeveyi tüm istemcilere eşzamanlı gönderir. Yavaş ya da kopuk
-// bir istemci diğerlerinin kue almasını geciktiremez; yazımı başarısız olan
-// istemci kayıttan düşürülür.
-func (h *Hub) Broadcast(data []byte) {
+// RoomCounts, oda başına istemci sayısını döndürür.
+func (h *Hub) RoomCounts() map[string]int {
 	h.mu.RLock()
-	targets := make([]*Client, 0, len(h.clients))
-	for c := range h.clients {
-		targets = append(targets, c)
+	defer h.mu.RUnlock()
+	out := make(map[string]int, len(h.rooms))
+	for room, members := range h.rooms {
+		out[room] = len(members)
+	}
+	return out
+}
+
+// Broadcast, çerçeveyi tüm istemcilere gönderir.
+func (h *Hub) Broadcast(data []byte) { h.broadcast("", data) }
+
+// BroadcastRoom, çerçeveyi yalnızca verilen odadaki istemcilere gönderir.
+func (h *Hub) BroadcastRoom(room string, data []byte) { h.broadcast(room, data) }
+
+// broadcast eşzamanlı gönderir: yavaş ya da kopuk bir istemci diğerlerinin
+// kue almasını geciktiremez; yazımı başarısız olan istemci düşürülür.
+func (h *Hub) broadcast(room string, data []byte) {
+	h.mu.RLock()
+	var targets []*Client
+	if room == "" {
+		targets = make([]*Client, 0, len(h.clients))
+		for c := range h.clients {
+			targets = append(targets, c)
+		}
+	} else {
+		members := h.rooms[room]
+		targets = make([]*Client, 0, len(members))
+		for c := range members {
+			targets = append(targets, c)
+		}
 	}
 	h.mu.RUnlock()
 

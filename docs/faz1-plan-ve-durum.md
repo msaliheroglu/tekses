@@ -28,9 +28,10 @@ adım sırasını izler.
   JSON + SHA-256), Sequence/LyricLine/CueLane/Cue doğrulaması (flashHz ≤ 3),
   `POST /shows/{id}/versions`, `POST /rooms/{id}/activate`, herkese açık
   `GET /join/{code}`.
-- [ ] **4. Gateway oda entegrasyonu** — gateway'de oda kavramı; hello'daki
-  join_code doğrulaması control-api üzerinden; kue yayınının odaya
-  daraltılması.
+- [x] **4. Gateway oda entegrasyonu** — gateway'de oda kavramı; hello'daki
+  join_code doğrulaması control-api üzerinden (`TEKSES_CONTROL_URL`); kue ve
+  müdahale yayınının `room_id` ile odaya daraltılması (boş = tümü, Faz 0
+  uyumlu).
 - [ ] **5. Postgres kalıcılığı** — şema/migration + pgx store; bu geliştirme
   ortamında Postgres yoksa CI'da servis konteyneriyle doğrula.
 - [ ] **6. Paketleme + CDN** — manifest ve varlıkları R2/S3'e iten paketleyici
