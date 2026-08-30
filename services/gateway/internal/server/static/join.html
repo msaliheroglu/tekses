@@ -1,0 +1,326 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>TekSes — katıl</title>
+<style>
+  :root { color-scheme: dark; }
+  html, body { height: 100%; }
+  body {
+    margin: 0; background: #000; color: #fff; overflow: hidden;
+    font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+    -webkit-user-select: none; user-select: none;
+    transition: none;
+  }
+  #stage { position: fixed; inset: 0; background: #000; }
+  #status {
+    position: fixed; top: max(8px, env(safe-area-inset-top)); left: 12px; right: 12px;
+    font-size: 12px; color: rgba(255,255,255,.55); pointer-events: none;
+    text-shadow: 0 1px 2px rgba(0,0,0,.8); white-space: pre-line;
+  }
+  #overlay {
+    position: fixed; inset: 0; background: #0b0b0f; display: flex;
+    flex-direction: column; align-items: center; justify-content: center; gap: 16px;
+    padding: 24px; text-align: center;
+  }
+  #overlay h1 { font-size: 40px; margin: 0; }
+  #overlay p { color: #999; max-width: 340px; margin: 0; }
+  #joinBtn {
+    border: 0; border-radius: 12px; background: #d92b2b; color: #fff;
+    font-size: 20px; font-weight: 700; padding: 16px 48px; cursor: pointer;
+  }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+<div id="stage"></div>
+<div id="status"></div>
+<div id="overlay">
+  <h1>TekSes</h1>
+  <p>Faz 0 tarayıcı deneme sayfası. Parlaklığı elle sonuna kadar açın.
+     <b>Yanıp sönen ışık içerir.</b><br><br>
+     Fener yalnızca telefon uygulamasında çalışır; tarayıcıda ekran rengiyle
+     ölçüm yapılır.</p>
+  <p id="wlWarn" hidden style="color:#ffb74d">
+     ⚠ Bu adres şifresiz (http) olduğu için tarayıcı ekranı otomatik açık
+     tutamıyor. Denemeden önce telefonun <b>ekran kapanma süresini 5 dakika
+     ya da üstüne</b> çıkarın; sayfayı deneme boyunca önde tutun.</p>
+  <button id="joinBtn">Gösteriye katıl</button>
+</div>
+
+<script>
+"use strict";
+// Faz 0 tel protokolünün tarayıcı uyarlaması. Şema: packages/proto/tekses/v1,
+// algoritma packages/clocksync ile birebir aynı (10 örnek, düşük RTT'li yarı,
+// ofset medyanı). Monoton saat: performance.now(). Duvar saati asla.
+
+const SAMPLES_PER_ROUND = 10;
+const SAMPLE_PAUSE_MS = 40;
+const RESYNC_MS = 60000;
+const SPIN_WINDOW_MS = 40;
+
+const stage = document.getElementById("stage");
+const statusEl = document.getElementById("status");
+
+const mono = () => performance.now(); // monoton, ms (kesirli)
+
+let ws = null;
+let closedByUser = false;
+let reconnectAttempt = 0;
+let reconnectTimer = 0;
+
+let seq = 0, awaitingSeq = null, roundSent = 0;
+let samples = [];
+let pingTimeout = 0, nextPingTimer = 0, resyncTimer = 0;
+let estimate = null; // {offsetMs, bestRttMs, usedSamples}
+
+const seenRuns = new Set();
+let active = null;   // {cue, fireLocalMs, fired}
+let held = false;
+let rafId = 0, fireTimer = 0;
+let statusMsg = "hazır";
+
+function setStatus(msg) { statusMsg = msg; renderStatus(); }
+function renderStatus() {
+  let s = statusMsg;
+  if (estimate) {
+    s += "\nofset " + Math.round(estimate.offsetMs) + " ms · RTT " +
+         Math.round(estimate.bestRttMs) + " ms · örnek " + estimate.usedSamples;
+  }
+  if (active) s += "\nrun " + active.cue.run_id.slice(0, 8);
+  statusEl.textContent = s;
+}
+
+// --- WebSocket ---
+
+function wsUrl() {
+  return (location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/ws";
+}
+
+function connect() {
+  if (closedByUser) return;
+  setStatus("bağlanılıyor...");
+  ws = new WebSocket(wsUrl());
+  ws.onopen = () => {
+    send("hello", { protocol_version: 1, join_code: "", client_kind: "web" });
+  };
+  ws.onmessage = (ev) => onFrame(ev.data);
+  ws.onclose = scheduleReconnect;
+  ws.onerror = () => {}; // close daima ayrıca gelir
+}
+
+function scheduleReconnect() {
+  if (closedByUser) return;
+  clearTimeout(pingTimeout); clearTimeout(nextPingTimer); clearTimeout(resyncTimer);
+  awaitingSeq = null;
+  reconnectAttempt = Math.min(reconnectAttempt + 1, 6);
+  // Jitter'lı üstel geri çekilme: binlerce telefonun aynı anda geri
+  // yüklenmesini engeller. Kue alınmışsa koreografi yerel saatten sürer.
+  const base = 1000 * Math.pow(2, reconnectAttempt - 1);
+  const delay = Math.min(30000, base) * (0.5 + Math.random());
+  setStatus("bağlantı koptu; " + (delay / 1000).toFixed(1) + " sn sonra yeniden");
+  reconnectTimer = setTimeout(connect, delay);
+}
+
+function send(type, data) {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type, data }));
+  }
+}
+
+function onFrame(raw) {
+  let env;
+  try { env = JSON.parse(raw); } catch { return; }
+  if (!env || typeof env.type !== "string" || !env.data) return;
+  const d = env.data;
+  switch (env.type) {
+    case "welcome":
+      reconnectAttempt = 0;
+      setStatus("odaya bağlanıldı: " + d.room_id);
+      startSyncRound();
+      break;
+    case "clock_sync_response": onClockResponse(d); break;
+    case "cue_start": onCue(d); break;
+    case "intervention": onIntervention(d); break;
+  }
+}
+
+// --- saat senkronu (packages/clocksync ile aynı algoritma) ---
+
+function startSyncRound() {
+  samples = [];
+  roundSent = 0;
+  sendNextPing();
+}
+
+function sendNextPing() {
+  seq++; roundSent++;
+  awaitingSeq = seq;
+  // Go tarafı int64 bekler; kesirli ms yuvarlanır (<1 ms kayıp önemsiz).
+  send("clock_sync_request", { seq, client_mono_ms: Math.round(mono()) });
+  pingTimeout = setTimeout(() => {
+    if (awaitingSeq !== null) { awaitingSeq = null; advanceRound(); }
+  }, 2000);
+}
+
+function onClockResponse(d) {
+  if (d.seq !== awaitingSeq) return;
+  const t3 = Math.round(mono());
+  clearTimeout(pingTimeout);
+  awaitingSeq = null;
+  const s = { t0: d.client_mono_ms, t1: d.server_recv_ms, t2: d.server_send_ms, t3 };
+  s.rtt = (s.t3 - s.t0) - (s.t2 - s.t1);
+  s.offset = ((s.t1 - s.t0) + (s.t2 - s.t3)) / 2;
+  if (s.rtt >= 0) samples.push(s); // negatif RTT: bozuk örnek, atılır
+  advanceRound();
+}
+
+function advanceRound() {
+  if (roundSent < SAMPLES_PER_ROUND) {
+    nextPingTimer = setTimeout(sendNextPing, SAMPLE_PAUSE_MS);
+    return;
+  }
+  if (samples.length > 0) {
+    const byRtt = samples.slice().sort((a, b) => a.rtt - b.rtt);
+    const keep = Math.ceil(byRtt.length / 2); // en iyi yarı
+    const chosen = byRtt.slice(0, keep);
+    const offsets = chosen.map((s) => s.offset).sort((a, b) => a - b);
+    const median = keep % 2 === 1
+      ? offsets[(keep - 1) / 2]
+      : (offsets[keep / 2 - 1] + offsets[keep / 2]) / 2;
+    estimate = { offsetMs: median, bestRttMs: chosen[0].rtt, usedSamples: keep };
+    if (!active) setStatus("saat senkronu tamam; kue bekleniyor");
+    // Askıdan dönüşte performance.now() duraklamış olabileceği için aktif
+    // kuenin yerel ateşleme anı taze ofsetle düzeltilir: henüz ateşlenmediyse
+    // zamanlayıcı yeniden kurulur, sürüyorsa faz bir sonraki karede düzelir.
+    if (active) {
+      active.fireLocalMs = active.cue.fire_at_server_ms - estimate.offsetMs;
+      if (!active.fired) armFireTimer();
+    }
+  } else {
+    setStatus("saat senkronu başarısız; yeniden denenecek");
+  }
+  resyncTimer = setTimeout(startSyncRound, RESYNC_MS);
+}
+
+// --- kue akışı ---
+
+function onCue(cue) {
+  if (!cue.run_id || seenRuns.has(cue.run_id)) return; // tekrar tekilleştirme
+  // Senkron henüz yoksa run_id İŞARETLENMEZ: sunucunun 250 ms arayla yolladığı
+  // 2.-3. tekrarlar, estimate o sırada hazırlanmışsa kueyi kurtarabilsin.
+  if (!estimate) { setStatus("kue geldi ama saat senkronu yok; tekrar bekleniyor"); return; }
+  seenRuns.add(cue.run_id);
+
+  cancelActive(true);
+  held = false;
+  active = { cue, fireLocalMs: cue.fire_at_server_ms - estimate.offsetMs, fired: false };
+  setStatus("kue alındı (" + (cue.cue_id || "?") + "); ateşleme bekleniyor");
+  armFireTimer();
+}
+
+function armFireTimer() {
+  clearTimeout(fireTimer);
+  const delay = active.fireLocalMs - mono();
+  if (delay <= 0) { startEffect(); return; } // geç katılım: faz ortasından gir
+  fireTimer = setTimeout(() => {
+    // Kalan ~40 ms sıkı beklenir; setTimeout sapması böyle sıfırlanır.
+    while (mono() < active.fireLocalMs) { /* spin */ }
+    startEffect();
+  }, Math.max(0, delay - SPIN_WINDOW_MS));
+}
+
+function startEffect() {
+  if (!active) return;
+  active.fired = true;
+  setStatus("koreografi sürüyor");
+  const tick = () => {
+    if (!active) return;
+    if (!held) applyFrame();
+    if (active) rafId = requestAnimationFrame(tick);
+  };
+  applyFrame();
+  rafId = requestAnimationFrame(tick);
+}
+
+function applyFrame() {
+  const { cue, fireLocalMs } = active;
+  const p = cue.payload || {};
+  const elapsed = mono() - fireLocalMs;
+  if (elapsed >= (p.duration_ms || 3000)) {
+    cancelActive(true);
+    setStatus("koreografi bitti; yeni kue bekleniyor");
+    return;
+  }
+  let lit = true;
+  if (p.flash_hz > 0) {
+    // Faz daima (şimdi − ateşlemeAnı) üzerinden: tüm telefonlar aynı yarımda.
+    // floor(elapsed*hz/500): yarım periyodu (500/hz) yuvarlamadan sayar;
+    // Dart tarafıyla (show_screen.dart) birebir aynı aritmetik — 3 Hz'te
+    // kırpılmış tam sayı periyot kullanılırsa iki istemci ~4 ms/sn açılırdı.
+    lit = Math.floor((elapsed * p.flash_hz) / 500) % 2 === 0;
+  }
+  stage.style.background = lit ? (p.color || "#FFFFFF") : "#000";
+}
+
+function cancelActive(toBlack) {
+  clearTimeout(fireTimer);
+  cancelAnimationFrame(rafId);
+  active = null;
+  if (toBlack) stage.style.background = "#000";
+}
+
+function onIntervention(iv) {
+  switch (iv.kind) {
+    case "STOP":
+    case "BLACKOUT":
+      cancelActive(true);
+      setStatus(iv.kind === "BLACKOUT" ? "KARARTMA" : "durduruldu");
+      break;
+    case "HOLD":
+      held = true; // ekran son karede kalır
+      setStatus("beklemede (HOLD)");
+      break;
+    case "SKIP":
+      setStatus("SKIP alındı (Faz 0: işlem yok)");
+      break;
+  }
+}
+
+// --- katılım ---
+
+// Wake Lock API güvenli bağlam ister (https veya localhost); Faz 0'ın düz
+// http://<LAN-IP> kurulumunda API hiç yoktur — kullanıcı açıkça uyarılır.
+const wakeLockSupported = "wakeLock" in navigator;
+let wakeLock = null;
+async function acquireWakeLock() {
+  if (!wakeLockSupported) return;
+  try {
+    wakeLock = await navigator.wakeLock.request("screen");
+    wakeLock.addEventListener("release", () => { wakeLock = null; });
+  } catch { /* reddedilirse ekran zaman aşımı kullanıcı ayarına kalır */ }
+}
+if (!wakeLockSupported) {
+  document.getElementById("wlWarn").hidden = false;
+}
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState !== "visible" || closedByUser) return;
+  if (!wakeLock) acquireWakeLock();
+  // Sayfa arka plandayken/ekran kilitliyken performance.now() duraklayabilir
+  // ve ofset bozulur: dönüşte beklemeden taze senkron turu başlatılır.
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    clearTimeout(resyncTimer);
+    startSyncRound();
+  }
+});
+
+document.getElementById("joinBtn").addEventListener("click", async () => {
+  document.getElementById("overlay").classList.add("hidden");
+  await acquireWakeLock(); // kullanıcı jesti gerektirir; o yüzden burada
+  try { await document.documentElement.requestFullscreen(); } catch { /* iOS Safari desteklemez */ }
+  connect();
+});
+</script>
+</body>
+</html>

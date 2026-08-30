@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TekSes — Faz 0 konsolu</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 16px; background: #0b0b0f; color: #eee;
+    font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+    max-width: 560px; margin-inline: auto;
+  }
+  h1 { font-size: 26px; margin: 8px 0 2px; }
+  h1 small { font-size: 14px; font-weight: normal; color: #888; display: block; }
+  .card { background: #16161d; border: 1px solid #2a2a35; border-radius: 12px; padding: 14px; margin: 12px 0; }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: end; }
+  label { display: block; font-size: 12px; color: #9a9aa5; margin-bottom: 4px; }
+  input, select {
+    width: 100%; padding: 10px; border-radius: 8px; border: 1px solid #34343f;
+    background: #0f0f14; color: #eee; font-size: 15px;
+  }
+  input[type=color] { padding: 2px; height: 42px; }
+  input[type=checkbox] { width: auto; transform: scale(1.4); margin: 12px 6px; }
+  .field { flex: 1 1 100px; }
+  button {
+    border: 0; border-radius: 10px; padding: 14px; font-size: 16px; font-weight: 700;
+    cursor: pointer; color: #fff; width: 100%;
+  }
+  #send { background: #d92b2b; font-size: 20px; padding: 18px; margin-top: 12px; }
+  #send:active { background: #a71f1f; }
+  .iv { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .iv button { font-size: 14px; padding: 12px; }
+  #hold { background: #8a6d1a; } #stop { background: #7a2020; }
+  #blackout { background: #222; border: 1px solid #555; } #skip { background: #2a4a72; }
+  #log { font: 12px/1.6 ui-monospace, monospace; color: #8fdc8f; white-space: pre-wrap;
+         max-height: 200px; overflow-y: auto; margin: 0; }
+  .err { color: #ff7b7b; }
+  code { background: #0f0f14; padding: 2px 6px; border-radius: 6px; color: #ffd479; word-break: break-all; }
+  .muted { color: #888; font-size: 13px; }
+  a { color: #7fb2ff; }
+</style>
+</head>
+<body>
+<h1>TekSes <small>Faz 0 moderatör konsolu — asıl panel (Next.js) Faz 1'de</small></h1>
+
+<div class="card">
+  bağlı istemci: <b id="clients">–</b> · sunucu saati: <span id="srvtime" class="muted">–</span>
+  <div class="muted" style="margin-top:6px">
+    Telefonlar için katılımcı sayfası: <code id="joinurl"></code><br>
+    (telefon tarayıcısında açın; uygulama kurulumu gerekmez)
+  </div>
+</div>
+
+<div class="card">
+  <div class="row">
+    <div class="field" style="flex:0 0 90px"><label>renk</label><input type="color" id="color" value="#FF2A2A"></div>
+    <div class="field"><label>gecikme (ms)</label><input type="number" id="delay" value="3000" min="500" step="500"></div>
+    <div class="field"><label>süre (ms)</label><input type="number" id="duration" value="4000" min="500" step="500"></div>
+  </div>
+  <div class="row" style="margin-top:10px">
+    <div class="field"><label>yanıp sönme</label>
+      <select id="flashHz">
+        <option value="0">sabit</option><option value="1">1 Hz</option>
+        <option value="2" selected>2 Hz</option><option value="3">3 Hz (üst sınır)</option>
+      </select>
+    </div>
+    <div class="field" style="flex:0 0 auto"><label>fener</label><input type="checkbox" id="torch" checked></div>
+    <div class="field"><label>yönetici token'ı (ayarlıysa)</label><input type="password" id="token" placeholder="boş bırakılabilir"></div>
+  </div>
+  <button id="send">KUE GÖNDER</button>
+</div>
+
+<div class="card iv">
+  <button id="hold">HOLD</button><button id="stop">STOP</button>
+  <button id="blackout">BLACKOUT</button><button id="skip">SKIP</button>
+</div>
+
+<div class="card"><pre id="log">hazır.</pre></div>
+
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+$("joinurl").textContent = location.origin + "/join";
+
+// localStorage site verisi engelli tarayıcılarda SecurityError fırlatabilir;
+// token hatırlama bir konfor, sayfanın çalışmasını asla engellememeli.
+const store = {
+  get(k) { try { return localStorage.getItem(k); } catch { return null; } },
+  set(k, v) { try { localStorage.setItem(k, v); } catch { /* yut */ } },
+};
+$("token").value = store.get("tekses_admin_token") || "";
+
+let lastRunId = "";
+
+function logLine(msg, isErr) {
+  const el = $("log");
+  const line = document.createElement("div");
+  if (isErr) line.className = "err";
+  line.textContent = new Date().toLocaleTimeString("tr-TR") + "  " + msg;
+  el.prepend(line);
+}
+
+async function refresh() {
+  try {
+    const r = await fetch("/healthz");
+    const j = await r.json();
+    $("clients").textContent = j.clients;
+    $("srvtime").textContent = j.server_time_ms;
+  } catch { $("clients").textContent = "?"; }
+}
+setInterval(refresh, 2000);
+refresh();
+
+async function post(path, body) {
+  const token = $("token").value.trim();
+  store.set("tekses_admin_token", token);
+  const headers = { "Content-Type": "application/json" };
+  if (token) headers["Authorization"] = "Bearer " + token;
+  const r = await fetch(path, { method: "POST", headers, body: JSON.stringify(body) });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || ("HTTP " + r.status));
+  return j;
+}
+
+$("send").addEventListener("click", async () => {
+  try {
+    const j = await post("/api/v0/cue", {
+      delayMs: Number($("delay").value),
+      durationMs: Number($("duration").value),
+      color: $("color").value.toUpperCase(),
+      torch: $("torch").checked,
+      flashHz: Number($("flashHz").value),
+    });
+    lastRunId = j.run_id;
+    logLine("kue gönderildi → run " + j.run_id + ", " + j.clients + " istemci, fireAt " + j.fire_at_server_ms);
+  } catch (e) { logLine("kue hatası: " + e.message, true); }
+});
+
+for (const kind of ["HOLD", "STOP", "BLACKOUT", "SKIP"]) {
+  $(kind.toLowerCase()).addEventListener("click", async () => {
+    try {
+      const j = await post("/api/v0/intervention", { kind, run_id: lastRunId });
+      logLine(kind + " gönderildi (" + j.clients + " istemci)");
+    } catch (e) { logLine(kind + " hatası: " + e.message, true); }
+  });
+}
+</script>
+</body>
+</html>

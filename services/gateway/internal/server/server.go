@@ -1,19 +1,23 @@
 // Package server, Faz 0 gateway'inin HTTP/WebSocket yüzeyini sağlar:
 //
+//	GET  /                     — moderatör konsol sayfası (Faz 0 mini konsol)
+//	GET  /join                 — tarayıcı katılımcı deneme sayfası (telefon kurulumsuz)
 //	GET  /healthz              — sağlık ve bağlı istemci sayısı
 //	GET  /ws                   — katılımcı WebSocket'i (hello, saat senkronu, kue alımı)
-//	POST /api/v0/cue           — kue tetikle (moderatör konsolunun Faz 0 hali)
+//	POST /api/v0/cue           — kue tetikle
 //	POST /api/v0/intervention  — HOLD / STOP / SKIP / BLACKOUT yayınla
 package server
 
 import (
 	"crypto/rand"
+	"embed"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -48,6 +52,13 @@ const (
 
 var colorRe = regexp.MustCompile(`^#[0-9A-Fa-f]{6}$`)
 
+// Faz 0 deneme sayfaları: moderatör mini konsolu ve tarayıcı katılımcısı.
+// Katılımcı ürünü Flutter'dır (apps/participant); /join yalnızca kurulumsuz
+// deneme içindir — Faz 3'teki tarayıcı yedeği kararından bağımsızdır.
+//
+//go:embed static
+var staticFS embed.FS
+
 // Server, gateway'in HTTP yüzeyini taşır.
 type Server struct {
 	log        *slog.Logger
@@ -78,11 +89,25 @@ func New(log *slog.Logger, adminToken string) *Server {
 // Handler, yol tablosunu döndürür.
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /{$}", s.staticPage("static/moderator.html"))
+	mux.HandleFunc("GET /join", s.staticPage("static/join.html"))
 	mux.HandleFunc("GET /healthz", s.handleHealthz)
 	mux.HandleFunc("GET /ws", s.handleWS)
 	mux.HandleFunc("POST /api/v0/cue", s.requireAdmin(s.handleCue))
 	mux.HandleFunc("POST /api/v0/intervention", s.requireAdmin(s.handleIntervention))
 	return mux
+}
+
+func (s *Server) staticPage(path string) http.HandlerFunc {
+	return func(w http.ResponseWriter, _ *http.Request) {
+		data, err := staticFS.ReadFile(path)
+		if err != nil {
+			http.Error(w, "sayfa bulunamadı", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = w.Write(data)
+	}
 }
 
 func (s *Server) handleHealthz(w http.ResponseWriter, _ *http.Request) {
@@ -95,6 +120,12 @@ func (s *Server) handleHealthz(w http.ResponseWriter, _ *http.Request) {
 
 func (s *Server) requireAdmin(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		// Content-Type zorunluluğu ucuz bir CSRF önlemidir: tarayıcı,
+		// preflight'sız çapraz-site isteklerde application/json gönderemez.
+		if ct := r.Header.Get("Content-Type"); !strings.HasPrefix(ct, "application/json") {
+			writeJSON(w, http.StatusUnsupportedMediaType, map[string]any{"error": "Content-Type: application/json gerekli"})
+			return
+		}
 		if s.adminToken != "" && r.Header.Get("Authorization") != "Bearer "+s.adminToken {
 			writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "geçersiz veya eksik yönetici token'ı"})
 			return
@@ -176,14 +207,20 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 				s.log.Warn("bozuk saat senkronu isteği", "hata", err)
 				continue
 			}
-			// t2 yazımın hemen öncesinde damgalanır; kodlama maliyeti
-			// (~µs) ihmal edilebilir.
-			s.send(client, wire.TypeClockSyncResponse, wire.ClockSyncResponse{
-				Seq:          req.Seq,
-				ClientMonoMs: req.ClientMonoMs,
-				ServerRecvMs: recvMs,
-				ServerSendMs: s.clock.NowMs(),
+			// t2, yazma kilidi alındıktan sonra (SendLazy içinde) damgalanır:
+			// kilidin beklettiği süre t2'ye yansır, ofset saptırılmaz.
+			err := client.SendLazy(func() ([]byte, error) {
+				return wire.Encode(wire.TypeClockSyncResponse, wire.ClockSyncResponse{
+					Seq:          req.Seq,
+					ClientMonoMs: req.ClientMonoMs,
+					ServerRecvMs: recvMs,
+					ServerSendMs: s.clock.NowMs(),
+				})
 			})
+			if err != nil {
+				s.hub.Unregister(client)
+				return
+			}
 
 		default:
 			s.log.Warn("beklenmeyen mesaj türü", "tür", env.Type)

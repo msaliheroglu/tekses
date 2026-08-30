@@ -63,6 +63,31 @@ func readEnvelope(t *testing.T, conn *websocket.Conn) wire.Envelope {
 	return env
 }
 
+func TestStaticPages(t *testing.T) {
+	ts, _ := newTestServer(t, "")
+	for path, marker := range map[string]string{
+		"/":     "moderatör konsolu",
+		"/join": "Gösteriye katıl",
+	} {
+		resp, err := http.Get(ts.URL + path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var body bytes.Buffer
+		_, _ = body.ReadFrom(resp.Body)
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			t.Errorf("%s durumu = %d, beklenen 200", path, resp.StatusCode)
+		}
+		if ct := resp.Header.Get("Content-Type"); !strings.HasPrefix(ct, "text/html") {
+			t.Errorf("%s content-type = %q", path, ct)
+		}
+		if !strings.Contains(body.String(), marker) {
+			t.Errorf("%s sayfasında %q yok", path, marker)
+		}
+	}
+}
+
 func TestHelloWelcome(t *testing.T) {
 	_, wsURL := newTestServer(t, "")
 	conn := dial(t, wsURL)
@@ -225,5 +250,19 @@ func TestAdminTokenRequired(t *testing.T) {
 	resp2.Body.Close()
 	if resp2.StatusCode != http.StatusOK {
 		t.Fatalf("token'lı istek durumu = %d, beklenen 200", resp2.StatusCode)
+	}
+}
+
+func TestContentTypeRequired(t *testing.T) {
+	// CSRF önlemi: application/json olmayan gövdeler (örn. çapraz-site
+	// form POST'unun text/plain'i) API uçlarında reddedilir.
+	ts, _ := newTestServer(t, "")
+	resp, err := http.Post(ts.URL+"/api/v0/cue", "text/plain", strings.NewReader(`{}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusUnsupportedMediaType {
+		t.Fatalf("text/plain istek durumu = %d, beklenen 415", resp.StatusCode)
 	}
 }

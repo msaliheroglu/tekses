@@ -49,7 +49,15 @@ class _ShowScreenState extends State<ShowScreen> {
     _client = RealtimeClient(
       uri: widget.serverUri,
       onEstimate: (est) => setState(() => _estimate = est),
-      onCue: (cue) => _arbiter.offer(cue, CueSource.websocket),
+      onCue: (cue) {
+        // Senkron yoksa run kilitlenmez: sunucunun 250 ms arayla yolladığı
+        // tekrarlar, ofset o sırada hazırlanmışsa kueyi kurtarabilsin.
+        if (_estimate == null) {
+          setState(() => _status = 'kue geldi ama saat senkronu yok; tekrar bekleniyor');
+          return;
+        }
+        _arbiter.offer(cue, CueSource.websocket);
+      },
       onIntervention: _onIntervention,
       onStatus: (s) => setState(() => _status = s),
     );
@@ -115,8 +123,10 @@ class _ShowScreenState extends State<ShowScreen> {
     if (cue.payload.flashHz == 0) {
       lit = true;
     } else {
-      final halfPeriodMs = 500 ~/ cue.payload.flashHz;
-      lit = (elapsed ~/ halfPeriodMs).isEven;
+      // floor(elapsed*hz/500): yarım periyodu (500/hz) yuvarlamadan sayar.
+      // Tarayıcı istemcisiyle (join.html) birebir aynı aritmetik olmalı;
+      // kırpılmış tam sayı periyot (500 ~/ hz) 3 Hz'te ~4 ms/sn faz kaydırır.
+      lit = ((elapsed * cue.payload.flashHz) ~/ 500).isEven;
     }
 
     final color = lit ? _parseColor(cue.payload.color) : Colors.black;

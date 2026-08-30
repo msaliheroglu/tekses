@@ -44,6 +44,12 @@ curl -X POST http://localhost:8080/api/v0/cue \
   -d '{"delayMs":3000,"durationMs":4000,"color":"#FF2A2A","torch":true,"flashHz":2}'
 ```
 
+Kurulumsuz deneme (uygulama derlemeden, iPhone + Android):
+
+- Moderatör mini konsolu: bilgisayarda `http://<sunucu-ip>:8080/`
+- Katılımcı deneme sayfası: telefon tarayıcısında `http://<sunucu-ip>:8080/join`
+  (aynı Wi-Fi'de; fener yalnızca Flutter uygulamasında çalışır)
+
 ## Geliştirme
 
 - Go modülü depo kökündedir: `go build ./...`, `go test ./...`, `go vet ./...`

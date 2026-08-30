@@ -8,6 +8,8 @@ go run ./services/gateway/cmd/gateway -addr :8080
 
 | Uç | Görev |
 |---|---|
+| `GET /` | Moderatör mini konsolu (kue formu, müdahale düğmeleri, canlı istemci sayısı) |
+| `GET /join` | Tarayıcı katılımcı deneme sayfası (telefonda kurulumsuz; fener yok) |
 | `GET /healthz` | Sağlık + bağlı istemci sayısı + sunucu saati |
 | `GET /ws` | Katılımcı WebSocket'i (hello, saat senkronu, kue alımı) |
 | `POST /api/v0/cue` | Kue tetikle (`delayMs`, `durationMs`, `color`, `torch`, `flashHz`) |

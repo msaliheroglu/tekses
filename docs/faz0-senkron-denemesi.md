@@ -73,6 +73,33 @@ Bu ortamda ölçülen referans (2026-08-30, 50 istemci, jitter 40 ms):
 yayılım maks−min **17 ms**, σ **3,8 ms** → hedef yazılım katında tutuyor.
 Bu araç radyo/ekran gerçekliğini ölçmez; gerçek ölçüm aşağıdadır.
 
+## 2.5 Tarayıcıyla hızlı deneme (uygulama kurmadan, iPhone + Android)
+
+Gateway iki gömülü sayfa sunar:
+
+- **`/` — moderatör mini konsolu:** renk, gecikme, süre, yanıp sönme ve fener
+  seçimli kue formu; HOLD/STOP/BLACKOUT/SKIP düğmeleri; canlı istemci sayısı.
+  (Asıl Next.js paneli Faz 1'de; bu, curl'ün yerini tutan Faz 0 konsoludur.)
+- **`/join` — tarayıcı katılımcısı:** telefon tarayıcısında açılır; saat
+  senkronu ve kue zamanlaması Flutter uygulamasıyla aynı algoritmayla çalışır,
+  ateşleme anında ekranı boyar.
+
+Akış: gateway'i çalıştırın → bilgisayarda `http://<ip>:8080/` açın →
+telefonlarda `http://<ip>:8080/join` açıp "Gösteriye katıl"a basın (telefonlar
+sunucuyla aynı Wi-Fi'de olmalı; LTE denemesi için gateway'i internete açık bir
+sunucuya koyun) → konsoldan KUE GÖNDER.
+
+Sınırlar: tarayıcıda **fener yoktur** ve ekran kilitlenir/sekme arka plana
+düşerse zamanlayıcılar kısılır — deneme boyunca ekran açık ve sayfa önde
+kalmalı. Adres şifresiz `http://` olduğu için tarayıcının ekranı otomatik
+açık tutma API'si (Wake Lock) çalışmaz; sayfa bunu görüp uyarı gösterir —
+**denemeden önce her telefonda ekran kapanma süresini 5 dakika ya da üstüne
+çıkarın** (iPhone: Ayarlar → Ekran ve Parlaklık → Otomatik Kilit; Android:
+Ayarlar → Ekran → Ekran zaman aşımı). Tarayıcı sayfası ilk elden hızlı
+doğrulama içindir; **rapor edilecek ölçüm Flutter release build ile yapılır**
+(ekran boyama gecikmesi tarayıcıda daha oynak). Bu sayfa bir deneme aracıdır;
+Faz 3'e ertelenen "tarayıcı katılımcı yedeği" ürün kararından bağımsızdır.
+
 ## 3. Telefonlarla gerçek deneme
 
 ### Hazırlık

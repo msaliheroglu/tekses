@@ -35,6 +35,21 @@ func (c *Client) Send(data []byte) error {
 	return c.conn.WriteMessage(websocket.TextMessage, data)
 }
 
+// SendLazy, çerçeveyi yazma kilidi ALINDIKTAN sonra build ile üretir ve hemen
+// yazar. Saat senkronu yanıtı bunu kullanır: t2 damgası build içinde atıldığı
+// için kilidin (örn. eşzamanlı ping yazımının) beklettiği süre t2'ye yansır;
+// aksi halde t2 gerçek gönderimden erken kalır ve ofseti saptırırdı.
+func (c *Client) SendLazy(build func() ([]byte, error)) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	data, err := build()
+	if err != nil {
+		return err
+	}
+	_ = c.conn.SetWriteDeadline(time.Now().Add(writeTimeout))
+	return c.conn.WriteMessage(websocket.TextMessage, data)
+}
+
 // Ping, keepalive ping çerçevesi yazar.
 func (c *Client) Ping() error {
 	c.mu.Lock()
