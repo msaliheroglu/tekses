@@ -1,0 +1,58 @@
+syntax = "proto3";
+
+package tekses.v1;
+
+option go_package = "github.com/msaliheroglu/tekses/packages/proto/gen/go/tekses/v1;teksesv1";
+
+// Kue tetikleri ve canlı müdahaleler.
+//
+// CueStart aynı run_id ile 3 kez tekrarlanır (paket kaybına karşı);
+// istemci run_id'ye göre tekilleştirir. Cue Arbiter bir run_id için
+// ilk geçerli adayın KAYNAĞINA kilitlenir ("ilk gelen kazanır, sonra
+// sadık kal"); kilitli kaynak susarsa diğerine geçer.
+
+message CueStart {
+  // Çalıştırma kimliği; tekilleştirme ve kaynak kilidi anahtarı.
+  string run_id = 1;
+  // Gösteri manifestindeki kue kimliği.
+  string cue_id = 2;
+  // Ateşleme anı, sunucu saatinde (ms). İstemci saat ofsetiyle kendi
+  // monoton saatine çevirir; bu andan sonra ağa ihtiyaç yoktur.
+  int64 fire_at_server_ms = 3;
+  // 1..N tekrar sayacı (tanılama için; tekilleştirme run_id iledir).
+  uint32 repeat_seq = 4;
+  // Faz 0: görsel yük tetik içinde taşınır. Faz 1'de gösteri paketi
+  // referansına (show_version + sequence) dönüşecek.
+  CuePayload payload = 5;
+}
+
+message CuePayload {
+  // Ekran rengi, #RRGGBB.
+  string color = 1;
+  // Telefon feneri kullanılsın mı.
+  bool torch = 2;
+  // Yanıp sönme frekansı (tam döngü/sn). 0 = sabit yanar.
+  // Işığa duyarlılık kuralı: sürekli yanıp sönme <= 3 Hz.
+  uint32 flash_hz = 3;
+  // Efekt süresi (ms).
+  uint32 duration_ms = 4;
+}
+
+enum InterventionKind {
+  INTERVENTION_KIND_UNSPECIFIED = 0;
+  // Akışı duraklat; ekran son karede kalır.
+  INTERVENTION_KIND_HOLD = 1;
+  // Çalıştırmayı bitir; ekran karartılır, fener söner.
+  INTERVENTION_KIND_STOP = 2;
+  // Sıradaki sekansa atla.
+  INTERVENTION_KIND_SKIP = 3;
+  // Acil karartma: tüm ışık ve ekran efektleri anında söner.
+  INTERVENTION_KIND_BLACKOUT = 4;
+}
+
+// Canlı müdahale. Sekans başladıktan sonra telden giden tek şey budur.
+message Intervention {
+  string run_id = 1;
+  InterventionKind kind = 2;
+  int64 issued_at_server_ms = 3;
+}

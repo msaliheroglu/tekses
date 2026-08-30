@@ -1,0 +1,31 @@
+# Go
+/bin/
+*.test
+*.out
+coverage.*
+
+# Flutter / Dart (apps/participant)
+**/.dart_tool/
+**/.flutter-plugins
+**/.flutter-plugins-dependencies
+**/build/
+apps/participant/android/.gradle/
+apps/participant/android/local.properties
+apps/participant/ios/Pods/
+apps/participant/ios/.symlinks/
+apps/participant/ios/Flutter/ephemeral/
+
+# Node (apps/moderator)
+**/node_modules/
+**/.next/
+
+# IDE / OS
+.idea/
+.vscode/
+*.iml
+.DS_Store
+
+# Ortam dosyaları
+.env
+.env.*
+!.env.example

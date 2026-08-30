@@ -1,0 +1,42 @@
+syntax = "proto3";
+
+package tekses.v1;
+
+import "tekses/v1/clock.proto";
+import "tekses/v1/cue.proto";
+
+option go_package = "github.com/msaliheroglu/tekses/packages/proto/gen/go/tekses/v1;teksesv1";
+
+// Katılım el sıkışması. Faz 0'da oda tekildir; oda kodu Faz 1'de anlam kazanır.
+message Hello {
+  // Tel protokolü sürümü; uyumsuzsa sunucu bağlantıyı Welcome yerine
+  // hata ile kapatır.
+  uint32 protocol_version = 1;
+  // Katılım kodu (Faz 0'da boş bırakılabilir).
+  string join_code = 2;
+  // Tanılama için istemci türü: "flutter", "loadgen", "web".
+  string client_kind = 3;
+}
+
+message Welcome {
+  // Sunucu saati (ms); ilk kaba ofset tahmini için.
+  int64 server_time_ms = 1;
+  // Sunucunun kabul ettiği protokol sürümü.
+  uint32 protocol_version = 2;
+  // Oda kimliği (Faz 0: "faz0").
+  string room_id = 3;
+}
+
+// Sunucu ile istemci arasındaki tek WebSocket çerçevesi.
+// Faz 0'da tel JSON'dur ve bu şemayı alan adlarıyla birebir izler;
+// Faz 1'de ikili protobuf'a (~40 bayt) geçilir.
+message Envelope {
+  oneof kind {
+    Hello hello = 1;
+    Welcome welcome = 2;
+    ClockSyncRequest clock_sync_request = 3;
+    ClockSyncResponse clock_sync_response = 4;
+    CueStart cue_start = 5;
+    Intervention intervention = 6;
+  }
+}
