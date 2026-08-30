@@ -18,5 +18,21 @@ jobs:
       - run: go vet ./...
       - run: go test ./...
 
+  moderator:
+    name: Moderatör paneli (Next.js)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/moderator
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/moderator/package-lock.json
+      - run: npm ci
+      - run: npm run build
+
   # Flutter analizi Faz 1'de eklenecek: bu depo platform iskeletini
   # (flutter create çıktısını) içermediği için önce o karar netleşmeli.

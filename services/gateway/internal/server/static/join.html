@@ -98,12 +98,16 @@ function wsUrl() {
   return (location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/ws";
 }
 
+// Katılım kodu URL'den gelir (panelin ürettiği QR: /join?code=ABC234);
+// kod yoksa varsayılan odaya girilir (Faz 0 yerel denemesi).
+const joinCode = (new URLSearchParams(location.search).get("code") || "").trim().toUpperCase();
+
 function connect() {
   if (closedByUser) return;
-  setStatus("bağlanılıyor...");
+  setStatus("bağlanılıyor..." + (joinCode ? " (kod " + joinCode + ")" : ""));
   ws = new WebSocket(wsUrl());
   ws.onopen = () => {
-    send("hello", { protocol_version: 1, join_code: "", client_kind: "web" });
+    send("hello", { protocol_version: 1, join_code: joinCode, client_kind: "web" });
   };
   ws.onmessage = (ev) => onFrame(ev.data);
   ws.onclose = scheduleReconnect;

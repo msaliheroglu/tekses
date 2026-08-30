@@ -32,13 +32,16 @@ adım sırasını izler.
   join_code doğrulaması control-api üzerinden (`TEKSES_CONTROL_URL`); kue ve
   müdahale yayınının `room_id` ile odaya daraltılması (boş = tümü, Faz 0
   uyumlu).
+- [x] **7. Moderatör paneli (Next.js) — MVP** *(öne çekildi; kullanıcı web
+  panelini görmek istiyor, Postgres/CDN panelden bağımsız)* — giriş/kayıt,
+  etkinlik + oda yönetimi (QR ile `/join?code=…`), manifest yayınlama (JSON
+  editörü; dalga formu/LRC editörü sonraki yineleme), sürüm etkinleştirme,
+  canlı konsol (GO/HOLD/STOP/BLACKOUT, odaya daraltılmış). control-api ve
+  gateway'e Next rewrites üzerinden vekillenir (CORS'suz). CI'da build.
 - [ ] **5. Postgres kalıcılığı** — şema/migration + pgx store; bu geliştirme
   ortamında Postgres yoksa CI'da servis konteyneriyle doğrula.
 - [ ] **6. Paketleme + CDN** — manifest ve varlıkları R2/S3'e iten paketleyici
   (dev için dosya sistemi sürücüsü), hash doğrulamalı indirme sözleşmesi.
-- [ ] **7. Moderatör paneli (Next.js)** — giriş, etkinlik/oda yönetimi, QR,
-  söz zamanlama editörü (LRC içe aktarma), canlı konsol (GO/HOLD/STOP/
-  BLACKOUT; Faz 0 mini konsolun devri).
 - [ ] **8. Katılımcı uygulaması MVP** — manifest indirme (package_store),
   timeline_engine, söz akışı + ekran efektleri; kue zaten çalışıyor.
 - [ ] **9. Otomatik program + Run kaydı** — Schedule, Run, asgari telemetri.
