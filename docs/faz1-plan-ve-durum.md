@@ -20,7 +20,7 @@ adım sırasını izler.
 - [x] **0. Faz 0 tamamlandı** — monorepo, proto sözleşmeleri, gateway,
   loadgen (yayılım 17–23 ms ✓), Flutter Faz 0 uygulaması, web konsol + /join.
 - [x] **1. Bu plan dosyası + devam mekanizması**
-- [ ] **2. Control API temeli** — `services/control-api`: alan modeli
+- [x] **2. Control API temeli** — `services/control-api`: alan modeli
   (Organization→Event→Room; Show→ShowVersion), depolama arayüzü + bellek içi
   store, e-posta+şifre kaydı/girişi (bcrypt, bearer token), çok kiracılı
   Event/Room CRUD; uçtan uca httptest'ler.
