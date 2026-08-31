@@ -44,8 +44,12 @@ adım sırasını izler.
   `TEKSES_TEST_DATABASE_URL` ile yerelde gerçek Postgres 16'da doğrulandı,
   CI'da servis konteyneriyle koşuyor. Kayıt atomikleştirildi
   (CreateOrgWithUser).
-- [ ] **6. Paketleme + CDN** — manifest ve varlıkları R2/S3'e iten paketleyici
-  (dev için dosya sistemi sürücüsü), hash doğrulamalı indirme sözleşmesi.
+- [x] **6. Paketleme** — içerik adresli paket deposu (`packages/blob`,
+  atomik/idempotent FS sürücüsü, `TEKSES_PACKAGES_DIR`); yayında paket
+  `/packages/<sha256>.json` altına yazılır, join yanıtı `manifest_url` verir,
+  indirme immutable önbellek başlığıyla sunulur ve SHA-256 ile doğrulanır.
+  **Kalan:** R2/S3 sürücüsü aynı arayüzün arkasına dağıtım aşamasında
+  (Oracle VM + Cloudflare kurulurken) eklenecek; ses varlıkları Faz 2.
 - [ ] **8. Katılımcı uygulaması MVP** — manifest indirme (package_store),
   timeline_engine, söz akışı + ekran efektleri; kue zaten çalışıyor.
 - [ ] **9. Otomatik program + Run kaydı** — Schedule, Run, asgari telemetri.

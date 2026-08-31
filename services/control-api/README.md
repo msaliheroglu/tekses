@@ -24,7 +24,8 @@ geliştirme; veriler süreçle silinir). Her iki gerçekleme de
 | `GET/POST /api/v1/shows/{id}/versions` | Sürüm listesi / manifest yayınlama (doğrulama + kanonik JSON + SHA-256) |
 | `GET /api/v1/show-versions/{id}` | Sürüm + tam manifest |
 | `POST /api/v1/rooms/{id}/activate` | Odada gösteri sürümünü etkinleştir |
-| `GET /api/v1/join/{code}` | **Herkese açık:** oda + aktif sürüm + manifest (telefon katılımı) |
+| `GET /api/v1/join/{code}` | **Herkese açık:** oda + aktif sürüm (`manifest_url`, sha256, manifest) |
+| `GET /packages/{sha256}.json` | **Herkese açık:** değişmez paket indirme (immutable önbellek; üretimde CDN devralır) |
 
 Manifest sözleşmesi `packages/manifest` paketindedir; sürümler değişmezdir
 (yayınlandıktan sonra hiçbir uç manifest baytlarını değiştiremez, telefon

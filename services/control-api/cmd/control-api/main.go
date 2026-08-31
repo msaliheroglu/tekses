@@ -23,6 +23,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/msaliheroglu/tekses/packages/blob"
 	"github.com/msaliheroglu/tekses/services/control-api/internal/api"
 	"github.com/msaliheroglu/tekses/services/control-api/internal/store"
 	"github.com/msaliheroglu/tekses/services/control-api/internal/store/memstore"
@@ -53,7 +54,19 @@ func main() {
 		st = memstore.New()
 		log.Warn("depolama: bellek içi — veriler süreçle birlikte silinir (TEKSES_DATABASE_URL ayarlayın)")
 	}
-	srv := api.New(log, st)
+
+	packagesDir := os.Getenv("TEKSES_PACKAGES_DIR")
+	if packagesDir == "" {
+		packagesDir = "data/packages"
+	}
+	packages, err := blob.NewFS(packagesDir)
+	if err != nil {
+		log.Error("paket deposu açılamadı", "hata", err)
+		os.Exit(1)
+	}
+	log.Info("paket deposu", "dizin", packagesDir)
+
+	srv := api.New(log, st, packages)
 
 	httpSrv := &http.Server{
 		Addr:              *addr,

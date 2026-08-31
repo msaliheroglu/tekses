@@ -14,11 +14,13 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
 
+	"github.com/msaliheroglu/tekses/packages/blob"
 	"github.com/msaliheroglu/tekses/packages/manifest"
 	"github.com/msaliheroglu/tekses/services/control-api/internal/model"
 	"github.com/msaliheroglu/tekses/services/control-api/internal/store"
@@ -36,12 +38,16 @@ const (
 const joinCodeAlphabet = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
 
 type Server struct {
-	log   *slog.Logger
-	store store.Store
+	log      *slog.Logger
+	store    store.Store
+	packages blob.Store
 }
 
-func New(log *slog.Logger, st store.Store) *Server {
-	return &Server{log: log, store: st}
+// New, bir kontrol API sunucusu kurar. packages, yayınlanan manifestlerin
+// içerik adresli paket deposudur (pilotta dosya sistemi + bu API'nin
+// /packages ucu; üretimde R2 + CDN).
+func New(log *slog.Logger, st store.Store, packages blob.Store) *Server {
+	return &Server{log: log, store: st, packages: packages}
 }
 
 func (s *Server) Handler() http.Handler {
@@ -69,6 +75,11 @@ func (s *Server) Handler() http.Handler {
 	// Herkese açık katılım ucu: telefon, kodla oda + aktif gösteri sürümünü
 	// çeker. Kimlik istemez (katılımcı hesapsızdır, karar §1).
 	mux.HandleFunc("GET /api/v1/join/{code}", s.handleJoin)
+
+	// Paket indirme (herkese açık, değişmez, agresif önbelleklenebilir).
+	// Üretimde bu yol CDN/R2'ye devrolur; sözleşme aynı kalır:
+	// /packages/<sha256>.json ve içerik özetle doğrulanır.
+	mux.HandleFunc("GET /packages/{name}", s.handlePackage)
 
 	return mux
 }
@@ -389,6 +400,14 @@ func (s *Server) handlePublishShowVersion(w http.ResponseWriter, r *http.Request
 		writeErr(w, http.StatusInternalServerError, "manifest kanonikleştirilemedi")
 		return
 	}
+	// Paket önce depoya yazılır: sürüm kaydı varsa paketi de VAR olmalı
+	// (telefonlar indirmeye başladığında 404 görmemeli). İçerik adresli
+	// yazım idempotent olduğundan yarıda kesilme tekrar denemeyle çözülür.
+	if err := s.packages.Put(r.Context(), packageKey(sum), canonical); err != nil {
+		s.log.Error("paket yazılamadı", "hata", err)
+		writeErr(w, http.StatusInternalServerError, "paket depolanamadı")
+		return
+	}
 	sv, err := s.store.CreateShowVersion(model.ShowVersion{
 		ID:           newID("sv"),
 		OrgID:        sess.OrgID,
@@ -481,14 +500,39 @@ func (s *Server) handleJoin(w http.ResponseWriter, r *http.Request) {
 		sv, err := s.store.ShowVersionByID(room.OrgID, room.ActiveShowVersionID)
 		if err == nil {
 			resp["show_version"] = map[string]any{
-				"id":       sv.ID,
-				"version":  sv.Version,
-				"sha256":   sv.SHA256,
+				"id":      sv.ID,
+				"version": sv.Version,
+				"sha256":  sv.SHA256,
+				// Telefonun tercih etmesi gereken yol: paketi bu adresten
+				// indir, SHA-256 ile doğrula (60k telefon CDN'den çeker).
+				"manifest_url": "/packages/" + packageKey(sv.SHA256),
+				// Küçük manifestler için kolaylık; tel sözleşmesi URL'dir.
 				"manifest": json.RawMessage(sv.ManifestJSON),
 			}
 		}
 	}
 	writeJSON(w, http.StatusOK, resp)
+}
+
+func packageKey(sha256Hex string) string { return sha256Hex + ".json" }
+
+var packageNameRe = regexp.MustCompile(`^[0-9a-f]{64}\.json$`)
+
+func (s *Server) handlePackage(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	if !packageNameRe.MatchString(name) {
+		writeErr(w, http.StatusNotFound, "paket bulunamadı")
+		return
+	}
+	data, err := s.packages.Get(r.Context(), name)
+	if err != nil {
+		writeErr(w, http.StatusNotFound, "paket bulunamadı")
+		return
+	}
+	// İçerik adresli ve değişmez: sonsuza dek önbelleklenebilir.
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+	_, _ = w.Write(data)
 }
 
 // --- yardımcılar ---

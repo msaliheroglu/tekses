@@ -2,14 +2,18 @@ package api
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"github.com/msaliheroglu/tekses/packages/blob"
 	"github.com/msaliheroglu/tekses/services/control-api/internal/store/memstore"
 )
 
@@ -22,7 +26,11 @@ type client struct {
 func newTestAPI(t *testing.T) *client {
 	t.Helper()
 	log := slog.New(slog.NewTextHandler(testWriter{t}, &slog.HandlerOptions{Level: slog.LevelError}))
-	ts := httptest.NewServer(New(log, memstore.New()).Handler())
+	packages, err := blob.NewFS(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ts := httptest.NewServer(New(log, memstore.New(), packages).Handler())
 	t.Cleanup(ts.Close)
 	return &client{t: t, base: ts.URL}
 }
@@ -232,9 +240,10 @@ func TestPublishActivateJoinFlow(t *testing.T) {
 		RoomID      string `json:"room_id"`
 		EventName   string `json:"event_name"`
 		ShowVersion struct {
-			ID       string          `json:"id"`
-			SHA256   string          `json:"sha256"`
-			Manifest json.RawMessage `json:"manifest"`
+			ID          string          `json:"id"`
+			SHA256      string          `json:"sha256"`
+			ManifestURL string          `json:"manifest_url"`
+			Manifest    json.RawMessage `json:"manifest"`
 		} `json:"show_version"`
 	}
 	if status := anon.do(http.MethodGet, "/api/v1/join/"+room.JoinCode, nil, &join); status != http.StatusOK {
@@ -242,6 +251,37 @@ func TestPublishActivateJoinFlow(t *testing.T) {
 	}
 	if join.RoomID != room.ID || join.ShowVersion.ID != v2.ID || len(join.ShowVersion.Manifest) == 0 {
 		t.Fatalf("katılım yanıtı eksik: %+v", join)
+	}
+
+	// Paket indirme sözleşmesi: manifest_url'den inen baytların SHA-256'sı
+	// join yanıtındaki özetle birebir tutmalı (telefonun doğrulama yolu).
+	pkgResp, err := http.Get(c.base + join.ShowVersion.ManifestURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pkgBytes, _ := io.ReadAll(pkgResp.Body)
+	pkgResp.Body.Close()
+	if pkgResp.StatusCode != http.StatusOK {
+		t.Fatalf("paket indirme durumu = %d", pkgResp.StatusCode)
+	}
+	if cc := pkgResp.Header.Get("Cache-Control"); !strings.Contains(cc, "immutable") {
+		t.Fatalf("paket immutable önbellek başlığı taşımıyor: %q", cc)
+	}
+	sum := sha256.Sum256(pkgBytes)
+	if hex.EncodeToString(sum[:]) != join.ShowVersion.SHA256 {
+		t.Fatal("indirilen paketin özeti join yanıtındaki sha256 ile tutmuyor")
+	}
+
+	// Olmayan/bozuk paket adları 404.
+	for _, bad := range []string{"/packages/kotu.json", "/packages/" + strings.Repeat("0", 64) + ".json"} {
+		resp, err := http.Get(c.base + bad)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusNotFound {
+			t.Fatalf("%s durumu = %d, beklenen 404", bad, resp.StatusCode)
+		}
 	}
 
 	// Bilinmeyen kod 404.
