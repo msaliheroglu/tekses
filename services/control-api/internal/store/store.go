@@ -21,9 +21,10 @@ var (
 )
 
 type Store interface {
-	// Kimlik ve oturum
-	CreateOrganization(org model.Organization) error
-	CreateUser(u model.User) error // e-posta benzersiz → ErrConflict
+	// Kimlik ve oturum.
+	// CreateOrgWithUser atomiktir: e-posta çakışırsa (ErrConflict) ortada
+	// sahipsiz organizasyon kalmaz.
+	CreateOrgWithUser(org model.Organization, u model.User) error
 	UserByEmail(email string) (model.User, error)
 	CreateSession(s model.Session) error
 	SessionByToken(token string) (model.Session, error)

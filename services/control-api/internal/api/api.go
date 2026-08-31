@@ -148,16 +148,11 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 	org := model.Organization{ID: newID("org"), Name: req.Organization, CreatedAt: now}
 	user := model.User{ID: newID("usr"), OrgID: org.ID, Email: req.Email, PasswordHash: hash, CreatedAt: now}
 
-	// Önce kullanıcı: e-posta çakışırsa ortada sahipsiz org kalmasın.
-	if err := s.store.CreateUser(user); err != nil {
+	if err := s.store.CreateOrgWithUser(org, user); err != nil {
 		if errors.Is(err, store.ErrConflict) {
 			writeErr(w, http.StatusConflict, "bu e-posta zaten kayıtlı")
 			return
 		}
-		writeErr(w, http.StatusInternalServerError, "kayıt başarısız")
-		return
-	}
-	if err := s.store.CreateOrganization(org); err != nil {
 		writeErr(w, http.StatusInternalServerError, "kayıt başarısız")
 		return
 	}

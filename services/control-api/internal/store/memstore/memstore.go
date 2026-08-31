@@ -46,20 +46,14 @@ var _ store.Store = (*Memstore)(nil)
 
 // --- kimlik ve oturum ---
 
-func (m *Memstore) CreateOrganization(org model.Organization) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.orgs[org.ID] = org
-	return nil
-}
-
-func (m *Memstore) CreateUser(u model.User) error {
+func (m *Memstore) CreateOrgWithUser(org model.Organization, u model.User) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	key := strings.ToLower(u.Email)
 	if _, exists := m.users[key]; exists {
 		return store.ErrConflict
 	}
+	m.orgs[org.ID] = org
 	m.users[key] = u
 	return nil
 }

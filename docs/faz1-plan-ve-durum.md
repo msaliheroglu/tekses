@@ -38,8 +38,12 @@ adım sırasını izler.
   editörü; dalga formu/LRC editörü sonraki yineleme), sürüm etkinleştirme,
   canlı konsol (GO/HOLD/STOP/BLACKOUT, odaya daraltılmış). control-api ve
   gateway'e Next rewrites üzerinden vekillenir (CORS'suz). CI'da build.
-- [ ] **5. Postgres kalıcılığı** — şema/migration + pgx store; bu geliştirme
-  ortamında Postgres yoksa CI'da servis konteyneriyle doğrula.
+- [x] **5. Postgres kalıcılığı** — gömülü migration'lar + pgx store
+  (`TEKSES_DATABASE_URL`; ayarsızsa bellek içi). Tüm store gerçeklemeleri
+  ortak uygunluk paketinden (`store/storetest`) geçer; Postgres testi
+  `TEKSES_TEST_DATABASE_URL` ile yerelde gerçek Postgres 16'da doğrulandı,
+  CI'da servis konteyneriyle koşuyor. Kayıt atomikleştirildi
+  (CreateOrgWithUser).
 - [ ] **6. Paketleme + CDN** — manifest ve varlıkları R2/S3'e iten paketleyici
   (dev için dosya sistemi sürücüsü), hash doğrulamalı indirme sözleşmesi.
 - [ ] **8. Katılımcı uygulaması MVP** — manifest indirme (package_store),

@@ -7,8 +7,11 @@ katılım kodu üretimi, değişmez gösteri sürümleri.
 go run ./services/control-api/cmd/control-api -addr :8090
 ```
 
-Depolama şimdilik bellek içi (`memstore`); Postgres kalıcılığı Faz 1 Adım 5'te
-aynı `store.Store` arayüzünün arkasına gelecek.
+Depolama: `TEKSES_DATABASE_URL` ayarlıysa **Postgres** (gömülü migration'lar
+açılışta uygulanır), ayarsızsa bellek içi `memstore` (yalnızca yerel
+geliştirme; veriler süreçle silinir). Her iki gerçekleme de
+`store/storetest` uygunluk paketinden geçer; Postgres testi
+`TEKSES_TEST_DATABASE_URL` ile koşar.
 
 | Uç | Görev |
 |---|---|

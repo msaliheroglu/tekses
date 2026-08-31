@@ -4,8 +4,12 @@
 //
 //	go run ./services/control-api/cmd/control-api [-addr :8090]
 //
-// Şimdilik depolama bellek içidir (süreç ölünce veri gider); Postgres
-// kalıcılığı Faz 1 Adım 5'te aynı arayüzün arkasına gelecek.
+// Ortam değişkenleri:
+//
+//	TEKSES_CONTROL_ADDR   dinlenecek adres (bayrak öncelikli, varsayılan :8090)
+//	TEKSES_DATABASE_URL   ayarlıysa Postgres kalıcılığı (migration'lar açılışta
+//	                      uygulanır); ayarsızsa bellek içi depo — süreç ölünce
+//	                      veri gider, yalnızca yerel geliştirme için
 package main
 
 import (
@@ -20,7 +24,9 @@ import (
 	"time"
 
 	"github.com/msaliheroglu/tekses/services/control-api/internal/api"
+	"github.com/msaliheroglu/tekses/services/control-api/internal/store"
 	"github.com/msaliheroglu/tekses/services/control-api/internal/store/memstore"
+	"github.com/msaliheroglu/tekses/services/control-api/internal/store/pg"
 )
 
 func main() {
@@ -32,7 +38,22 @@ func main() {
 	flag.Parse()
 
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	srv := api.New(log, memstore.New())
+
+	var st store.Store
+	if dbURL := os.Getenv("TEKSES_DATABASE_URL"); dbURL != "" {
+		pgStore, err := pg.Open(context.Background(), dbURL)
+		if err != nil {
+			log.Error("postgres açılamadı", "hata", err)
+			os.Exit(1)
+		}
+		defer pgStore.Close()
+		st = pgStore
+		log.Info("depolama: postgres")
+	} else {
+		st = memstore.New()
+		log.Warn("depolama: bellek içi — veriler süreçle birlikte silinir (TEKSES_DATABASE_URL ayarlayın)")
+	}
+	srv := api.New(log, st)
 
 	httpSrv := &http.Server{
 		Addr:              *addr,
