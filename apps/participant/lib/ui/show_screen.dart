@@ -8,16 +8,27 @@ import '../core/cue_arbiter.dart';
 import '../core/cue_scheduler.dart';
 import '../core/messages.dart';
 import '../core/mono_clock.dart';
+import '../core/package_store.dart';
 import '../core/realtime_client.dart';
+import '../core/timeline_engine.dart';
 import '../core/torch_service.dart';
 
 /// Gösteri ekranı: bağlanır, saatini eşitler, kue bekler; ateşleme anında
-/// ekranı boyar ve feneri yakar. Kue alındıktan sonra koreografi tümüyle
-/// yerel monoton saatten akar — ağ kopsa bile efekt bozulmaz.
+/// koreografiyi oynatır. cue_id manifestteki bir sekansa denk geliyorsa
+/// zaman çizelgesi (sözler + kue şeritleri) akar; değilse Faz 0 tarzı
+/// doğrudan yük (renk/flash/fener) uygulanır. Kue alındıktan sonra her şey
+/// yerel monoton saatten akar — ağ kopsa bile koreografi bozulmaz.
 class ShowScreen extends StatefulWidget {
-  const ShowScreen({super.key, required this.serverUri});
+  const ShowScreen({
+    super.key,
+    required this.serverUri,
+    this.joinInfo,
+    this.joinCode = '',
+  });
 
   final Uri serverUri;
+  final JoinInfo? joinInfo;
+  final String joinCode;
 
   @override
   State<ShowScreen> createState() => _ShowScreenState();
@@ -32,6 +43,7 @@ class _ShowScreenState extends State<ShowScreen> {
   String _status = 'başlatılıyor';
 
   CueStartMsg? _activeCue;
+  TimelineEngine? _engine; // cue_id bir sekansa denk geldiyse dolu
   int _fireLocalMs = 0;
   ScheduledFire? _pendingFire;
   Timer? _effectTicker;
@@ -39,6 +51,7 @@ class _ShowScreenState extends State<ShowScreen> {
 
   Color _background = Colors.black;
   bool _torchTarget = false;
+  String _lyric = '';
 
   @override
   void initState() {
@@ -48,6 +61,7 @@ class _ShowScreenState extends State<ShowScreen> {
     _arbiter = CueArbiter(onAccepted: _onCueAccepted);
     _client = RealtimeClient(
       uri: widget.serverUri,
+      joinCode: widget.joinCode,
       onEstimate: (est) => setState(() => _estimate = est),
       onCue: (cue) {
         // Senkron yoksa run kilitlenmez: sunucunun 250 ms arayla yolladığı
@@ -84,9 +98,14 @@ class _ShowScreenState extends State<ShowScreen> {
     _pendingFire?.cancel();
     _stopEffect(toBlack: true);
     _held = false;
+    // cue_id manifestteki bir sekansı işaret ediyorsa zaman çizelgesi modu.
+    final sequence = widget.joinInfo?.manifest?.sequenceById(cue.cueId);
+    _engine = sequence == null ? null : TimelineEngine(sequence);
     setState(() {
       _activeCue = cue;
-      _status = 'kue alındı (${cue.cueId}); ateşleme bekleniyor';
+      _status = sequence == null
+          ? 'kue alındı (${cue.cueId}); ateşleme bekleniyor'
+          : 'sekans hazır: ${sequence.title}; ateşleme bekleniyor';
     });
     _fireLocalMs = cue.fireAtServerMs - estimate.offsetMs;
     _pendingFire = CueScheduler.schedule(
@@ -113,28 +132,51 @@ class _ShowScreenState extends State<ShowScreen> {
 
   void _applyFrame(CueStartMsg cue) {
     final elapsed = MonoClock.nowMs - _fireLocalMs;
-    if (elapsed >= cue.payload.durationMs) {
-      _stopEffect(toBlack: true);
-      setState(() => _status = 'koreografi bitti; yeni kue bekleniyor');
-      return;
-    }
 
-    final bool lit;
-    if (cue.payload.flashHz == 0) {
-      lit = true;
+    final Color color;
+    final bool torchWanted;
+    final String lyric;
+
+    final engine = _engine;
+    if (engine != null) {
+      // Zaman çizelgesi modu: kare tamamen saf motordan gelir.
+      final frame = engine.frameAt(elapsed);
+      if (frame.done) {
+        _stopEffect(toBlack: true);
+        setState(() => _status = 'sekans bitti; yeni kue bekleniyor');
+        return;
+      }
+      color = frame.screenLit && frame.screenColor.isNotEmpty
+          ? _parseColor(frame.screenColor)
+          : Colors.black;
+      torchWanted = frame.torchOn;
+      lyric = frame.lyric;
     } else {
-      // floor(elapsed*hz/500): yarım periyodu (500/hz) yuvarlamadan sayar.
-      // Tarayıcı istemcisiyle (join.html) birebir aynı aritmetik olmalı;
-      // kırpılmış tam sayı periyot (500 ~/ hz) 3 Hz'te ~4 ms/sn faz kaydırır.
-      lit = ((elapsed * cue.payload.flashHz) ~/ 500).isEven;
+      // Faz 0 modu: yük doğrudan kuenin içinde.
+      if (elapsed >= cue.payload.durationMs) {
+        _stopEffect(toBlack: true);
+        setState(() => _status = 'koreografi bitti; yeni kue bekleniyor');
+        return;
+      }
+      final bool lit;
+      if (cue.payload.flashHz == 0) {
+        lit = true;
+      } else {
+        // floor(elapsed*hz/500): yarım periyodu (500/hz) yuvarlamadan sayar.
+        // Tarayıcı istemcisi ve timeline_engine ile birebir aynı aritmetik;
+        // kırpılmış tam sayı periyot (500 ~/ hz) 3 Hz'te ~4 ms/sn faz kaydırır.
+        lit = ((elapsed * cue.payload.flashHz) ~/ 500).isEven;
+      }
+      color = lit ? _parseColor(cue.payload.color) : Colors.black;
+      torchWanted = lit && cue.payload.torch;
+      lyric = '';
     }
 
-    final color = lit ? _parseColor(cue.payload.color) : Colors.black;
-    final torchWanted = lit && cue.payload.torch;
-    if (color != _background || torchWanted != _torchTarget) {
+    if (color != _background || torchWanted != _torchTarget || lyric != _lyric) {
       setState(() {
         _background = color;
         _torchTarget = torchWanted;
+        _lyric = lyric;
       });
       _torch.set(torchWanted);
     }
@@ -146,7 +188,10 @@ class _ShowScreenState extends State<ShowScreen> {
     _torchTarget = false;
     _torch.off();
     if (toBlack && mounted) {
-      setState(() => _background = Colors.black);
+      setState(() {
+        _background = Colors.black;
+        _lyric = '';
+      });
     }
   }
 
@@ -189,6 +234,27 @@ class _ShowScreenState extends State<ShowScreen> {
       body: SafeArea(
         child: Stack(
           children: [
+            // Söz satırı: ekranın ortasında, büyük ve dış çizgili — arka
+            // plan hangi renkte olursa olsun okunur.
+            if (_lyric.isNotEmpty)
+              Center(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 24),
+                  child: Text(
+                    _lyric,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      fontSize: 40,
+                      fontWeight: FontWeight.w800,
+                      color: Colors.white,
+                      shadows: [
+                        Shadow(blurRadius: 12, color: Colors.black),
+                        Shadow(blurRadius: 4, color: Colors.black),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
             // Efekt tüm ekranı kaplar; durum yazısı köşede küçük kalır.
             Positioned(
               top: 8,

@@ -15,8 +15,16 @@ kue anında ağ gerekmez.
 | `lib/core/realtime_client.dart` | WS bağlantısı, jitter'lı yeniden bağlanma, senkron turları |
 | `lib/core/cue_arbiter.dart` | "İlk gelen kazanır, sonra sadık kal" kaynak kilidi |
 | `lib/core/cue_scheduler.dart` | Timer + sıkı bekleme ile ~1 ms hassas ateşleme |
+| `lib/core/package_store.dart` | Katılım kodu çözümü + paket indirme + SHA-256 doğrulama |
+| `lib/core/show_manifest.dart` | Gösteri manifesti modeli (packages/manifest şemasını izler) |
+| `lib/core/timeline_engine.dart` | Saf zaman çizelgesi motoru: elapsed → söz + ışık karesi (testli) |
 | `lib/core/torch_service.dart` | Fener denetimi (Faz 2'de native kanala taşınacak) |
-| `lib/ui/` | Katılım ve gösteri ekranları |
+| `lib/ui/` | Katılım (kodlu/kodsuz) ve gösteri ekranları |
+
+Katılım kodu girilirse paket control-api'den iner, özetle doğrulanır ve
+`cue_id` manifestteki bir sekansa denk gelen kueler zaman çizelgesi olarak
+(sözler + kue şeritleri) oynar; kod boşsa Faz 0 davranışı sürer. Birim
+testler: `flutter test` (bu depo ortamında Flutter yok; telefonda/CI'da koşar).
 
 ## Kurulum (bir kez)
 

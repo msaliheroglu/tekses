@@ -50,8 +50,12 @@ adım sırasını izler.
   indirme immutable önbellek başlığıyla sunulur ve SHA-256 ile doğrulanır.
   **Kalan:** R2/S3 sürücüsü aynı arayüzün arkasına dağıtım aşamasında
   (Oracle VM + Cloudflare kurulurken) eklenecek; ses varlıkları Faz 2.
-- [ ] **8. Katılımcı uygulaması MVP** — manifest indirme (package_store),
-  timeline_engine, söz akışı + ekran efektleri; kue zaten çalışıyor.
+- [x] **8. Katılımcı uygulaması MVP** — package_store (katılım kodu →
+  paket indirme + SHA-256 doğrulama), show_manifest modeli, saf
+  timeline_engine (birim testli), söz akışı + manifest güdümlü ekran/fener;
+  `cue_id` = sekans id sözleşmesi, eşleşmeyen kueler Faz 0 yükü olarak
+  oynar. **Dikkat:** Dart bu ortamda derlenemiyor — telefonda ilk
+  `flutter analyze && flutter test` çıktısı kullanıcıdan beklenecek.
 - [ ] **9. Otomatik program + Run kaydı** — Schedule, Run, asgari telemetri.
 
 ## Notlar
