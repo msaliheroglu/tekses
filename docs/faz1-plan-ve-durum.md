@@ -57,6 +57,18 @@ adım sırasını izler.
   oynar. **Dikkat:** Dart bu ortamda derlenemiyor — telefonda ilk
   `flutter analyze && flutter test` çıktısı kullanıcıdan beklenecek.
 - [ ] **9. Otomatik program + Run kaydı** — Schedule, Run, asgari telemetri.
+  **Kullanıcı kararı bekliyor:** otomatik program nerede yaşasın?
+  (a) Manifest içinde `program` listesi ({sequence_id, at_offset_ms}) — karar
+  dokümanındaki "paket içine gömülü otomatik program"a birebir uyar, telefon
+  tek başlangıç kuesiyle tüm programı yerelden akıtır (önerilen); ya da
+  (b) gateway'de canlı zamanlanmış kue listesi (POST /api/v0/program).
+  Run kaydı ve telemetri kapsamı da bu kararla birlikte netleşecek.
+
+## Doğrulama borçları (kullanıcıdan beklenen)
+
+- Telefonda `flutter analyze && flutter test` (timeline_engine testleri) ve
+  kodlu katılım akışının denenmesi — Dart bu ortamda derlenemiyor.
+- GitHub Actions'ta yeni CI işlerinin (Go+Postgres, panel build) ilk koşumu.
 
 ## Notlar
 
