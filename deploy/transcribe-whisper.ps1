@@ -20,13 +20,18 @@ $ErrorActionPreference = "Stop"
 $whisper = if ($env:WHISPER_BIN) { $env:WHISPER_BIN } else { "C:\whisper\whisper-cli.exe" }
 $model = if ($env:WHISPER_MODEL) { $env:WHISPER_MODEL } else { "C:\whisper\ggml-small.bin" }
 $lang = if ($env:WHISPER_LANG) { $env:WHISPER_LANG } else { "tr" }
+# ffmpeg PATH'te değilse FFMPEG_BIN ile tam yol verilebilir.
+$ffmpeg = if ($env:FFMPEG_BIN) { $env:FFMPEG_BIN } else { "ffmpeg" }
+
+if (-not (Test-Path $whisper)) { throw "whisper-cli bulunamadı: $whisper (WHISPER_BIN ayarlayın)" }
+if (-not (Test-Path $model)) { throw "model bulunamadı: $model (WHISPER_MODEL ayarlayın)" }
 
 $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ("tekses-tr-" + [guid]::NewGuid())
 New-Item -ItemType Directory -Path $tmp | Out-Null
 try {
     # Whisper 16 kHz mono WAV ister; mp3/m4a/ogg buradan geçer.
     $wav = Join-Path $tmp "audio.wav"
-    ffmpeg -y -loglevel error -i $AudioPath -ar 16000 -ac 1 $wav
+    & $ffmpeg -y -loglevel error -i $AudioPath -ar 16000 -ac 1 $wav
     if ($LASTEXITCODE -ne 0) { throw "ffmpeg başarısız" }
 
     & $whisper -m $model -l $lang -f $wav -oj -of (Join-Path $tmp "audio") *> $null
