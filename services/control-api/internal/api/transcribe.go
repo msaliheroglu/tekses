@@ -16,6 +16,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -106,7 +107,18 @@ func (s *Server) runTranscription(job *transcriptionJob, assetID string) {
 
 	out, err := exec.CommandContext(ctx, s.transcriber, tmp.Name()).Output()
 	if err != nil {
-		fail(fmt.Sprintf("çözümleyici komutu başarısız: %v", err))
+		// Betiğin stderr'i teşhisin kendisidir (ffmpeg yok, model yok…);
+		// kullanıcıya son satırlarıyla birlikte gösterilir.
+		msg := fmt.Sprintf("çözümleyici komutu başarısız: %v", err)
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) && len(exitErr.Stderr) > 0 {
+			stderr := strings.TrimSpace(string(exitErr.Stderr))
+			if len(stderr) > 500 {
+				stderr = "…" + stderr[len(stderr)-500:]
+			}
+			msg += " — " + stderr
+		}
+		fail(msg)
 		return
 	}
 	var parsed transcriberOutput
