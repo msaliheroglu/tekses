@@ -5,11 +5,24 @@
 /// sekansın ne zaman başlayacağını CueStart söyler.
 library;
 
+/// Ayrılmış kue kimliği: bu kimlikle gelen CueStart, manifestin içine gömülü
+/// otomatik programı başlatır (packages/manifest ProgramCueID ile aynı).
+const String programCueId = 'program';
+
 class ShowManifest {
-  const ShowManifest({required this.title, required this.sequences});
+  const ShowManifest({
+    required this.title,
+    required this.sequences,
+    this.program = const [],
+  });
 
   final String title;
   final List<ShowSequence> sequences;
+
+  /// Otomatik program: her öğe, program başlangıcına göre at_offset_ms
+  /// anında kendi sekansını oynatır. Sunucu tarafı doğrulanmıştır
+  /// (artan sırada, üst üste binmez, var olan sekanslara işaret eder).
+  final List<ProgramItem> program;
 
   ShowSequence? sequenceById(String id) {
     for (final seq in sequences) {
@@ -24,6 +37,22 @@ class ShowManifest {
           for (final s in (j['sequences'] as List? ?? const []))
             ShowSequence.fromJson(s as Map<String, dynamic>),
         ],
+        program: [
+          for (final p in (j['program'] as List? ?? const []))
+            ProgramItem.fromJson(p as Map<String, dynamic>),
+        ],
+      );
+}
+
+class ProgramItem {
+  const ProgramItem({required this.sequenceId, required this.atOffsetMs});
+
+  final String sequenceId;
+  final int atOffsetMs;
+
+  static ProgramItem fromJson(Map<String, dynamic> j) => ProgramItem(
+        sequenceId: j['sequence_id'] as String? ?? '',
+        atOffsetMs: (j['at_offset_ms'] as num?)?.toInt() ?? 0,
       );
 }
 

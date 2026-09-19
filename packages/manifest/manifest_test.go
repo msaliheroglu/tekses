@@ -70,6 +70,37 @@ func TestCanonicalDeterministic(t *testing.T) {
 	}
 }
 
+func TestProgramValidation(t *testing.T) {
+	base := `{"title":"X","sequences":[
+	  {"id":"a","title":"t","duration_ms":10000},
+	  {"id":"b","title":"t","duration_ms":5000}],
+	  "program":%s}`
+
+	// Geçerli: bitişik ve aralıklı öğeler.
+	ok := `[{"sequence_id":"a","at_offset_ms":0},{"sequence_id":"b","at_offset_ms":10000}]`
+	if _, err := Parse([]byte(strings.Replace(base, "%s", ok, 1))); err != nil {
+		t.Fatalf("geçerli program reddedildi: %v", err)
+	}
+
+	bad := map[string]string{
+		"olmayan sekans": `[{"sequence_id":"yok","at_offset_ms":0}]`,
+		"negatif ofset":  `[{"sequence_id":"a","at_offset_ms":-1}]`,
+		"üst üste binme": `[{"sequence_id":"a","at_offset_ms":0},{"sequence_id":"b","at_offset_ms":9999}]`,
+		"sırasız":        `[{"sequence_id":"b","at_offset_ms":8000},{"sequence_id":"a","at_offset_ms":0}]`,
+	}
+	for name, prog := range bad {
+		if _, err := Parse([]byte(strings.Replace(base, "%s", prog, 1))); err == nil {
+			t.Errorf("%s: kabul edildi, reddedilmeliydi", name)
+		}
+	}
+
+	// "program" sekans kimliği olarak ayrılmıştır.
+	reserved := `{"title":"X","sequences":[{"id":"program","title":"t","duration_ms":1000}]}`
+	if _, err := Parse([]byte(reserved)); err == nil {
+		t.Error("ayrılmış sekans kimliği kabul edildi")
+	}
+}
+
 func TestParseRejections(t *testing.T) {
 	cases := map[string]string{
 		"bilinmeyen alan":      `{"title":"X","yanlis_alan":1,"sequences":[{"id":"a","title":"t","duration_ms":1000}]}`,

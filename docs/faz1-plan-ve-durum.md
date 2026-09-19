@@ -56,13 +56,13 @@ adım sırasını izler.
   `cue_id` = sekans id sözleşmesi, eşleşmeyen kueler Faz 0 yükü olarak
   oynar. **Dikkat:** Dart bu ortamda derlenemiyor — telefonda ilk
   `flutter analyze && flutter test` çıktısı kullanıcıdan beklenecek.
-- [ ] **9. Otomatik program + Run kaydı** — Schedule, Run, asgari telemetri.
-  **Kullanıcı kararı bekliyor:** otomatik program nerede yaşasın?
-  (a) Manifest içinde `program` listesi ({sequence_id, at_offset_ms}) — karar
-  dokümanındaki "paket içine gömülü otomatik program"a birebir uyar, telefon
-  tek başlangıç kuesiyle tüm programı yerelden akıtır (önerilen); ya da
-  (b) gateway'de canlı zamanlanmış kue listesi (POST /api/v0/program).
-  Run kaydı ve telemetri kapsamı da bu kararla birlikte netleşecek.
+- [x] **9. Otomatik program + Run kaydı** — kullanıcı (a) seçeneğini seçti
+  (2026-09-19): program manifestin içinde (`program` listesi, doğrulamalı:
+  var olan sekans, artan sıra, üst üste binme yok); ayrılmış `program` kue
+  kimliği akışı başlatır, telefon `ProgramEngine` ile yerelden oynatır
+  (birim testli). Konsola sekans/program seçici ve gateway'in son 50
+  çalıştırmayı tutan `GET /api/v0/runs` kaydı eklendi. **Faz 2'ye devir:**
+  kalıcı Run tablosu, saat kalitesi ısı haritası ve telemetri panoları.
 
 ## Doğrulama borçları (kullanıcıdan beklenen)
 

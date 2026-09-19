@@ -43,7 +43,7 @@ class _ShowScreenState extends State<ShowScreen> {
   String _status = 'başlatılıyor';
 
   CueStartMsg? _activeCue;
-  TimelineEngine? _engine; // cue_id bir sekansa denk geldiyse dolu
+  FrameSource? _engine; // cue_id sekansa/programa denk geldiyse dolu
   int _fireLocalMs = 0;
   ScheduledFire? _pendingFire;
   Timer? _effectTicker;
@@ -98,14 +98,23 @@ class _ShowScreenState extends State<ShowScreen> {
     _pendingFire?.cancel();
     _stopEffect(toBlack: true);
     _held = false;
-    // cue_id manifestteki bir sekansı işaret ediyorsa zaman çizelgesi modu.
-    final sequence = widget.joinInfo?.manifest?.sequenceById(cue.cueId);
-    _engine = sequence == null ? null : TimelineEngine(sequence);
+    // cue_id "program" ise gömülü otomatik program, bir sekansı işaret
+    // ediyorsa tek sekans; ikisi de değilse Faz 0 yükü oynar.
+    final manifest = widget.joinInfo?.manifest;
+    String statusLabel;
+    if (cue.cueId == programCueId && manifest != null && manifest.program.isNotEmpty) {
+      _engine = ProgramEngine(manifest);
+      statusLabel = 'otomatik program hazır (${manifest.program.length} sekans)';
+    } else {
+      final sequence = manifest?.sequenceById(cue.cueId);
+      _engine = sequence == null ? null : TimelineEngine(sequence);
+      statusLabel = sequence == null
+          ? 'kue alındı (${cue.cueId})'
+          : 'sekans hazır: ${sequence.title}';
+    }
     setState(() {
       _activeCue = cue;
-      _status = sequence == null
-          ? 'kue alındı (${cue.cueId}); ateşleme bekleniyor'
-          : 'sekans hazır: ${sequence.title}; ateşleme bekleniyor';
+      _status = '$statusLabel; ateşleme bekleniyor';
     });
     _fireLocalMs = cue.fireAtServerMs - estimate.offsetMs;
     _pendingFire = CueScheduler.schedule(

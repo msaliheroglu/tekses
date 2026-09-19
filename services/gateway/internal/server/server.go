@@ -19,6 +19,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -70,6 +71,33 @@ type Server struct {
 	adminToken string
 	resolver   rooms.Resolver
 	upgrader   websocket.Upgrader
+
+	// Son çalıştırmaların halka kaydı (asgari telemetri; en yenisi başta).
+	// Kalıcı Run kaydı ve panolar Faz 2 telemetri işine devredildi.
+	runsMu sync.Mutex
+	runs   []runRecord
+}
+
+// runRecord, tek bir kue yayını ya da müdahalenin izidir.
+type runRecord struct {
+	RunID            string `json:"run_id,omitempty"`
+	Kind             string `json:"kind"` // "cue" | HOLD | STOP | SKIP | BLACKOUT
+	CueID            string `json:"cue_id,omitempty"`
+	RoomID           string `json:"room_id,omitempty"`
+	FireAtServerMs   int64  `json:"fire_at_server_ms,omitempty"`
+	IssuedAtServerMs int64  `json:"issued_at_server_ms"`
+	Clients          int    `json:"clients"`
+}
+
+const maxRunRecords = 50
+
+func (s *Server) recordRun(rec runRecord) {
+	s.runsMu.Lock()
+	defer s.runsMu.Unlock()
+	s.runs = append([]runRecord{rec}, s.runs...)
+	if len(s.runs) > maxRunRecords {
+		s.runs = s.runs[:maxRunRecords]
+	}
 }
 
 // New, bir gateway sunucusu kurar. adminToken boş değilse /api/* uçları
@@ -101,6 +129,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /ws", s.handleWS)
 	mux.HandleFunc("POST /api/v0/cue", s.requireAdmin(s.handleCue))
 	mux.HandleFunc("POST /api/v0/intervention", s.requireAdmin(s.handleIntervention))
+	mux.HandleFunc("GET /api/v0/runs", s.handleRuns)
 	return mux
 }
 
@@ -125,6 +154,15 @@ func (s *Server) handleHealthz(w http.ResponseWriter, _ *http.Request) {
 	})
 }
 
+// checkAdmin, token ayarlıysa Bearer başlığını doğrular; hata yazdıysa false.
+func (s *Server) checkAdmin(w http.ResponseWriter, r *http.Request) bool {
+	if s.adminToken != "" && r.Header.Get("Authorization") != "Bearer "+s.adminToken {
+		writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "geçersiz veya eksik yönetici token'ı"})
+		return false
+	}
+	return true
+}
+
 func (s *Server) requireAdmin(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// Content-Type zorunluluğu ucuz bir CSRF önlemidir: tarayıcı,
@@ -133,12 +171,22 @@ func (s *Server) requireAdmin(next http.HandlerFunc) http.HandlerFunc {
 			writeJSON(w, http.StatusUnsupportedMediaType, map[string]any{"error": "Content-Type: application/json gerekli"})
 			return
 		}
-		if s.adminToken != "" && r.Header.Get("Authorization") != "Bearer "+s.adminToken {
-			writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "geçersiz veya eksik yönetici token'ı"})
+		if !s.checkAdmin(w, r) {
 			return
 		}
 		next(w, r)
 	}
+}
+
+func (s *Server) handleRuns(w http.ResponseWriter, r *http.Request) {
+	if !s.checkAdmin(w, r) {
+		return
+	}
+	s.runsMu.Lock()
+	runs := make([]runRecord, len(s.runs))
+	copy(runs, s.runs)
+	s.runsMu.Unlock()
+	writeJSON(w, http.StatusOK, map[string]any{"runs": runs})
 }
 
 // --- WebSocket ---
@@ -338,6 +386,15 @@ func (s *Server) handleCue(w http.ResponseWriter, r *http.Request) {
 	s.log.Info("kue yayınlandı",
 		"run_id", cue.RunID, "cue_id", cue.CueID, "oda", req.RoomID,
 		"fire_at", cue.FireAtServerMs, "istemci", targetCount)
+	s.recordRun(runRecord{
+		RunID:            cue.RunID,
+		Kind:             "cue",
+		CueID:            cue.CueID,
+		RoomID:           req.RoomID,
+		FireAtServerMs:   cue.FireAtServerMs,
+		IssuedAtServerMs: s.clock.NowMs(),
+		Clients:          targetCount,
+	})
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"run_id":            cue.RunID,
@@ -405,6 +462,13 @@ func (s *Server) handleIntervention(w http.ResponseWriter, r *http.Request) {
 		s.hub.BroadcastRoom(req.RoomID, data)
 	}
 	s.log.Info("müdahale yayınlandı", "kind", req.Kind, "run_id", req.RunID, "oda", req.RoomID)
+	s.recordRun(runRecord{
+		RunID:            req.RunID,
+		Kind:             req.Kind,
+		RoomID:           req.RoomID,
+		IssuedAtServerMs: msg.IssuedAtServerMs,
+		Clients:          s.hub.Count(),
+	})
 	writeJSON(w, http.StatusOK, map[string]any{"kind": req.Kind, "room_id": req.RoomID, "clients": s.hub.Count()})
 }
 

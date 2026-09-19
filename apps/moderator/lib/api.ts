@@ -56,15 +56,29 @@ export const control = {
 
 // Gateway çağrıları (canlı konsol): /gw/… üzerinden; gateway'in kendi
 // yönetici token'ı ayrıca başlıkla taşınır.
-export async function gatewayPost<T>(path: string, body: unknown, adminToken: string): Promise<T> {
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
+async function gatewayRequest<T>(path: string, adminToken: string, init?: RequestInit): Promise<T> {
+  const headers: Record<string, string> = {
+    ...((init?.headers as Record<string, string>) ?? {}),
+  };
   if (adminToken) headers["Authorization"] = `Bearer ${adminToken}`;
-  const resp = await fetch("/gw" + path, { method: "POST", headers, body: JSON.stringify(body) });
+  const resp = await fetch("/gw" + path, { ...init, headers });
   const data = await resp.json().catch(() => ({}));
   if (!resp.ok) {
     throw new ApiError(resp.status, (data as { error?: string }).error ?? `HTTP ${resp.status}`);
   }
   return data as T;
+}
+
+export function gatewayPost<T>(path: string, body: unknown, adminToken: string): Promise<T> {
+  return gatewayRequest<T>(path, adminToken, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+export function gatewayGet<T>(path: string, adminToken: string): Promise<T> {
+  return gatewayRequest<T>(path, adminToken);
 }
 
 // Ortak tipler (control-api yanıtları).
@@ -78,3 +92,30 @@ export type Room = {
 };
 export type Show = { id: string; title: string; created_at: string };
 export type ShowVersion = { id: string; show_id: string; version: number; sha256: string; created_at: string };
+
+// Manifest özeti (konsolun kue seçicisi için gereken kadarı).
+export type ManifestSummary = {
+  sequences: { id: string; title: string }[];
+  hasProgram: boolean;
+};
+
+export async function fetchManifestSummary(showVersionID: string): Promise<ManifestSummary> {
+  const resp = await control.get<{
+    manifest: { sequences?: { id: string; title?: string }[]; program?: unknown[] };
+  }>(`/api/v1/show-versions/${showVersionID}`);
+  return {
+    sequences: (resp.manifest.sequences ?? []).map((s) => ({ id: s.id, title: s.title ?? s.id })),
+    hasProgram: (resp.manifest.program ?? []).length > 0,
+  };
+}
+
+// Gateway çalıştırma kaydı (asgari telemetri).
+export type RunRecord = {
+  run_id?: string;
+  kind: string;
+  cue_id?: string;
+  room_id?: string;
+  fire_at_server_ms?: number;
+  issued_at_server_ms: number;
+  clients: number;
+};

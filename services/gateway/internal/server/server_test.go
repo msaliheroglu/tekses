@@ -326,6 +326,54 @@ func TestAdminTokenRequired(t *testing.T) {
 	}
 }
 
+func TestRunsRecorded(t *testing.T) {
+	ts, _ := newTestServer(t, "")
+
+	body, _ := json.Marshal(map[string]any{"delayMs": 600, "cue_id": "program"})
+	resp, err := http.Post(ts.URL+"/api/v0/cue", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	resp2, err := http.Post(ts.URL+"/api/v0/intervention", "application/json",
+		strings.NewReader(`{"kind":"STOP"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp2.Body.Close()
+
+	runsResp, err := http.Get(ts.URL + "/api/v0/runs")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer runsResp.Body.Close()
+	var got struct {
+		Runs []struct {
+			Kind  string `json:"kind"`
+			CueID string `json:"cue_id"`
+		} `json:"runs"`
+	}
+	if err := json.NewDecoder(runsResp.Body).Decode(&got); err != nil {
+		t.Fatal(err)
+	}
+	// En yenisi başta: STOP, sonra cue.
+	if len(got.Runs) != 2 || got.Runs[0].Kind != "STOP" || got.Runs[1].Kind != "cue" || got.Runs[1].CueID != "program" {
+		t.Fatalf("beklenmeyen runs: %+v", got.Runs)
+	}
+}
+
+func TestRunsRequiresToken(t *testing.T) {
+	ts, _ := newTestServer(t, "gizli")
+	resp, err := http.Get(ts.URL + "/api/v0/runs")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("token'sız runs durumu = %d, beklenen 401", resp.StatusCode)
+	}
+}
+
 func TestContentTypeRequired(t *testing.T) {
 	// CSRF önlemi: application/json olmayan gövdeler (örn. çapraz-site
 	// form POST'unun text/plain'i) API uçlarında reddedilir.

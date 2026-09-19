@@ -24,6 +24,9 @@ const TEMPLATE = `{
         ]}
       ]
     }
+  ],
+  "program": [
+    {"sequence_id": "seq-1", "at_offset_ms": 0}
   ]
 }`;
 

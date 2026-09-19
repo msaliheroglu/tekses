@@ -54,4 +54,56 @@ void main() {
     expect(done.torchOn, isFalse);
     expect(done.lyric, '');
   });
+
+  group('ProgramEngine', () {
+    final ikinci = ShowSequence(
+      id: 'seq-2',
+      title: 'Kapanış',
+      durationMs: 5000,
+      lyricLines: const [LyricLine(atMs: 0, durationMs: 0, text: 'Kapanış sözü')],
+      cueLanes: const [],
+    );
+    // Program: seq-1 @0 (10 sn), 2 sn boşluk, seq-2 @12000 (5 sn).
+    final manifest = ShowManifest(
+      title: 'Gösteri',
+      sequences: [sequence, ikinci],
+      program: const [
+        ProgramItem(sequenceId: 'seq-1', atOffsetMs: 0),
+        ProgramItem(sequenceId: 'seq-2', atOffsetMs: 12000),
+      ],
+    );
+    final program = ProgramEngine(manifest);
+
+    test('ogeler kendi ofsetinde oynar', () {
+      expect(program.frameAt(0).lyric, 'Birinci satır');
+      expect(program.frameAt(2500).lyric, 'Son satır');
+      expect(program.frameAt(12000).lyric, 'Kapanış sözü');
+      expect(program.frameAt(16999).lyric, 'Kapanış sözü');
+    });
+
+    test('ogeler arasi bosluk karanlik ama done degil', () {
+      final gap = program.frameAt(11000);
+      expect(gap.done, isFalse);
+      expect(gap.lyric, '');
+      expect(gap.screenColor, '');
+      expect(gap.torchOn, isFalse);
+    });
+
+    test('flash fazi program ofsetinden bagimsiz, kue baslangicina gore', () {
+      // seq-1 ekran kuesi seq başına 1000 ms'te başlar; program ofseti 0.
+      expect(program.frameAt(1249).screenLit, isTrue);
+      expect(program.frameAt(1250).screenLit, isFalse);
+    });
+
+    test('son oge bitince program done', () {
+      expect(program.frameAt(16999).done, isFalse);
+      expect(program.frameAt(17000).done, isTrue);
+    });
+
+    test('bos program done doner', () {
+      final empty = ProgramEngine(const ShowManifest(title: 'x', sequences: []));
+      expect(empty.isEmpty, isTrue);
+      expect(empty.frameAt(0).done, isTrue);
+    });
+  });
 }

@@ -27,6 +27,7 @@ Temel yetenekler:
 | Kimlik / kiracılık | İlk günden **çok kiracılı** (her organizatör yalnızca kendi etkinliklerini görür); pilot için basit **e-posta + şifre** girişi. |
 | Tarayıcı yedeği | MVP'de **yok**; Faz 3'e ertelendi (iOS Safari'de fener çalışmaz, yalnızca söz + ekran rengi). |
 | Depo | **Monorepo**: https://github.com/msaliheroglu/tekses |
+| Otomatik program (2026-09-19) | **Manifest içinde** `program` listesi (`{sequence_id, at_offset_ms}`); ayrılmış `program` kue kimliği tüm akışı başlatır, telefon programı yerel saatinden akıtır. Öğeler artan sırada olmalı ve üst üste binemez. Kalıcı Run kaydı/panolar Faz 2 telemetrisine devredildi; şimdilik gateway son 50 çalıştırmayı tutar (`GET /api/v0/runs`). |
 
 ## 3. Mimarinin özü
 

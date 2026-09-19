@@ -14,6 +14,7 @@ go run ./services/gateway/cmd/gateway -addr :8080
 | `GET /ws` | Katılımcı WebSocket'i (hello, saat senkronu, kue alımı) |
 | `POST /api/v0/cue` | Kue tetikle (`delayMs`, `durationMs`, `color`, `torch`, `flashHz`) |
 | `POST /api/v0/intervention` | `HOLD` / `STOP` / `SKIP` / `BLACKOUT` yayınla |
+| `GET /api/v0/runs` | Son 50 çalıştırmanın kaydı (asgari telemetri; token ayarlıysa ister) |
 
 `TEKSES_ADMIN_TOKEN` ayarlıysa `/api/*` uçları `Authorization: Bearer <token>`
 ister. `TEKSES_CONTROL_URL` ayarlıysa hello'daki `join_code` control-api'den

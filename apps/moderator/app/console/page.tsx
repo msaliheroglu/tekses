@@ -1,15 +1,33 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { control, gatewayPost, type Event, type Room } from "@/lib/api";
+import {
+  control,
+  fetchManifestSummary,
+  gatewayGet,
+  gatewayPost,
+  type Event,
+  type ManifestSummary,
+  type Room,
+  type RunRecord,
+} from "@/lib/api";
 
 type LogLine = { at: string; text: string; isErr?: boolean };
+
+// Ayrılmış kue kimliği: gömülü otomatik programı başlatır
+// (packages/manifest ProgramCueID ile aynı).
+const PROGRAM_CUE_ID = "program";
+// Seçici değeri: Faz 0 doğrudan yük (renk/flash/fener) modu.
+const FLASH_TARGET = "__flash__";
 
 // Canlı konsol: kue ve müdahaleler doğrudan gateway'e gider (dev GO / HOLD /
 // STOP / BLACKOUT karar dokümanı §3'teki canlı konsolun MVP hali).
 export default function ConsolePage() {
   const [rooms, setRooms] = useState<(Room & { eventName: string })[]>([]);
   const [roomID, setRoomID] = useState("");
+  const [cueTarget, setCueTarget] = useState(FLASH_TARGET);
+  const [manifest, setManifest] = useState<ManifestSummary | null>(null);
+  const [runs, setRuns] = useState<RunRecord[]>([]);
   const [color, setColor] = useState("#FF2A2A");
   const [delayMs, setDelayMs] = useState(3000);
   const [durationMs, setDurationMs] = useState(4000);
@@ -43,15 +61,73 @@ export default function ConsolePage() {
     })();
   }, []);
 
+  // Seçili odanın aktif gösterisinden sekans/program seçenekleri yüklenir.
+  useEffect(() => {
+    setCueTarget(FLASH_TARGET);
+    const room = rooms.find((r) => r.id === roomID);
+    const versionID = room?.active_show_version_id;
+    if (!versionID) {
+      setManifest(null);
+      return;
+    }
+    let cancelled = false;
+    fetchManifestSummary(versionID)
+      .then((m) => {
+        if (!cancelled) setManifest(m);
+      })
+      .catch(() => {
+        if (!cancelled) setManifest(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [roomID, rooms]);
+
+  // Çalıştırma kaydı: sayfa açıkken 4 sn'de bir tazelenir.
+  useEffect(() => {
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const resp = await gatewayGet<{ runs: RunRecord[] }>("/api/v0/runs", adminToken);
+        if (!cancelled) setRuns(resp.runs);
+      } catch {
+        // gateway kapalıyken sessiz kal
+      }
+    };
+    void tick();
+    const timer = setInterval(tick, 4000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [adminToken]);
+
   async function sendCue() {
     try {
+      // Faz 0 modunda yük (renk/flash/fener) telefonda doğrudan oynar;
+      // sekans/program modunda telefon manifestten oynar, cue_id yeterlidir.
+      const body: Record<string, unknown> = {
+        room_id: roomID,
+        delayMs,
+        durationMs,
+        color: color.toUpperCase(),
+        torch,
+        flashHz,
+      };
+      if (cueTarget !== FLASH_TARGET) body.cue_id = cueTarget;
       const resp = await gatewayPost<{ run_id: string; clients: number; fire_at_server_ms: number }>(
         "/api/v0/cue",
-        { room_id: roomID, delayMs, durationMs, color: color.toUpperCase(), torch, flashHz },
+        body,
         adminToken,
       );
       setLastRunID(resp.run_id);
-      log(`GO → run ${resp.run_id}, ${resp.clients} telefon, ateşleme +${delayMs} ms`);
+      const label =
+        cueTarget === FLASH_TARGET
+          ? "flash"
+          : cueTarget === PROGRAM_CUE_ID
+            ? "OTOMATİK PROGRAM"
+            : `sekans ${cueTarget}`;
+      log(`GO (${label}) → run ${resp.run_id}, ${resp.clients} telefon, ateşleme +${delayMs} ms`);
     } catch (err) {
       log(`kue hatası: ${err instanceof Error ? err.message : "?"}`, true);
     }
@@ -90,6 +166,27 @@ export default function ConsolePage() {
               onChange={(e) => setAdminToken(e.target.value)}
               placeholder="boş bırakılabilir"
             />
+          </div>
+        </div>
+        <div className="row">
+          <div>
+            <label>Ne çalınacak</label>
+            <select value={cueTarget} onChange={(e) => setCueTarget(e.target.value)}>
+              <option value={FLASH_TARGET}>Faz 0 flash (aşağıdaki yük)</option>
+              {manifest?.hasProgram && (
+                <option value={PROGRAM_CUE_ID}>OTOMATİK PROGRAM (tüm akış)</option>
+              )}
+              {manifest?.sequences.map((s) => (
+                <option key={s.id} value={s.id}>
+                  Sekans: {s.title}
+                </option>
+              ))}
+            </select>
+            {!manifest && (
+              <p className="muted" style={{ margin: "4px 0 0" }}>
+                Odada aktif gösteri yok; yalnızca Faz 0 flash gönderilebilir.
+              </p>
+            )}
           </div>
         </div>
         <div className="row">
@@ -141,6 +238,31 @@ export default function ConsolePage() {
               {l.at} {l.text}
             </p>
           ))
+        )}
+      </div>
+      <div className="card">
+        <h2>Çalıştırma kaydı (gateway)</h2>
+        {runs.length === 0 ? (
+          <p className="muted">Henüz çalıştırma yok.</p>
+        ) : (
+          <table>
+            <thead>
+              <tr><th>Tür</th><th>Kue</th><th>Oda</th><th>Telefon</th><th>Zaman</th></tr>
+            </thead>
+            <tbody>
+              {runs.map((r, i) => (
+                <tr key={`${r.run_id ?? "iv"}-${r.kind}-${i}`}>
+                  <td>{r.kind === "cue" ? "kue" : r.kind}</td>
+                  <td>{r.cue_id || "—"}</td>
+                  <td>{r.room_id || "tümü"}</td>
+                  <td>{r.clients}</td>
+                  <td className="muted">
+                    {new Date(r.issued_at_server_ms).toLocaleTimeString("tr-TR")}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         )}
       </div>
     </>

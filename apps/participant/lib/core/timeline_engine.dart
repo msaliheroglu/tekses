@@ -34,7 +34,14 @@ class TimelineFrame {
   final bool torchOn;
 }
 
-class TimelineEngine {
+/// Kare üreticisi sözleşmesi: hem tek sekans (TimelineEngine) hem otomatik
+/// program (ProgramEngine) aynı arayüzle çalışır; gösteri ekranı ikisini
+/// ayırt etmez.
+abstract interface class FrameSource {
+  TimelineFrame frameAt(int elapsedMs);
+}
+
+class TimelineEngine implements FrameSource {
   const TimelineEngine(this.sequence);
 
   final ShowSequence sequence;
@@ -55,6 +62,7 @@ class TimelineEngine {
     return active;
   }
 
+  @override
   TimelineFrame frameAt(int elapsedMs) {
     if (elapsedMs >= sequence.durationMs) {
       return const TimelineFrame(
@@ -92,5 +100,47 @@ class TimelineEngine {
       screenLit: screenLit,
       torchOn: torchOn,
     );
+  }
+}
+
+/// Otomatik program motoru: program başlangıcından geçen süreye göre aktif
+/// program öğesini bulur ve kareyi o öğenin sekans motoruna devreder.
+/// Öğeler arasındaki boşlukta ekran karanlık bekler (done değil); son
+/// öğenin sekansı bitince done olur. Bu da SAFTIR ve birim testlidir.
+class ProgramEngine implements FrameSource {
+  ProgramEngine(ShowManifest manifest)
+      : _items = [
+          for (final item in manifest.program)
+            if (manifest.sequenceById(item.sequenceId) != null)
+              (
+                atOffsetMs: item.atOffsetMs,
+                engine: TimelineEngine(manifest.sequenceById(item.sequenceId)!),
+              ),
+        ];
+
+  final List<({int atOffsetMs, TimelineEngine engine})> _items;
+
+  static const _idle = TimelineFrame(
+      done: false, lyric: '', screenColor: '', screenLit: false, torchOn: false);
+  static const _done = TimelineFrame(
+      done: true, lyric: '', screenColor: '', screenLit: false, torchOn: false);
+
+  bool get isEmpty => _items.isEmpty;
+
+  @override
+  TimelineFrame frameAt(int elapsedMs) {
+    if (_items.isEmpty) return _done;
+
+    ({int atOffsetMs, TimelineEngine engine})? current;
+    for (final item in _items) {
+      if (item.atOffsetMs <= elapsedMs) current = item;
+    }
+    if (current == null) return _idle; // ilk öğe henüz başlamadı
+
+    final frame = current.engine.frameAt(elapsedMs - current.atOffsetMs);
+    if (!frame.done) return frame;
+    // Aktif öğenin sekansı bitti: son öğeyse program bitti, değilse bir
+    // sonraki öğeye kadar karanlık beklenir.
+    return current == _items.last ? _done : _idle;
   }
 }

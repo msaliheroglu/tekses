@@ -40,12 +40,27 @@ const (
 	LaneAudio  = "audio"
 )
 
+// ProgramCueID, ayrılmış kue kimliğidir: bu kimlikle gelen CueStart, paketin
+// içine gömülü otomatik programı başlatır. Telefon, fire_at anını t0 kabul
+// eder ve tüm programı yerel saatinden akıtır — başka hiçbir tetik gerekmez.
+// Sekans kimliği "program" olamaz (Validate reddeder).
+const ProgramCueID = "program"
+
 var colorRe = regexp.MustCompile(`^#[0-9A-Fa-f]{6}$`)
 
 type Manifest struct {
 	FormatVersion int        `json:"format_version"`
 	Title         string     `json:"title"`
 	Sequences     []Sequence `json:"sequences"`
+	// Program, isteğe bağlı otomatik akıştır: ProgramCueID kuesiyle başlar,
+	// her öğe program başlangıcına göre at_offset_ms anında kendi sekansını
+	// oynatır. Öğeler artan sırada olmalı ve üst üste binmemelidir.
+	Program []ProgramItem `json:"program,omitempty"`
+}
+
+type ProgramItem struct {
+	SequenceID string `json:"sequence_id"`
+	AtOffsetMs int    `json:"at_offset_ms"`
 }
 
 type Sequence struct {
@@ -113,15 +128,20 @@ func (m Manifest) Validate() error {
 	}
 
 	seqIDs := map[string]bool{}
+	seqDur := map[string]int{}
 	for i, seq := range m.Sequences {
 		where := fmt.Sprintf("sequences[%d]", i)
 		if seq.ID == "" {
 			return fmt.Errorf("%s: id boş olamaz", where)
 		}
+		if seq.ID == ProgramCueID {
+			return fmt.Errorf("%s: %q ayrılmış kimliktir (otomatik programı başlatır)", where, ProgramCueID)
+		}
 		if seqIDs[seq.ID] {
 			return fmt.Errorf("%s: id %q tekrar ediyor", where, seq.ID)
 		}
 		seqIDs[seq.ID] = true
+		seqDur[seq.ID] = seq.DurationMs
 		if seq.DurationMs <= 0 || seq.DurationMs > maxSequenceDuration {
 			return fmt.Errorf("%s: duration_ms 1..%d aralığında olmalı", where, maxSequenceDuration)
 		}
@@ -159,6 +179,24 @@ func (m Manifest) Validate() error {
 				}
 			}
 		}
+	}
+
+	// Otomatik program: var olan sekanslara işaret etmeli, artan sırada
+	// olmalı ve üst üste binmemeli (telefon aynı anda tek sekans oynatır).
+	prevEnd := 0
+	for i, item := range m.Program {
+		where := fmt.Sprintf("program[%d]", i)
+		dur, ok := seqDur[item.SequenceID]
+		if !ok {
+			return fmt.Errorf("%s: sequence_id %q manifestte yok", where, item.SequenceID)
+		}
+		if item.AtOffsetMs < 0 {
+			return fmt.Errorf("%s: at_offset_ms negatif olamaz", where)
+		}
+		if item.AtOffsetMs < prevEnd {
+			return fmt.Errorf("%s: önceki sekansla üst üste biniyor (önceki bitiş %d ms)", where, prevEnd)
+		}
+		prevEnd = item.AtOffsetMs + dur
 	}
 	return nil
 }
