@@ -14,6 +14,8 @@ dependencies:
   http: ^1.2.0
   # Paket SHA-256 doğrulaması.
   crypto: ^3.0.3
+  # Ses varlıklarının indirildiği kalıcı uygulama dizini.
+  path_provider: ^2.1.0
   # WebSocket istemcisi (gateway bağlantısı).
   web_socket_channel: ^3.0.0
   # Telefon feneri. Karar: zamanlanmış ses ve hassas fener Faz 2'de native

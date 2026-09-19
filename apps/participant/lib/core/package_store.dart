@@ -1,7 +1,9 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:crypto/crypto.dart';
 import 'package:http/http.dart' as http;
+import 'package:path_provider/path_provider.dart';
 
 import 'show_manifest.dart';
 
@@ -18,6 +20,7 @@ class JoinInfo {
     required this.showVersionId,
     required this.sha256,
     required this.manifest,
+    this.assetPaths = const {},
   });
 
   final String roomId;
@@ -26,6 +29,9 @@ class JoinInfo {
   final String showVersionId; // '' = odada aktif gösteri yok
   final String sha256;
   final ShowManifest? manifest;
+
+  /// asset_id → indirilen yerel dosya yolu (ses varlıkları; özet doğrulanmış).
+  final Map<String, String> assetPaths;
 }
 
 class PackageStoreException implements Exception {
@@ -88,6 +94,13 @@ class PackageStore {
       manifest = ShowManifest.fromJson(sv['manifest'] as Map<String, dynamic>);
     }
 
+    // Ses varlıkları da odaya girerken iner (karar: ön yükleme) ve addaki
+    // özetle doğrulanır; kue anında ağ gerekmez.
+    var assetPaths = const <String, String>{};
+    if (manifest != null) {
+      assetPaths = await _downloadAssets(controlBase, manifest);
+    }
+
     return JoinInfo(
       roomId: body['room_id'] as String? ?? '',
       roomName: body['room_name'] as String? ?? '',
@@ -95,6 +108,53 @@ class PackageStore {
       showVersionId: sv['id'] as String? ?? '',
       sha256: expectedSha,
       manifest: manifest,
+      assetPaths: assetPaths,
     );
+  }
+
+  Future<Map<String, String>> _downloadAssets(
+      Uri controlBase, ShowManifest manifest) async {
+    final ids = <String>{};
+    for (final seq in manifest.sequences) {
+      for (final lane in seq.cueLanes) {
+        if (lane.kind != 'audio') continue;
+        for (final cue in lane.cues) {
+          if (cue.assetId.isNotEmpty) ids.add(cue.assetId);
+        }
+      }
+    }
+    if (ids.isEmpty) return const {};
+
+    final dir = Directory(
+        '${(await getApplicationSupportDirectory()).path}/tekses_assets');
+    await dir.create(recursive: true);
+
+    final paths = <String, String>{};
+    for (final id in ids) {
+      final file = File('${dir.path}/$id');
+      final expectedSha = id.split('.').first;
+      // Önbellek: dosya varsa ve özeti tutuyorsa yeniden indirilmez
+      // (asset_id içerik adresli olduğu için ad = içerik garantisi).
+      if (await file.exists()) {
+        final existing = await file.readAsBytes();
+        if (sha256.convert(existing).toString() == expectedSha) {
+          paths[id] = file.path;
+          continue;
+        }
+      }
+      final resp = await _client
+          .get(controlBase.resolve('/assets/$id'))
+          .timeout(const Duration(minutes: 2));
+      if (resp.statusCode != 200) {
+        throw PackageStoreException(
+            'Ses varlığı indirilemedi: $id (HTTP ${resp.statusCode})');
+      }
+      if (sha256.convert(resp.bodyBytes).toString() != expectedSha) {
+        throw PackageStoreException('Ses varlığı doğrulanamadı: $id');
+      }
+      await file.writeAsBytes(resp.bodyBytes, flush: true);
+      paths[id] = file.path;
+    }
+    return paths;
   }
 }

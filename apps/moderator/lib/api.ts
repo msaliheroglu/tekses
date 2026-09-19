@@ -109,6 +109,23 @@ export async function fetchManifestSummary(showVersionID: string): Promise<Manif
   };
 }
 
+// Ses varlığı yükleme: ham gövde, Content-Type dosyanın ses türü.
+export async function uploadAsset(
+  file: File,
+): Promise<{ asset_id: string; url: string; bytes: number }> {
+  const headers: Record<string, string> = {
+    "Content-Type": file.type || "audio/mpeg",
+  };
+  const token = getToken();
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+  const resp = await fetch("/control/api/v1/assets", { method: "POST", headers, body: file });
+  const data = await resp.json().catch(() => ({}));
+  if (!resp.ok) {
+    throw new ApiError(resp.status, (data as { error?: string }).error ?? `HTTP ${resp.status}`);
+  }
+  return data as { asset_id: string; url: string; bytes: number };
+}
+
 // Gateway çalıştırma kaydı (asgari telemetri).
 export type RunRecord = {
   run_id?: string;

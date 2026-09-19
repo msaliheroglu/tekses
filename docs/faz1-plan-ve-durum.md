@@ -101,9 +101,15 @@ adım sırasını izler.
   *Ön yoklama (2026-09-19, geliştirme konteyneri, 4 çekirdek):* 2.000 ikili
   istemci tek gateway'de sorunsuz — yayılım 3 ms. Gerçek 100k koşumu fd/port
   sınırları gereği F2.2 VM'inde (ya da ayrı yük makinesinde) yapılacak.
-- [ ] **F2.5 Native zamanlanmış ses:** Android AudioTrack / iOS
-  AVAudioPlayer `play(atTime:)` platform kanalları; manifest audio
-  şeritlerinin çalınması; ses varlıklarının pakete girmesi + R2 sürücüsü.
+- [x] **F2.5 Native zamanlanmış ses (2026-09-19):** (a) varlık boru hattı —
+  POST /api/v1/assets (içerik adresli, <sha256>.<uzantı>), herkese açık
+  /assets/{id}, yayında varlık doğrulaması; telefon varlıkları katılırken
+  indirir ve özetle doğrular (path_provider önbelleği). (b) tekses/audio
+  platform kanalı: Android Handler.postAtTime, iOS AVAudioPlayer
+  play(atTime:); Dart MonoClock↔platform saati eşlemesi; kanal dosyaları
+  `native/` altında (kopyalama adımı README + APK iş akışında). Panel'e ses
+  yükleme arayüzü eklendi. **Cihaz doğrulaması bekliyor** (native dosyalar
+  kopyalanıp sesli manifest denenecek); R2 sürücüsü F2.2 dağıtımına bağlı.
 - [ ] **F2.6 NATS JetStream oda dağıtımı** (çok düğümlü gateway) ve
   telemetri panoları (kalıcı Run tablosu, saat kalitesi ısı haritası).
 - [ ] **F2.7 Ultrasonik beacon + PA test kiti** (karar dokümanı §3).

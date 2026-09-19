@@ -1,7 +1,7 @@
 "use client";
 
 import { use, useCallback, useEffect, useState } from "react";
-import { control, type Event, type Room, type ShowVersion } from "@/lib/api";
+import { control, uploadAsset, type Event, type Room, type ShowVersion } from "@/lib/api";
 
 // Söz zamanlama/dalga formu editörü sonraki yineleme; MVP'de manifest JSON
 // olarak düzenlenir. Şema: packages/manifest (sunucu yayında doğrular).
@@ -38,6 +38,8 @@ export default function ShowDetailPage({ params }: { params: Promise<{ id: strin
   const [selectedRoom, setSelectedRoom] = useState("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [assets, setAssets] = useState<{ name: string; assetId: string; bytes: number }[]>([]);
+  const [uploading, setUploading] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -93,9 +95,50 @@ export default function ShowDetailPage({ params }: { params: Promise<{ id: strin
     }
   }
 
+  async function onPickAudio(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    setError("");
+    setUploading(true);
+    try {
+      const up = await uploadAsset(file);
+      setAssets((prev) => [{ name: file.name, assetId: up.asset_id, bytes: up.bytes }, ...prev]);
+      setNotice(`"${file.name}" yüklendi; asset_id'yi manifestteki audio kuesine yapıştırın.`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "yükleme hatası");
+    } finally {
+      setUploading(false);
+    }
+  }
+
   return (
     <>
       <h1>Gösteri sürümleri</h1>
+      <div className="card">
+        <h2>Ses varlıkları</h2>
+        <p className="muted">
+          Yüklenen dosya içerik adresli bir <code>asset_id</code> alır; manifestte
+          <code>{'{"kind": "audio", "cues": [{"at_ms": 0, "duration_ms": …, "asset_id": "…"}]}'}</code>
+          şeridiyle kullanılır. Lisans sorumluluğu organizatördedir.
+        </p>
+        <input type="file" accept="audio/*" onChange={onPickAudio} disabled={uploading} />
+        {uploading && <p className="muted">yükleniyor…</p>}
+        {assets.length > 0 && (
+          <table>
+            <thead><tr><th>Dosya</th><th>asset_id</th><th>Boyut</th></tr></thead>
+            <tbody>
+              {assets.map((a) => (
+                <tr key={a.assetId}>
+                  <td>{a.name}</td>
+                  <td><code>{a.assetId}</code></td>
+                  <td className="muted">{(a.bytes / 1024 / 1024).toFixed(2)} MB</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
       <form className="card" onSubmit={publish}>
         <h2>Manifest yayınla</h2>
         <p className="muted">

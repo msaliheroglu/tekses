@@ -8,6 +8,7 @@ import '../core/cue_arbiter.dart';
 import '../core/cue_scheduler.dart';
 import '../core/messages.dart';
 import '../core/mono_clock.dart';
+import '../core/native_audio.dart';
 import '../core/package_store.dart';
 import '../core/realtime_client.dart';
 import '../core/show_manifest.dart';
@@ -39,6 +40,10 @@ class _ShowScreenState extends State<ShowScreen> {
   late final RealtimeClient _client;
   late final CueArbiter _arbiter;
   final _torch = TorchService();
+  final _audio = NativeAudio();
+
+  /// Aktif kuenin ses planı: ateşleme anına göre (atMs, hazırlanmış çalar id).
+  List<({String playerId, int atMs})> _audioPlan = const [];
 
   ClockEstimate? _estimate;
   String _status = 'başlatılıyor';
@@ -59,6 +64,7 @@ class _ShowScreenState extends State<ShowScreen> {
     super.initState();
     WakelockPlus.enable();
     _torch.init();
+    _audio.init();
     _arbiter = CueArbiter(onAccepted: _onCueAccepted);
     _client = RealtimeClient(
       uri: widget.serverUri,
@@ -103,16 +109,23 @@ class _ShowScreenState extends State<ShowScreen> {
     // ediyorsa tek sekans; ikisi de değilse Faz 0 yükü oynar.
     final manifest = widget.joinInfo?.manifest;
     String statusLabel;
+    List<({String sequenceId, int baseMs})> played = const [];
     if (cue.cueId == programCueId && manifest != null && manifest.program.isNotEmpty) {
       _engine = ProgramEngine(manifest);
+      played = [
+        for (final item in manifest.program)
+          (sequenceId: item.sequenceId, baseMs: item.atOffsetMs),
+      ];
       statusLabel = 'otomatik program hazır (${manifest.program.length} sekans)';
     } else {
       final sequence = manifest?.sequenceById(cue.cueId);
       _engine = sequence == null ? null : TimelineEngine(sequence);
+      if (sequence != null) played = [(sequenceId: sequence.id, baseMs: 0)];
       statusLabel = sequence == null
           ? 'kue alındı (${cue.cueId})'
           : 'sekans hazır: ${sequence.title}';
     }
+    _prepareAudio(manifest, played);
     setState(() {
       _activeCue = cue;
       _status = '$statusLabel; ateşleme bekleniyor';
@@ -125,8 +138,39 @@ class _ShowScreenState extends State<ShowScreen> {
     );
   }
 
+  /// Sekansların ses kuelerini hazırlar: her kue kendi çalar örneğini alır
+  /// (aynı varlık iki kez çalınabilsin), kod çözme ateşleme öncesi biter.
+  void _prepareAudio(ShowManifest? manifest,
+      List<({String sequenceId, int baseMs})> played) {
+    _audio.stopAll();
+    final plan = <({String playerId, int atMs})>[];
+    final paths = widget.joinInfo?.assetPaths ?? const {};
+    for (final entry in played) {
+      final seq = manifest?.sequenceById(entry.sequenceId);
+      if (seq == null) continue;
+      for (final lane in seq.cueLanes) {
+        if (lane.kind != 'audio') continue;
+        for (final cue in lane.cues) {
+          final path = paths[cue.assetId];
+          if (path == null) continue; // varlık inmemiş; ışık koreografisi sürer
+          final playerId = '${cue.assetId}#${plan.length}';
+          _audio.prepare(playerId, path);
+          plan.add((playerId: playerId, atMs: entry.baseMs + cue.atMs));
+        }
+      }
+    }
+    _audioPlan = plan;
+  }
+
   void _startEffect(CueStartMsg cue, int lateByMs) {
     if (!mounted) return;
+    // Ses planı ateşleme anında, kesinleşmiş fireLocal üzerinden platforma
+    // devredilir; bu andan sonra çalma anını platformun kendi saati tutar.
+    for (final entry in _audioPlan) {
+      if (entry.atMs >= lateByMs) {
+        _audio.playAtMono(entry.playerId, _fireLocalMs + entry.atMs);
+      }
+    }
     setState(() => _status = lateByMs > 0
         ? 'koreografi sürüyor (geç katılım: +$lateByMs ms)'
         : 'koreografi sürüyor');
@@ -197,6 +241,7 @@ class _ShowScreenState extends State<ShowScreen> {
     _effectTicker = null;
     _torchTarget = false;
     _torch.off();
+    _audio.stopAll();
     if (toBlack && mounted) {
       setState(() {
         _background = Colors.black;
@@ -216,9 +261,10 @@ class _ShowScreenState extends State<ShowScreen> {
           _status = intervention.kind == 'BLACKOUT' ? 'KARARTMA' : 'durduruldu';
         });
       case 'HOLD':
-        // Ekran son karede kalır; güvenlik gereği fener söndürülür.
+        // Ekran son karede kalır; güvenlik gereği fener ve ses susturulur.
         _held = true;
         _torch.off();
+        _audio.stopAll();
         setState(() => _status = 'beklemede (HOLD)');
       case 'SKIP':
         // Faz 0'da sekans listesi yok; Faz 1'de timeline_engine ele alacak.
