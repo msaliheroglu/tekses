@@ -7,6 +7,7 @@ package api
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -80,6 +81,11 @@ func (s *Server) Handler() http.Handler {
 	// Üretimde bu yol CDN/R2'ye devrolur; sözleşme aynı kalır:
 	// /packages/<sha256>.json ve içerik özetle doğrulanır.
 	mux.HandleFunc("GET /packages/{name}", s.handlePackage)
+
+	// Ses varlıkları: içerik adresli yükleme (moderatör) ve indirme
+	// (telefon; asset_id = <sha256>.<uzantı>, içerik özetle doğrulanır).
+	mux.HandleFunc("POST /api/v1/assets", s.authed(s.handleUploadAsset))
+	mux.HandleFunc("GET /assets/{name}", s.handleAsset)
 
 	return mux
 }
@@ -395,6 +401,34 @@ func (s *Server) handlePublishShowVersion(w http.ResponseWriter, r *http.Request
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	// Ses kueleri var olan varlıklara işaret etmeli: sürüm değişmez olduğu
+	// için eksik varlık, gösteri gecesi telefonda 404 demektir — yayında
+	// yakalanır.
+	for _, seq := range m.Sequences {
+		for _, lane := range seq.CueLanes {
+			if lane.Kind != manifest.LaneAudio {
+				continue
+			}
+			for _, cue := range lane.Cues {
+				if !assetNameRe.MatchString(cue.AssetID) {
+					writeErr(w, http.StatusBadRequest, fmt.Sprintf(
+						"%s/%s: asset_id %q geçersiz (POST /api/v1/assets çıktısındaki kimlik kullanılmalı)",
+						seq.ID, lane.ID, cue.AssetID))
+					return
+				}
+				exists, err := s.packages.Exists(r.Context(), cue.AssetID)
+				if err != nil {
+					writeErr(w, http.StatusInternalServerError, "varlık denetlenemedi")
+					return
+				}
+				if !exists {
+					writeErr(w, http.StatusBadRequest, fmt.Sprintf(
+						"%s/%s: %s varlığı yüklenmemiş", seq.ID, lane.ID, cue.AssetID))
+					return
+				}
+			}
+		}
+	}
 	canonical, sum, err := m.Canonical()
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "manifest kanonikleştirilemedi")
@@ -517,6 +551,84 @@ func (s *Server) handleJoin(w http.ResponseWriter, r *http.Request) {
 func packageKey(sha256Hex string) string { return sha256Hex + ".json" }
 
 var packageNameRe = regexp.MustCompile(`^[0-9a-f]{64}\.json$`)
+
+// --- ses varlıkları ---
+
+const maxAssetBytes = 20 << 20 // 20 MiB / varlık (karar: ~5 MB tipik paket)
+
+// Kabul edilen ses türleri → varlık uzantısı. asset_id = <sha256>.<uzantı>
+// olduğundan telefon, indirdiği baytları addaki özetle doğrular.
+var audioExtByType = map[string]string{
+	"audio/mpeg":  "mp3",
+	"audio/mp3":   "mp3",
+	"audio/mp4":   "m4a",
+	"audio/aac":   "m4a",
+	"audio/x-m4a": "m4a",
+	"audio/wav":   "wav",
+	"audio/x-wav": "wav",
+	"audio/ogg":   "ogg",
+}
+
+var assetNameRe = regexp.MustCompile(`^[0-9a-f]{64}\.(mp3|m4a|wav|ogg)$`)
+
+var audioContentTypeByExt = map[string]string{
+	"mp3": "audio/mpeg",
+	"m4a": "audio/mp4",
+	"wav": "audio/wav",
+	"ogg": "audio/ogg",
+}
+
+func (s *Server) handleUploadAsset(w http.ResponseWriter, r *http.Request, _ model.Session) {
+	ct := r.Header.Get("Content-Type")
+	if i := strings.Index(ct, ";"); i >= 0 {
+		ct = strings.TrimSpace(ct[:i])
+	}
+	ext, ok := audioExtByType[strings.ToLower(ct)]
+	if !ok {
+		writeErr(w, http.StatusUnsupportedMediaType,
+			"Content-Type ses türü olmalı (audio/mpeg, audio/mp4, audio/wav, audio/ogg)")
+		return
+	}
+	data, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxAssetBytes))
+	if err != nil {
+		writeErr(w, http.StatusRequestEntityTooLarge, fmt.Sprintf("varlık en çok %d bayt olabilir", maxAssetBytes))
+		return
+	}
+	if len(data) == 0 {
+		writeErr(w, http.StatusBadRequest, "boş gövde")
+		return
+	}
+	sum := sha256.Sum256(data)
+	assetID := hex.EncodeToString(sum[:]) + "." + ext
+	if err := s.packages.Put(r.Context(), assetID, data); err != nil {
+		s.log.Error("varlık yazılamadı", "hata", err)
+		writeErr(w, http.StatusInternalServerError, "varlık depolanamadı")
+		return
+	}
+	s.log.Info("ses varlığı yüklendi", "asset_id", assetID, "bayt", len(data))
+	writeJSON(w, http.StatusCreated, map[string]any{
+		"asset_id": assetID,
+		"url":      "/assets/" + assetID,
+		"bytes":    len(data),
+	})
+}
+
+func (s *Server) handleAsset(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	if !assetNameRe.MatchString(name) {
+		writeErr(w, http.StatusNotFound, "varlık bulunamadı")
+		return
+	}
+	data, err := s.packages.Get(r.Context(), name)
+	if err != nil {
+		writeErr(w, http.StatusNotFound, "varlık bulunamadı")
+		return
+	}
+	ext := name[strings.LastIndexByte(name, '.')+1:]
+	w.Header().Set("Content-Type", audioContentTypeByExt[ext])
+	w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+	_, _ = w.Write(data)
+}
 
 func (s *Server) handlePackage(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")

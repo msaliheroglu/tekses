@@ -21,6 +21,9 @@ var ErrNotFound = errors.New("blob: kayıt bulunamadı")
 type Store interface {
 	Put(ctx context.Context, key string, data []byte) error
 	Get(ctx context.Context, key string) ([]byte, error)
+	// Exists, içeriği okumadan anahtarın varlığını söyler (yayın sırasında
+	// büyük ses varlıklarını belleğe çekmemek için).
+	Exists(ctx context.Context, key string) (bool, error)
 }
 
 // FS, kök dizin altında düz dosyalarla çalışan sürücüdür.
@@ -79,4 +82,17 @@ func (f *FS) Get(_ context.Context, key string) ([]byte, error) {
 		return nil, ErrNotFound
 	}
 	return data, err
+}
+
+func (f *FS) Exists(_ context.Context, key string) (bool, error) {
+	path, err := f.safePath(key)
+	if err != nil {
+		return false, err
+	}
+	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	} else if err != nil {
+		return false, err
+	}
+	return true, nil
 }

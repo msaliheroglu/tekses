@@ -306,6 +306,83 @@ func TestPublishActivateJoinFlow(t *testing.T) {
 	}
 }
 
+func TestAudioAssetFlow(t *testing.T) {
+	c := newTestAPI(t)
+	c.register("Ses AŞ", "ses@ornek.com")
+
+	// Yükleme: ham ses gövdesi → içerik adresli asset_id.
+	fakeMp3 := []byte("ID3-sahte-mp3-govdesi-test")
+	req, _ := http.NewRequest(http.MethodPost, c.base+"/api/v1/assets", bytes.NewReader(fakeMp3))
+	req.Header.Set("Content-Type", "audio/mpeg")
+	req.Header.Set("Authorization", "Bearer "+c.token)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var up struct {
+		AssetID string `json:"asset_id"`
+		URL     string `json:"url"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&up); err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusCreated || !strings.HasSuffix(up.AssetID, ".mp3") {
+		t.Fatalf("yükleme durumu = %d, asset_id = %q", resp.StatusCode, up.AssetID)
+	}
+	wantSum := sha256.Sum256(fakeMp3)
+	if up.AssetID != hex.EncodeToString(wantSum[:])+".mp3" {
+		t.Fatalf("asset_id içerik adresli değil: %s", up.AssetID)
+	}
+
+	// Herkese açık indirme, bayt bayt aynı ve immutable.
+	dl, err := http.Get(c.base + up.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(dl.Body)
+	dl.Body.Close()
+	if dl.StatusCode != http.StatusOK || string(body) != string(fakeMp3) {
+		t.Fatalf("indirme durumu = %d, gövde eşleşmiyor", dl.StatusCode)
+	}
+	if ct := dl.Header.Get("Content-Type"); ct != "audio/mpeg" {
+		t.Fatalf("içerik türü = %q", ct)
+	}
+
+	// Ses türü olmayan yükleme reddedilir.
+	req2, _ := http.NewRequest(http.MethodPost, c.base+"/api/v1/assets", strings.NewReader("x"))
+	req2.Header.Set("Content-Type", "application/json")
+	req2.Header.Set("Authorization", "Bearer "+c.token)
+	resp2, _ := http.DefaultClient.Do(req2)
+	resp2.Body.Close()
+	if resp2.StatusCode != http.StatusUnsupportedMediaType {
+		t.Fatalf("json yükleme durumu = %d, beklenen 415", resp2.StatusCode)
+	}
+
+	// Yayın doğrulaması: var olan varlıkla geçer, olmayanla 400.
+	var show struct {
+		ID string `json:"id"`
+	}
+	c.do(http.MethodPost, "/api/v1/shows", map[string]string{"title": "Sesli"}, &show)
+	manifestWith := func(assetID string) string {
+		return `{"title":"X","sequences":[{"id":"a","title":"t","duration_ms":10000,
+		  "cue_lanes":[{"id":"ses","kind":"audio","cues":[{"at_ms":0,"duration_ms":5000,"asset_id":"` + assetID + `"}]}]}]}`
+	}
+	if status := c.do(http.MethodPost, "/api/v1/shows/"+show.ID+"/versions",
+		json.RawMessage(manifestWith(up.AssetID)), nil); status != http.StatusCreated {
+		t.Fatalf("var olan varlıkla yayın durumu = %d", status)
+	}
+	missing := strings.Repeat("0", 64) + ".mp3"
+	if status := c.do(http.MethodPost, "/api/v1/shows/"+show.ID+"/versions",
+		json.RawMessage(manifestWith(missing)), nil); status != http.StatusBadRequest {
+		t.Fatalf("olmayan varlıkla yayın durumu = %d, beklenen 400", status)
+	}
+	if status := c.do(http.MethodPost, "/api/v1/shows/"+show.ID+"/versions",
+		json.RawMessage(manifestWith("serbest-metin")), nil); status != http.StatusBadRequest {
+		t.Fatalf("biçimsiz asset_id ile yayın durumu = %d, beklenen 400", status)
+	}
+}
+
 func TestAuthRequired(t *testing.T) {
 	c := newTestAPI(t)
 	for _, path := range []string{"/api/v1/events", "/api/v1/shows"} {
