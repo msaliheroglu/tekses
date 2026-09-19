@@ -1,0 +1,108 @@
+# Faz 1 (MVP) ve Faz 2 — Plan ve Durum
+
+Bu dosya oturumlar arası devir defteridir: her Claude oturumu buradan devam
+eder, her tamamlanan adımda burası güncellenip push edilir. Kota/oturum
+kesintisi durumunda yeni oturuma verilecek tek komut yeterlidir:
+**"TekSes Faz 1'e devam et"** — oturum `CLAUDE.md` → bu dosya → işaretsiz ilk
+adım sırasını izler.
+
+## Çalışma kuralları (kesinti dayanıklılığı)
+
+- Her anlamlı adım ayrı commit + anında `git push` (branch:
+  `claude/tekses-monorepo-phase-0-p0l6ij`). Push edilmemiş iş yok sayılır.
+- Doğrulama her adımda: `go build ./... && go vet ./... && go test ./...`
+  (+ panel için `npm run build`). Kırmızıyken yeni adıma geçilmez.
+- Bir adım yarım kaldıysa aşağıya "YARIM:" notu düşülür (ne bitti, sıradaki
+  somut hamle ne).
+
+## Adımlar
+
+- [x] **0. Faz 0 tamamlandı** — monorepo, proto sözleşmeleri, gateway,
+  loadgen (yayılım 17–23 ms ✓), Flutter Faz 0 uygulaması, web konsol + /join.
+- [x] **1. Bu plan dosyası + devam mekanizması**
+- [x] **2. Control API temeli** — `services/control-api`: alan modeli
+  (Organization→Event→Room; Show→ShowVersion), depolama arayüzü + bellek içi
+  store, e-posta+şifre kaydı/girişi (bcrypt, bearer token), çok kiracılı
+  Event/Room CRUD; uçtan uca httptest'ler.
+- [x] **3. Gösteri manifesti + yayınlama** — değişmez ShowVersion (kanonik
+  JSON + SHA-256), Sequence/LyricLine/CueLane/Cue doğrulaması (flashHz ≤ 3),
+  `POST /shows/{id}/versions`, `POST /rooms/{id}/activate`, herkese açık
+  `GET /join/{code}`.
+- [x] **4. Gateway oda entegrasyonu** — gateway'de oda kavramı; hello'daki
+  join_code doğrulaması control-api üzerinden (`TEKSES_CONTROL_URL`); kue ve
+  müdahale yayınının `room_id` ile odaya daraltılması (boş = tümü, Faz 0
+  uyumlu).
+- [x] **7. Moderatör paneli (Next.js) — MVP** *(öne çekildi; kullanıcı web
+  panelini görmek istiyor, Postgres/CDN panelden bağımsız)* — giriş/kayıt,
+  etkinlik + oda yönetimi (QR ile `/join?code=…`), manifest yayınlama (JSON
+  editörü; dalga formu/LRC editörü sonraki yineleme), sürüm etkinleştirme,
+  canlı konsol (GO/HOLD/STOP/BLACKOUT, odaya daraltılmış). control-api ve
+  gateway'e Next rewrites üzerinden vekillenir (CORS'suz). CI'da build.
+- [x] **5. Postgres kalıcılığı** — gömülü migration'lar + pgx store
+  (`TEKSES_DATABASE_URL`; ayarsızsa bellek içi). Tüm store gerçeklemeleri
+  ortak uygunluk paketinden (`store/storetest`) geçer; Postgres testi
+  `TEKSES_TEST_DATABASE_URL` ile yerelde gerçek Postgres 16'da doğrulandı,
+  CI'da servis konteyneriyle koşuyor. Kayıt atomikleştirildi
+  (CreateOrgWithUser).
+- [x] **6. Paketleme** — içerik adresli paket deposu (`packages/blob`,
+  atomik/idempotent FS sürücüsü, `TEKSES_PACKAGES_DIR`); yayında paket
+  `/packages/<sha256>.json` altına yazılır, join yanıtı `manifest_url` verir,
+  indirme immutable önbellek başlığıyla sunulur ve SHA-256 ile doğrulanır.
+  **Kalan:** R2/S3 sürücüsü aynı arayüzün arkasına dağıtım aşamasında
+  (Oracle VM + Cloudflare kurulurken) eklenecek; ses varlıkları Faz 2.
+- [x] **8. Katılımcı uygulaması MVP** — package_store (katılım kodu →
+  paket indirme + SHA-256 doğrulama), show_manifest modeli, saf
+  timeline_engine (birim testli), söz akışı + manifest güdümlü ekran/fener;
+  `cue_id` = sekans id sözleşmesi, eşleşmeyen kueler Faz 0 yükü olarak
+  oynar. **Dikkat:** Dart bu ortamda derlenemiyor — telefonda ilk
+  `flutter analyze && flutter test` çıktısı kullanıcıdan beklenecek.
+- [x] **9. Otomatik program + Run kaydı** — kullanıcı (a) seçeneğini seçti
+  (2026-09-19): program manifestin içinde (`program` listesi, doğrulamalı:
+  var olan sekans, artan sıra, üst üste binme yok); ayrılmış `program` kue
+  kimliği akışı başlatır, telefon `ProgramEngine` ile yerelden oynatır
+  (birim testli). Konsola sekans/program seçici ve gateway'in son 50
+  çalıştırmayı tutan `GET /api/v0/runs` kaydı eklendi. **Faz 2'ye devir:**
+  kalıcı Run tablosu, saat kalitesi ısı haritası ve telemetri panoları.
+
+## Doğrulama durumu
+
+- [x] **Gerçek cihaz doğrulaması (2026-09-19):** release APK Android
+  cihazda çalıştı — kodla katılım, paket indirme + özet doğrulama, saat
+  senkronu (ofset/RTT görüldü) ve kue denemesi başarılı. Yol boyu düzelen
+  saha hataları: analyze hataları (library sırası, eksik import), release
+  manifest'te INTERNET izni, ASCII olmayan Windows yolu.
+- [ ] Çoklu telefon + 240 fps kamera ile fiziksel senkron ölçümü (≤30 ms
+  hedefi) — cihazlar toplanınca; kılavuz: docs/faz0-senkron-denemesi.md.
+- [ ] GitHub Actions koşumlarının gözden geçirilmesi; "Katılımcı APK" iş
+  akışının Run workflow düğmesi branch main'e merge edilince görünür.
+
+## Faz 2 — Ölçek ve ses
+
+- [x] **F2.0 PR:** Faz 1 main'e PR #2 ile açıldı (2026-09-19); merge kararı
+  kullanıcıda. CI'ı bu oturum gözetliyor.
+- [x] **F2.1 Dağıtım paketi:** Dockerfile'lar (gateway, control-api, panel
+  standalone), `deploy/docker-compose.yml` (postgres + üç servis + Caddy
+  otomatik TLS, tek alan adında yol bazlı dağıtım), `.env.example`,
+  kurulum rehberi `docs/dagitim.md`. **Not:** bu geliştirme ortamında
+  Docker daemon yok — imaj derlemeleri VM'deki ilk `docker compose up
+  --build` ile doğrulanacak; sorun çıkarsa hata çıktısıyla düzeltilir.
+- [ ] **F2.2 VM kurulumu** *(kullanıcıyla birlikte)*: Oracle Always Free VM
+  + alan adı + `docs/dagitim.md` adımları; telefonların LTE'den katılımı.
+- [ ] **F2.3 Protobuf ikili teline geçiş** (~40 bayt/kue): buf generate ile
+  Go stub'ları, Dart stub'ları; wire paketinin devri; sürüm müzakeresi
+  hello'da hazır.
+- [ ] **F2.4 Yük testi:** loadgen'i 100k istemciye ölçekleme (çok bağlantılı
+  koşum, bellek/CPU profili), yeniden bağlanma fırtınası senaryosu.
+- [ ] **F2.5 Native zamanlanmış ses:** Android AudioTrack / iOS
+  AVAudioPlayer `play(atTime:)` platform kanalları; manifest audio
+  şeritlerinin çalınması; ses varlıklarının pakete girmesi + R2 sürücüsü.
+- [ ] **F2.6 NATS JetStream oda dağıtımı** (çok düğümlü gateway) ve
+  telemetri panoları (kalıcı Run tablosu, saat kalitesi ısı haritası).
+- [ ] **F2.7 Ultrasonik beacon + PA test kiti** (karar dokümanı §3).
+
+## Notlar
+
+- Mimari doküman (`tekses-architecture-v0.1.md`) hâlâ depoda değil; kullanıcı
+  paylaşınca `docs/architecture/` altına eklenecek.
+- Kullanıcının bekleyen istekleri: Android APK derleyen CI işi (isteğe bağlı,
+  sorulunca eklenecek).

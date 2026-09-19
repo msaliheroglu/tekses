@@ -2,6 +2,7 @@ package server
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -13,12 +14,30 @@ import (
 	"github.com/gorilla/websocket"
 
 	"github.com/msaliheroglu/tekses/packages/proto/wire"
+	"github.com/msaliheroglu/tekses/services/gateway/internal/hub"
+	"github.com/msaliheroglu/tekses/services/gateway/internal/rooms"
 )
+
+// fakeResolver, testlerde katılım kodlarını sabit tablodan çözer.
+type fakeResolver struct{ codes map[string]string }
+
+func (f fakeResolver) ResolveJoinCode(_ context.Context, code string) (string, error) {
+	room, ok := f.codes[code]
+	if !ok {
+		return "", rooms.ErrUnknownCode
+	}
+	return room, nil
+}
 
 func newTestServer(t *testing.T, adminToken string) (*httptest.Server, string) {
 	t.Helper()
+	return newTestServerWithResolver(t, adminToken, nil)
+}
+
+func newTestServerWithResolver(t *testing.T, adminToken string, resolver rooms.Resolver) (*httptest.Server, string) {
+	t.Helper()
 	log := slog.New(slog.NewTextHandler(testWriter{t}, &slog.HandlerOptions{Level: slog.LevelError}))
-	ts := httptest.NewServer(New(log, adminToken).Handler())
+	ts := httptest.NewServer(New(log, adminToken, resolver).Handler())
 	t.Cleanup(ts.Close)
 	wsURL := "ws" + strings.TrimPrefix(ts.URL, "http") + "/ws"
 	return ts, wsURL
@@ -63,6 +82,31 @@ func readEnvelope(t *testing.T, conn *websocket.Conn) wire.Envelope {
 	return env
 }
 
+func TestStaticPages(t *testing.T) {
+	ts, _ := newTestServer(t, "")
+	for path, marker := range map[string]string{
+		"/":     "moderatör konsolu",
+		"/join": "Gösteriye katıl",
+	} {
+		resp, err := http.Get(ts.URL + path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var body bytes.Buffer
+		_, _ = body.ReadFrom(resp.Body)
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			t.Errorf("%s durumu = %d, beklenen 200", path, resp.StatusCode)
+		}
+		if ct := resp.Header.Get("Content-Type"); !strings.HasPrefix(ct, "text/html") {
+			t.Errorf("%s content-type = %q", path, ct)
+		}
+		if !strings.Contains(body.String(), marker) {
+			t.Errorf("%s sayfasında %q yok", path, marker)
+		}
+	}
+}
+
 func TestHelloWelcome(t *testing.T) {
 	_, wsURL := newTestServer(t, "")
 	conn := dial(t, wsURL)
@@ -76,8 +120,62 @@ func TestHelloWelcome(t *testing.T) {
 	if err := json.Unmarshal(env.Data, &welcome); err != nil {
 		t.Fatal(err)
 	}
-	if welcome.RoomID != roomID || welcome.ServerTimeMs == 0 {
+	if welcome.RoomID != hub.DefaultRoom || welcome.ServerTimeMs == 0 {
 		t.Fatalf("beklenmeyen welcome: %+v", welcome)
+	}
+}
+
+func TestRoomScopedJoinAndCue(t *testing.T) {
+	resolver := fakeResolver{codes: map[string]string{"ABC234": "room_a"}}
+	ts, wsURL := newTestServerWithResolver(t, "", resolver)
+
+	// İstemci A: kodla room_a'ya girer (kod küçük harfle de yazılabilmeli).
+	connA := dial(t, wsURL)
+	sendMsg(t, connA, wire.TypeHello, wire.Hello{ProtocolVersion: wire.ProtocolVersion, JoinCode: "abc234"})
+	envA := readEnvelope(t, connA)
+	var welcomeA wire.Welcome
+	if err := json.Unmarshal(envA.Data, &welcomeA); err != nil {
+		t.Fatal(err)
+	}
+	if welcomeA.RoomID != "room_a" {
+		t.Fatalf("A'nın odası = %q, beklenen room_a", welcomeA.RoomID)
+	}
+
+	// İstemci B: kodsuz, varsayılan odada.
+	connB := dial(t, wsURL)
+	sendMsg(t, connB, wire.TypeHello, wire.Hello{ProtocolVersion: wire.ProtocolVersion})
+	_ = readEnvelope(t, connB)
+
+	// room_a'ya daraltılmış kue yalnızca A'ya gider.
+	body, _ := json.Marshal(map[string]any{"delayMs": 600, "room_id": "room_a"})
+	resp, err := http.Post(ts.URL+"/api/v0/cue", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cueResp struct {
+		Clients int `json:"clients"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&cueResp); err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if cueResp.Clients != 1 {
+		t.Fatalf("hedef istemci = %d, beklenen 1", cueResp.Clients)
+	}
+	if env := readEnvelope(t, connA); env.Type != wire.TypeCueStart {
+		t.Fatalf("A kue almadı: %s", env.Type)
+	}
+	_ = connB.SetReadDeadline(time.Now().Add(300 * time.Millisecond))
+	if _, _, err := connB.ReadMessage(); err == nil {
+		t.Fatal("B başka odanın kuesini aldı")
+	}
+
+	// Geçersiz kodla hello → sunucu bağlantıyı kapatır.
+	connC := dial(t, wsURL)
+	sendMsg(t, connC, wire.TypeHello, wire.Hello{ProtocolVersion: wire.ProtocolVersion, JoinCode: "YANLIS"})
+	_ = connC.SetReadDeadline(time.Now().Add(2 * time.Second))
+	if _, _, err := connC.ReadMessage(); err == nil {
+		t.Fatal("geçersiz kod kabul edildi")
 	}
 }
 
@@ -225,5 +323,67 @@ func TestAdminTokenRequired(t *testing.T) {
 	resp2.Body.Close()
 	if resp2.StatusCode != http.StatusOK {
 		t.Fatalf("token'lı istek durumu = %d, beklenen 200", resp2.StatusCode)
+	}
+}
+
+func TestRunsRecorded(t *testing.T) {
+	ts, _ := newTestServer(t, "")
+
+	body, _ := json.Marshal(map[string]any{"delayMs": 600, "cue_id": "program"})
+	resp, err := http.Post(ts.URL+"/api/v0/cue", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	resp2, err := http.Post(ts.URL+"/api/v0/intervention", "application/json",
+		strings.NewReader(`{"kind":"STOP"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp2.Body.Close()
+
+	runsResp, err := http.Get(ts.URL + "/api/v0/runs")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer runsResp.Body.Close()
+	var got struct {
+		Runs []struct {
+			Kind  string `json:"kind"`
+			CueID string `json:"cue_id"`
+		} `json:"runs"`
+	}
+	if err := json.NewDecoder(runsResp.Body).Decode(&got); err != nil {
+		t.Fatal(err)
+	}
+	// En yenisi başta: STOP, sonra cue.
+	if len(got.Runs) != 2 || got.Runs[0].Kind != "STOP" || got.Runs[1].Kind != "cue" || got.Runs[1].CueID != "program" {
+		t.Fatalf("beklenmeyen runs: %+v", got.Runs)
+	}
+}
+
+func TestRunsRequiresToken(t *testing.T) {
+	ts, _ := newTestServer(t, "gizli")
+	resp, err := http.Get(ts.URL + "/api/v0/runs")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("token'sız runs durumu = %d, beklenen 401", resp.StatusCode)
+	}
+}
+
+func TestContentTypeRequired(t *testing.T) {
+	// CSRF önlemi: application/json olmayan gövdeler (örn. çapraz-site
+	// form POST'unun text/plain'i) API uçlarında reddedilir.
+	ts, _ := newTestServer(t, "")
+	resp, err := http.Post(ts.URL+"/api/v0/cue", "text/plain", strings.NewReader(`{}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusUnsupportedMediaType {
+		t.Fatalf("text/plain istek durumu = %d, beklenen 415", resp.StatusCode)
 	}
 }

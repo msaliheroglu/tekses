@@ -1,8 +1,36 @@
 # services/control-api — Kontrol API'si
 
-**Faz 1'de başlayacak.** REST API: etkinlik/gösteri yönetimi, paketleme,
-katılım kodu + QR, zamanlama, canlı konsol, telemetri. Çok kiracılı
-(Organization → Event → Room), pilot için e-posta + şifre girişi.
-Veri modeli karar dokümanı §3'te.
+Moderatör tarafının REST API'si: organizasyon/etkinlik/oda/gösteri yönetimi,
+katılım kodu üretimi, değişmez gösteri sürümleri.
 
-Faz 0'da moderatör konsolunun yerini gateway'in `POST /api/v0/cue` ucu tutar.
+```bash
+go run ./services/control-api/cmd/control-api -addr :8090
+```
+
+Depolama: `TEKSES_DATABASE_URL` ayarlıysa **Postgres** (gömülü migration'lar
+açılışta uygulanır), ayarsızsa bellek içi `memstore` (yalnızca yerel
+geliştirme; veriler süreçle silinir). Her iki gerçekleme de
+`store/storetest` uygunluk paketinden geçer; Postgres testi
+`TEKSES_TEST_DATABASE_URL` ile koşar.
+
+| Uç | Görev |
+|---|---|
+| `POST /api/v1/auth/register` | Organizasyon + kullanıcı kaydı `{organization, email, password}` → token |
+| `POST /api/v1/auth/login` | Giriş → token |
+| `GET/POST /api/v1/events` | Etkinlik listesi / oluşturma (Bearer token) |
+| `GET /api/v1/events/{id}` | Etkinlik ayrıntısı |
+| `GET/POST /api/v1/events/{id}/rooms` | Oda listesi / oluşturma (joinCode üretilir) |
+| `GET/POST /api/v1/shows` | Gösteri listesi / oluşturma |
+| `GET/POST /api/v1/shows/{id}/versions` | Sürüm listesi / manifest yayınlama (doğrulama + kanonik JSON + SHA-256) |
+| `GET /api/v1/show-versions/{id}` | Sürüm + tam manifest |
+| `POST /api/v1/rooms/{id}/activate` | Odada gösteri sürümünü etkinleştir |
+| `GET /api/v1/join/{code}` | **Herkese açık:** oda + aktif sürüm (`manifest_url`, sha256, manifest) |
+| `GET /packages/{sha256}.json` | **Herkese açık:** değişmez paket indirme (immutable önbellek; üretimde CDN devralır) |
+
+Manifest sözleşmesi `packages/manifest` paketindedir; sürümler değişmezdir
+(yayınlandıktan sonra hiçbir uç manifest baytlarını değiştiremez, telefon
+SHA-256 ile doğrular).
+
+Kiracılık: her istek oturumun organizasyonuna daraltılır; başka kiracının
+kaynağı 404 görünür. Katılım kodları karışması kolay karakterler (0/O, 1/I/L)
+içermeyen 6 haneli alfabeyle üretilir.

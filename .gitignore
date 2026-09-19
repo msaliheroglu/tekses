@@ -29,3 +29,6 @@ apps/participant/ios/Flutter/ephemeral/
 .env
 .env.*
 !.env.example
+
+# Yerel çalışma verisi (paket deposu vb.)
+/data/

@@ -1,0 +1,55 @@
+name: Katılımcı APK
+
+# Android APK'yı CI'da derler: bilgisayara Flutter kurmadan ve kablo
+# bağlamadan test için. Actions sekmesi → "Katılımcı APK" → Run workflow
+# (branch seçin) → koşum bitince Artifacts'tan APK indirilir (telefonun
+# tarayıcısından da indirilebilir; GitHub girişi gerekir).
+#
+# Not: keystore yapılandırılmadığı için Flutter release APK'yı debug
+# anahtarıyla imzalar — cihaza kurulur, mağaza dağıtımı için uygun değildir
+# (mağaza imzalama Faz 3'te).
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ["apps/participant/**"]
+
+jobs:
+  apk:
+    name: Android APK derle
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/participant
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      # Depo yalnızca Dart kaynaklarını tutar; Android iskeletini burada
+      # üretip iki manifest dokunuşunu yapıyoruz: INTERNET izni (release
+      # manifest'inde yoktur; olmadan ağ = EPERM) ve Faz 0/1'in yerel ağ
+      # şifresiz ws:// izni.
+      - name: Android iskeletini üret
+        run: |
+          flutter create --project-name tekses_participant --org app.tekses --platforms android .
+          sed -i 's#<application#<uses-permission android:name="android.permission.INTERNET" />\n    <application android:usesCleartextTraffic="true"#' android/app/src/main/AndroidManifest.xml
+          grep -A1 uses-permission android/app/src/main/AndroidManifest.xml
+
+      - run: flutter pub get
+      - run: flutter analyze
+      - run: flutter test
+      - run: flutter build apk --release
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tekses-participant-apk
+          path: apps/participant/build/app/outputs/flutter-apk/app-release.apk
+          retention-days: 14

@@ -1,19 +1,25 @@
 // Package server, Faz 0 gateway'inin HTTP/WebSocket yüzeyini sağlar:
 //
+//	GET  /                     — moderatör konsol sayfası (Faz 0 mini konsol)
+//	GET  /join                 — tarayıcı katılımcı deneme sayfası (telefon kurulumsuz)
 //	GET  /healthz              — sağlık ve bağlı istemci sayısı
 //	GET  /ws                   — katılımcı WebSocket'i (hello, saat senkronu, kue alımı)
-//	POST /api/v0/cue           — kue tetikle (moderatör konsolunun Faz 0 hali)
+//	POST /api/v0/cue           — kue tetikle
 //	POST /api/v0/intervention  — HOLD / STOP / SKIP / BLACKOUT yayınla
 package server
 
 import (
+	"context"
 	"crypto/rand"
+	"embed"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"regexp"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -21,10 +27,12 @@ import (
 	"github.com/msaliheroglu/tekses/packages/proto/wire"
 	"github.com/msaliheroglu/tekses/services/gateway/internal/clock"
 	"github.com/msaliheroglu/tekses/services/gateway/internal/hub"
+	"github.com/msaliheroglu/tekses/services/gateway/internal/rooms"
 )
 
 const (
-	roomID = "faz0"
+	// Katılım kodu çözümlemesi için control-api'ye tanınan süre.
+	resolveTimeout = 3 * time.Second
 
 	// Okuma sınırı: telde küçük kontrol mesajlarından başka bir şey akmaz.
 	maxMessageBytes = 4096
@@ -48,23 +56,60 @@ const (
 
 var colorRe = regexp.MustCompile(`^#[0-9A-Fa-f]{6}$`)
 
+// Faz 0 deneme sayfaları: moderatör mini konsolu ve tarayıcı katılımcısı.
+// Katılımcı ürünü Flutter'dır (apps/participant); /join yalnızca kurulumsuz
+// deneme içindir — Faz 3'teki tarayıcı yedeği kararından bağımsızdır.
+//
+//go:embed static
+var staticFS embed.FS
+
 // Server, gateway'in HTTP yüzeyini taşır.
 type Server struct {
 	log        *slog.Logger
 	clock      *clock.ServerClock
 	hub        *hub.Hub
 	adminToken string
+	resolver   rooms.Resolver
 	upgrader   websocket.Upgrader
+
+	// Son çalıştırmaların halka kaydı (asgari telemetri; en yenisi başta).
+	// Kalıcı Run kaydı ve panolar Faz 2 telemetri işine devredildi.
+	runsMu sync.Mutex
+	runs   []runRecord
+}
+
+// runRecord, tek bir kue yayını ya da müdahalenin izidir.
+type runRecord struct {
+	RunID            string `json:"run_id,omitempty"`
+	Kind             string `json:"kind"` // "cue" | HOLD | STOP | SKIP | BLACKOUT
+	CueID            string `json:"cue_id,omitempty"`
+	RoomID           string `json:"room_id,omitempty"`
+	FireAtServerMs   int64  `json:"fire_at_server_ms,omitempty"`
+	IssuedAtServerMs int64  `json:"issued_at_server_ms"`
+	Clients          int    `json:"clients"`
+}
+
+const maxRunRecords = 50
+
+func (s *Server) recordRun(rec runRecord) {
+	s.runsMu.Lock()
+	defer s.runsMu.Unlock()
+	s.runs = append([]runRecord{rec}, s.runs...)
+	if len(s.runs) > maxRunRecords {
+		s.runs = s.runs[:maxRunRecords]
+	}
 }
 
 // New, bir gateway sunucusu kurar. adminToken boş değilse /api/* uçları
-// "Authorization: Bearer <token>" başlığı ister.
-func New(log *slog.Logger, adminToken string) *Server {
+// "Authorization: Bearer <token>" başlığı ister. resolver nil ise katılım
+// kodu doğrulanmaz ve herkes varsayılan odaya düşer (Faz 0 yerel denemesi).
+func New(log *slog.Logger, adminToken string, resolver rooms.Resolver) *Server {
 	return &Server{
 		log:        log,
 		clock:      clock.New(),
 		hub:        hub.New(log),
 		adminToken: adminToken,
+		resolver:   resolver,
 		upgrader: websocket.Upgrader{
 			ReadBufferSize:  1024,
 			WriteBufferSize: 1024,
@@ -78,29 +123,70 @@ func New(log *slog.Logger, adminToken string) *Server {
 // Handler, yol tablosunu döndürür.
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /{$}", s.staticPage("static/moderator.html"))
+	mux.HandleFunc("GET /join", s.staticPage("static/join.html"))
 	mux.HandleFunc("GET /healthz", s.handleHealthz)
 	mux.HandleFunc("GET /ws", s.handleWS)
 	mux.HandleFunc("POST /api/v0/cue", s.requireAdmin(s.handleCue))
 	mux.HandleFunc("POST /api/v0/intervention", s.requireAdmin(s.handleIntervention))
+	mux.HandleFunc("GET /api/v0/runs", s.handleRuns)
 	return mux
+}
+
+func (s *Server) staticPage(path string) http.HandlerFunc {
+	return func(w http.ResponseWriter, _ *http.Request) {
+		data, err := staticFS.ReadFile(path)
+		if err != nil {
+			http.Error(w, "sayfa bulunamadı", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = w.Write(data)
+	}
 }
 
 func (s *Server) handleHealthz(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"status":         "ok",
 		"clients":        s.hub.Count(),
+		"rooms":          s.hub.RoomCounts(),
 		"server_time_ms": s.clock.NowMs(),
 	})
 }
 
+// checkAdmin, token ayarlıysa Bearer başlığını doğrular; hata yazdıysa false.
+func (s *Server) checkAdmin(w http.ResponseWriter, r *http.Request) bool {
+	if s.adminToken != "" && r.Header.Get("Authorization") != "Bearer "+s.adminToken {
+		writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "geçersiz veya eksik yönetici token'ı"})
+		return false
+	}
+	return true
+}
+
 func (s *Server) requireAdmin(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if s.adminToken != "" && r.Header.Get("Authorization") != "Bearer "+s.adminToken {
-			writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "geçersiz veya eksik yönetici token'ı"})
+		// Content-Type zorunluluğu ucuz bir CSRF önlemidir: tarayıcı,
+		// preflight'sız çapraz-site isteklerde application/json gönderemez.
+		if ct := r.Header.Get("Content-Type"); !strings.HasPrefix(ct, "application/json") {
+			writeJSON(w, http.StatusUnsupportedMediaType, map[string]any{"error": "Content-Type: application/json gerekli"})
+			return
+		}
+		if !s.checkAdmin(w, r) {
 			return
 		}
 		next(w, r)
 	}
+}
+
+func (s *Server) handleRuns(w http.ResponseWriter, r *http.Request) {
+	if !s.checkAdmin(w, r) {
+		return
+	}
+	s.runsMu.Lock()
+	runs := make([]runRecord, len(s.runs))
+	copy(runs, s.runs)
+	s.runsMu.Unlock()
+	writeJSON(w, http.StatusOK, map[string]any{"runs": runs})
 }
 
 // --- WebSocket ---
@@ -164,10 +250,25 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 				s.log.Warn("uyumsuz protokol sürümü", "istemci", hello.ProtocolVersion)
 				return
 			}
+			room := hub.DefaultRoom
+			code := strings.ToUpper(strings.TrimSpace(hello.JoinCode))
+			if code != "" && s.resolver != nil {
+				ctx, cancel := context.WithTimeout(r.Context(), resolveTimeout)
+				resolved, err := s.resolver.ResolveJoinCode(ctx, code)
+				cancel()
+				if err != nil {
+					// Geçersiz kod da geçici control-api arızası da katılımı
+					// reddeder; istemci jitter'lı geri çekilmeyle yeniden dener.
+					s.log.Warn("katılım kodu çözülemedi", "kod", code, "hata", err)
+					return
+				}
+				room = resolved
+			}
+			s.hub.JoinRoom(client, room)
 			s.send(client, wire.TypeWelcome, wire.Welcome{
 				ServerTimeMs:    s.clock.NowMs(),
 				ProtocolVersion: wire.ProtocolVersion,
-				RoomID:          roomID,
+				RoomID:          room,
 			})
 
 		case wire.TypeClockSyncRequest:
@@ -176,14 +277,20 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 				s.log.Warn("bozuk saat senkronu isteği", "hata", err)
 				continue
 			}
-			// t2 yazımın hemen öncesinde damgalanır; kodlama maliyeti
-			// (~µs) ihmal edilebilir.
-			s.send(client, wire.TypeClockSyncResponse, wire.ClockSyncResponse{
-				Seq:          req.Seq,
-				ClientMonoMs: req.ClientMonoMs,
-				ServerRecvMs: recvMs,
-				ServerSendMs: s.clock.NowMs(),
+			// t2, yazma kilidi alındıktan sonra (SendLazy içinde) damgalanır:
+			// kilidin beklettiği süre t2'ye yansır, ofset saptırılmaz.
+			err := client.SendLazy(func() ([]byte, error) {
+				return wire.Encode(wire.TypeClockSyncResponse, wire.ClockSyncResponse{
+					Seq:          req.Seq,
+					ClientMonoMs: req.ClientMonoMs,
+					ServerRecvMs: recvMs,
+					ServerSendMs: s.clock.NowMs(),
+				})
 			})
+			if err != nil {
+				s.hub.Unregister(client)
+				return
+			}
 
 		default:
 			s.log.Warn("beklenmeyen mesaj türü", "tür", env.Type)
@@ -206,6 +313,7 @@ func (s *Server) send(c *hub.Client, msgType string, msg any) {
 
 type cueRequest struct {
 	CueID      string `json:"cue_id"`
+	RoomID     string `json:"room_id"` // boş: tüm odalara (Faz 0 davranışı)
 	DelayMs    int64  `json:"delayMs"`
 	DurationMs uint32 `json:"durationMs"`
 	Color      string `json:"color"`
@@ -269,24 +377,39 @@ func (s *Server) handleCue(w http.ResponseWriter, r *http.Request) {
 			DurationMs: req.DurationMs,
 		},
 	}
-	s.broadcastCueWithRepeats(cue)
+	s.broadcastCueWithRepeats(cue, req.RoomID)
 
+	targetCount := s.hub.Count()
+	if req.RoomID != "" {
+		targetCount = s.hub.RoomCounts()[req.RoomID]
+	}
 	s.log.Info("kue yayınlandı",
-		"run_id", cue.RunID, "cue_id", cue.CueID,
-		"fire_at", cue.FireAtServerMs, "istemci", s.hub.Count())
+		"run_id", cue.RunID, "cue_id", cue.CueID, "oda", req.RoomID,
+		"fire_at", cue.FireAtServerMs, "istemci", targetCount)
+	s.recordRun(runRecord{
+		RunID:            cue.RunID,
+		Kind:             "cue",
+		CueID:            cue.CueID,
+		RoomID:           req.RoomID,
+		FireAtServerMs:   cue.FireAtServerMs,
+		IssuedAtServerMs: s.clock.NowMs(),
+		Clients:          targetCount,
+	})
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"run_id":            cue.RunID,
 		"cue_id":            cue.CueID,
+		"room_id":           req.RoomID,
 		"fire_at_server_ms": cue.FireAtServerMs,
 		"server_time_ms":    s.clock.NowMs(),
-		"clients":           s.hub.Count(),
+		"clients":           targetCount,
 	})
 }
 
 // broadcastCueWithRepeats, aynı kueyi cueRepeats kez yayınlar; istemciler
 // run_id ile tekilleştirir. İlk tekrar hemen, sonrakiler aralıklarla gider.
-func (s *Server) broadcastCueWithRepeats(cue wire.CueStart) {
+// room boşsa tüm istemcilere, doluysa yalnızca o odaya gider.
+func (s *Server) broadcastCueWithRepeats(cue wire.CueStart, room string) {
 	for i := uint32(1); i <= cueRepeats; i++ {
 		repeat := cue
 		repeat.RepeatSeq = i
@@ -296,13 +419,20 @@ func (s *Server) broadcastCueWithRepeats(cue wire.CueStart) {
 			return
 		}
 		delay := time.Duration(i-1) * cueRepeatInterval
-		time.AfterFunc(delay, func() { s.hub.Broadcast(data) })
+		time.AfterFunc(delay, func() {
+			if room == "" {
+				s.hub.Broadcast(data)
+			} else {
+				s.hub.BroadcastRoom(room, data)
+			}
+		})
 	}
 }
 
 type interventionRequest struct {
-	RunID string `json:"run_id"`
-	Kind  string `json:"kind"`
+	RunID  string `json:"run_id"`
+	RoomID string `json:"room_id"` // boş: tüm odalara
+	Kind   string `json:"kind"`
 }
 
 func (s *Server) handleIntervention(w http.ResponseWriter, r *http.Request) {
@@ -326,9 +456,20 @@ func (s *Server) handleIntervention(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "mesaj kodlanamadı"})
 		return
 	}
-	s.hub.Broadcast(data)
-	s.log.Info("müdahale yayınlandı", "kind", req.Kind, "run_id", req.RunID)
-	writeJSON(w, http.StatusOK, map[string]any{"kind": req.Kind, "clients": s.hub.Count()})
+	if req.RoomID == "" {
+		s.hub.Broadcast(data)
+	} else {
+		s.hub.BroadcastRoom(req.RoomID, data)
+	}
+	s.log.Info("müdahale yayınlandı", "kind", req.Kind, "run_id", req.RunID, "oda", req.RoomID)
+	s.recordRun(runRecord{
+		RunID:            req.RunID,
+		Kind:             req.Kind,
+		RoomID:           req.RoomID,
+		IssuedAtServerMs: msg.IssuedAtServerMs,
+		Clients:          s.hub.Count(),
+	})
+	writeJSON(w, http.StatusOK, map[string]any{"kind": req.Kind, "room_id": req.RoomID, "clients": s.hub.Count()})
 }
 
 // --- yardımcılar ---

@@ -4,6 +4,9 @@
 - Tüm proje kararları ve yol haritası: `docs/tekses-proje-ozeti-ve-kararlar.md`.
   Yeni bir karar alındığında veya bir karar değiştiğinde bu dosyayı güncelle —
   oturumlar arası hafıza bu depodur.
+- **Aktif iş durumu: `docs/faz1-plan-ve-durum.md`.** Oturum yeni başladıysa ya
+  da "devam et" dendiyse önce onu oku, işaretsiz ilk adımdan sür. Her anlamlı
+  adım ayrı commit + anında push (kota/oturum her an kesilebilir).
 - Ayrıntılı mimari doküman (`tekses-architecture-v0.1.md`) henüz depoda değil;
   kullanıcı paylaştığında `docs/architecture/` altına eklenmeli.
 

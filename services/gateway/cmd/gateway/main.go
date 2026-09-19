@@ -8,6 +8,9 @@
 //
 //	TEKSES_ADDR         dinlenecek adres (bayrak öncelikli, varsayılan :8080)
 //	TEKSES_ADMIN_TOKEN  boş değilse /api/* uçları Bearer token ister
+//	TEKSES_CONTROL_URL  boş değilse hello'daki join_code bu control-api
+//	                    üzerinden odaya çözülür; boşsa herkes "faz0" odasına
+//	                    düşer (Faz 0 yerel denemesi)
 package main
 
 import (
@@ -21,6 +24,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/msaliheroglu/tekses/services/gateway/internal/rooms"
 	"github.com/msaliheroglu/tekses/services/gateway/internal/server"
 )
 
@@ -33,7 +37,12 @@ func main() {
 	flag.Parse()
 
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	srv := server.New(log, os.Getenv("TEKSES_ADMIN_TOKEN"))
+	var resolver rooms.Resolver
+	if controlURL := os.Getenv("TEKSES_CONTROL_URL"); controlURL != "" {
+		resolver = rooms.NewControlResolver(controlURL)
+		log.Info("katılım kodları control-api'den çözülecek", "url", controlURL)
+	}
+	srv := server.New(log, os.Getenv("TEKSES_ADMIN_TOKEN"), resolver)
 
 	httpSrv := &http.Server{
 		Addr:              *addr,
