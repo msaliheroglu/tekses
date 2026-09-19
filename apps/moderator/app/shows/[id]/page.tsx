@@ -5,28 +5,69 @@ import { control, uploadAsset, type Event, type Room, type ShowVersion } from "@
 
 // Söz zamanlama/dalga formu editörü sonraki yineleme; MVP'de manifest JSON
 // olarak düzenlenir. Şema: packages/manifest (sunucu yayında doğrular).
+//
+// Şablon çok şarkılı bir set örneğidir: her sekans, Canlı Konsol'un
+// "Ne çalınacak" listesinde ayrı bir seçenek olur; "program" ise hepsini
+// sırayla otomatik akıtır. Şarkı sözleri telifli olduğundan şablonda yer
+// tutucudur — lisansladığınız sözleri kendiniz girin (lisans sorumluluğu
+// organizatördedir). Ses için: yukarıdan dosya yükleyip asset_id'yi
+// "audio" şeridine yapıştırın.
 const TEMPLATE = `{
-  "title": "Marş Seti",
+  "title": "Konser Seti",
   "sequences": [
     {
-      "id": "seq-1",
-      "title": "Açılış",
-      "duration_ms": 60000,
+      "id": "acilis",
+      "title": "Açılış tezahüratı",
+      "duration_ms": 30000,
       "lyric_lines": [
-        {"at_ms": 0, "duration_ms": 4000, "text": "Hep beraber!"}
+        {"at_ms": 0, "duration_ms": 5000, "text": "Hep beraber!"},
+        {"at_ms": 5000, "duration_ms": 5000, "text": "Tek ses, tek yürek!"},
+        {"at_ms": 10000, "duration_ms": 0, "text": "🔥 🔥 🔥"}
       ],
       "cue_lanes": [
         {"id": "ekran", "kind": "screen", "cues": [
-          {"at_ms": 0, "duration_ms": 8000, "color": "#FF2A2A", "flash_hz": 2}
+          {"at_ms": 0, "duration_ms": 30000, "color": "#FF2A2A", "flash_hz": 2}
         ]},
         {"id": "fener", "kind": "torch", "cues": [
-          {"at_ms": 0, "duration_ms": 8000, "flash_hz": 2}
+          {"at_ms": 10000, "duration_ms": 20000, "flash_hz": 2}
+        ]}
+      ]
+    },
+    {
+      "id": "medcezir",
+      "title": "Medcezir — Levent Yüksel",
+      "duration_ms": 60000,
+      "lyric_lines": [
+        {"at_ms": 0, "duration_ms": 8000, "text": "(Medcezir'in sözlerini zamanlarıyla buraya girin)"},
+        {"at_ms": 8000, "duration_ms": 0, "text": "(ikinci satır…)"}
+      ],
+      "cue_lanes": [
+        {"id": "ekran", "kind": "screen", "cues": [
+          {"at_ms": 0, "duration_ms": 60000, "color": "#1E5AA8"}
+        ]},
+        {"id": "fener", "kind": "torch", "cues": [
+          {"at_ms": 0, "duration_ms": 60000, "flash_hz": 1}
+        ]}
+      ]
+    },
+    {
+      "id": "dar-sokaklar",
+      "title": "Biz Dar Sokaklarında",
+      "duration_ms": 60000,
+      "lyric_lines": [
+        {"at_ms": 0, "duration_ms": 8000, "text": "(şarkının sözlerini zamanlarıyla buraya girin)"}
+      ],
+      "cue_lanes": [
+        {"id": "ekran", "kind": "screen", "cues": [
+          {"at_ms": 0, "duration_ms": 60000, "color": "#F2B705"}
         ]}
       ]
     }
   ],
   "program": [
-    {"sequence_id": "seq-1", "at_offset_ms": 0}
+    {"sequence_id": "acilis", "at_offset_ms": 0},
+    {"sequence_id": "medcezir", "at_offset_ms": 30000},
+    {"sequence_id": "dar-sokaklar", "at_offset_ms": 90000}
   ]
 }`;
 
