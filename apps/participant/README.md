@@ -43,9 +43,18 @@ flutter pub get
 
 Sonrasında iki platform dokunuşu gerekir:
 
-- **Android** — Faz 0 yerel ağda şifresiz `ws://` kullanır:
-  `android/app/src/main/AndroidManifest.xml` içindeki `<application ...>`
-  etiketine `android:usesCleartextTraffic="true"` ekleyin.
+- **Android** — `android/app/src/main/AndroidManifest.xml` dosyasında İKİ
+  değişiklik gerekir (Flutter, INTERNET iznini yalnızca debug/profile
+  manifestlerine ekler; **release APK bu izin olmadan ağa çıkamaz** —
+  belirtisi `SocketException: Operation not permitted, errno = 1`):
+
+  ```xml
+  <!-- <application ...> etiketinin HEMEN ÜSTÜNE: -->
+  <uses-permission android:name="android.permission.INTERNET" />
+  ```
+
+  ve `<application ...>` etiketine, Faz 0/1'in yerel ağdaki şifresiz
+  `ws://` bağlantısı için: `android:usesCleartextTraffic="true"`.
 - **iOS** — `ios/Runner/Info.plist` içine fener için kamera açıklaması ve
   Faz 0 için ATS istisnası ekleyin:
 

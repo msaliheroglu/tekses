@@ -34,11 +34,14 @@ jobs:
           cache: true
 
       # Depo yalnızca Dart kaynaklarını tutar; Android iskeletini burada
-      # üretip Faz 0/1'in yerel ağ (şifresiz ws://) iznini ekliyoruz.
+      # üretip iki manifest dokunuşunu yapıyoruz: INTERNET izni (release
+      # manifest'inde yoktur; olmadan ağ = EPERM) ve Faz 0/1'in yerel ağ
+      # şifresiz ws:// izni.
       - name: Android iskeletini üret
         run: |
           flutter create --project-name tekses_participant --org app.tekses --platforms android .
-          sed -i 's/<application/<application android:usesCleartextTraffic="true"/' android/app/src/main/AndroidManifest.xml
+          sed -i 's#<application#<uses-permission android:name="android.permission.INTERNET" />\n    <application android:usesCleartextTraffic="true"#' android/app/src/main/AndroidManifest.xml
+          grep -A1 uses-permission android/app/src/main/AndroidManifest.xml
 
       - run: flutter pub get
       - run: flutter analyze
