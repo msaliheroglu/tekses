@@ -17,6 +17,12 @@ param([Parameter(Mandatory = $true)][string]$AudioPath)
 
 $ErrorActionPreference = "Stop"
 
+# Türkçe karakterler için tüm zincir UTF-8 olmalı: PS 5.1'in varsayılanları
+# ANSI/OEM'dir ve whisper'ın UTF-8 JSON'unu da stdout'u da bozar (mojibake:
+# "MÜZİK" → "MÃœZÄ°K").
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+$OutputEncoding = [System.Text.Encoding]::UTF8
+
 $whisper = if ($env:WHISPER_BIN) { $env:WHISPER_BIN } else { "C:\whisper\whisper-cli.exe" }
 $model = if ($env:WHISPER_MODEL) { $env:WHISPER_MODEL } else { "C:\whisper\ggml-small.bin" }
 $lang = if ($env:WHISPER_LANG) { $env:WHISPER_LANG } else { "tr" }
@@ -52,7 +58,7 @@ try {
 
     Invoke-Native $whisper @("-m", $model, "-l", $lang, "-f", $wav, "-oj", "-of", (Join-Path $tmp "audio"))
 
-    $parsed = Get-Content (Join-Path $tmp "audio.json") -Raw | ConvertFrom-Json
+    $parsed = Get-Content (Join-Path $tmp "audio.json") -Raw -Encoding UTF8 | ConvertFrom-Json
     $segments = @($parsed.transcription | ForEach-Object {
             @{ start_ms = $_.offsets.from; end_ms = $_.offsets.to; text = $_.text }
         })

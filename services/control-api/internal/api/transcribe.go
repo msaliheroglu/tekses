@@ -136,6 +136,9 @@ func (s *Server) runTranscription(job *transcriptionJob, assetID string) {
 		if text == "" || seg.StartMs < 0 || seg.EndMs < seg.StartMs {
 			continue
 		}
+		if isNonSpeechAnnotation(text) {
+			continue
+		}
 		lines = append(lines, manifest.LyricLine{
 			AtMs:       int(seg.StartMs),
 			DurationMs: int(seg.EndMs - seg.StartMs),
@@ -148,6 +151,30 @@ func (s *Server) runTranscription(job *transcriptionJob, assetID string) {
 	job.Lines = lines
 	s.trMu.Unlock()
 	s.log.Info("söz çıkarma bitti", "iş", job.ID, "satır", len(lines))
+}
+
+// isNonSpeechAnnotation, Whisper'ın konuşma dışı etiketlerini ayıklar:
+// "[MÜZİK ÇALIYOR]", "(alkış)", "♪ ♪" gibi bölümler söz satırı değildir —
+// karaoke ekranında o aralık boş kalmalıdır.
+func isNonSpeechAnnotation(text string) bool {
+	if strings.HasPrefix(text, "[") && strings.HasSuffix(text, "]") {
+		return true
+	}
+	if strings.HasPrefix(text, "(") && strings.HasSuffix(text, ")") {
+		return true
+	}
+	if strings.HasPrefix(text, "*") && strings.HasSuffix(text, "*") {
+		return true
+	}
+	// Yalnızca nota işareti ve noktalamadan oluşan satırlar.
+	stripped := strings.Map(func(r rune) rune {
+		switch r {
+		case '♪', '♫', '.', ',', '-', ' ':
+			return -1
+		}
+		return r
+	}, text)
+	return stripped == ""
 }
 
 func (s *Server) handleGetTranscription(w http.ResponseWriter, r *http.Request, sess model.Session) {

@@ -395,7 +395,7 @@ func TestTranscriptionFlow(t *testing.T) {
 	// entegrasyonu deploy/transcribe-whisper.sh ile VM'de kurulur).
 	stub := t.TempDir() + "/stub-transcriber.sh"
 	if err := os.WriteFile(stub, []byte(`#!/bin/sh
-echo '{"segments":[{"start_ms":4000,"end_ms":8000,"text":"Nakarat"},{"start_ms":1200,"end_ms":4000,"text":" İlk satır "},{"start_ms":9000,"end_ms":9500,"text":"  "}]}'
+echo '{"segments":[{"start_ms":4000,"end_ms":8000,"text":"Nakarat"},{"start_ms":1200,"end_ms":4000,"text":" İlk satır "},{"start_ms":9000,"end_ms":9500,"text":"  "},{"start_ms":10000,"end_ms":30000,"text":"[MÜZİK ÇALIYOR]"},{"start_ms":31000,"end_ms":32000,"text":"(alkış)"},{"start_ms":33000,"end_ms":34000,"text":"♪ ♪"}]}'
 `), 0o755); err != nil {
 		t.Fatal(err)
 	}
