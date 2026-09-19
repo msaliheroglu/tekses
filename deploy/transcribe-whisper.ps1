@@ -26,16 +26,31 @@ $ffmpeg = if ($env:FFMPEG_BIN) { $env:FFMPEG_BIN } else { "ffmpeg" }
 if (-not (Test-Path $whisper)) { throw "whisper-cli bulunamadı: $whisper (WHISPER_BIN ayarlayın)" }
 if (-not (Test-Path $model)) { throw "model bulunamadı: $model (WHISPER_MODEL ayarlayın)" }
 
+# PowerShell 5.1, "Stop" modunda yerel komutların stderr GÜNLÜKLERİNİ bile
+# ölümcül hataya çevirir (whisper ilerlemesini stderr'e yazar). Bu yüzden
+# yerel çağrılar "Continue" altında koşar; başarı ÇIKIŞ KODUYLA denetlenir,
+# günlük yalnızca gerçek başarısızlıkta hataya eklenir.
+function Invoke-Native {
+    param([string]$Exe, [string[]]$ArgumentList)
+    $prev = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    $log = & $Exe @ArgumentList 2>&1
+    $code = $LASTEXITCODE
+    $ErrorActionPreference = $prev
+    if ($code -ne 0) {
+        $tail = ($log | ForEach-Object { "$_" } | Select-Object -Last 8) -join "`n"
+        throw "$([System.IO.Path]::GetFileName($Exe)) başarısız (çıkış $code): $tail"
+    }
+}
+
 $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ("tekses-tr-" + [guid]::NewGuid())
 New-Item -ItemType Directory -Path $tmp | Out-Null
 try {
     # Whisper 16 kHz mono WAV ister; mp3/m4a/ogg buradan geçer.
     $wav = Join-Path $tmp "audio.wav"
-    & $ffmpeg -y -loglevel error -i $AudioPath -ar 16000 -ac 1 $wav
-    if ($LASTEXITCODE -ne 0) { throw "ffmpeg başarısız" }
+    Invoke-Native $ffmpeg @("-y", "-loglevel", "error", "-i", $AudioPath, "-ar", "16000", "-ac", "1", $wav)
 
-    & $whisper -m $model -l $lang -f $wav -oj -of (Join-Path $tmp "audio") *> $null
-    if ($LASTEXITCODE -ne 0) { throw "whisper başarısız" }
+    Invoke-Native $whisper @("-m", $model, "-l", $lang, "-f", $wav, "-oj", "-of", (Join-Path $tmp "audio"))
 
     $parsed = Get-Content (Join-Path $tmp "audio.json") -Raw | ConvertFrom-Json
     $segments = @($parsed.transcription | ForEach-Object {
