@@ -1,0 +1,86 @@
+# TekSes pilot dağıtımı — tek VM, tek alan adı, otomatik TLS.
+#
+# Kullanım (deploy/ dizininde):
+#   cp .env.example .env   # değerleri doldurun
+#   docker compose up -d --build
+#
+# Caddy, ${TEKSES_DOMAIN} için Let's Encrypt sertifikasını kendisi alır;
+# 80 ve 443 portları internete açık olmalıdır. Yol tablosu Caddyfile'dadır.
+
+name: tekses
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD zorunlu}
+      POSTGRES_DB: tekses
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d tekses"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  control-api:
+    build:
+      context: ..
+      dockerfile: services/control-api/Dockerfile
+    restart: unless-stopped
+    environment:
+      TEKSES_DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD}@postgres:5432/tekses?sslmode=disable
+    volumes:
+      - packages:/data/packages
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  gateway:
+    build:
+      context: ..
+      dockerfile: services/gateway/Dockerfile
+    restart: unless-stopped
+    environment:
+      TEKSES_CONTROL_URL: http://control-api:8090
+      TEKSES_ADMIN_TOKEN: ${TEKSES_ADMIN_TOKEN:?TEKSES_ADMIN_TOKEN zorunlu (internete açık kurulumda konsol uçları korunmalı)}
+    depends_on:
+      - control-api
+
+  moderator:
+    build:
+      context: ../apps/moderator
+      args:
+        # QR'ların telefonlardan erişilen adresi (derlemeye gömülür).
+        NEXT_PUBLIC_GATEWAY_PUBLIC_URL: https://${TEKSES_DOMAIN}
+    restart: unless-stopped
+    environment:
+      CONTROL_API_URL: http://control-api:8090
+      GATEWAY_URL: http://gateway:8080
+    depends_on:
+      - control-api
+      - gateway
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      TEKSES_DOMAIN: ${TEKSES_DOMAIN:?TEKSES_DOMAIN zorunlu}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - moderator
+      - gateway
+      - control-api
+
+volumes:
+  pgdata:
+  packages:
+  caddy_data:
+  caddy_config:

@@ -1,4 +1,4 @@
-# Faz 1 (MVP) — Plan ve Durum
+# Faz 1 (MVP) ve Faz 2 — Plan ve Durum
 
 Bu dosya oturumlar arası devir defteridir: her Claude oturumu buradan devam
 eder, her tamamlanan adımda burası güncellenip push edilir. Kota/oturum
@@ -75,6 +75,30 @@ adım sırasını izler.
   hedefi) — cihazlar toplanınca; kılavuz: docs/faz0-senkron-denemesi.md.
 - [ ] GitHub Actions koşumlarının gözden geçirilmesi; "Katılımcı APK" iş
   akışının Run workflow düğmesi branch main'e merge edilince görünür.
+
+## Faz 2 — Ölçek ve ses
+
+- [x] **F2.0 PR:** Faz 1 main'e PR #2 ile açıldı (2026-09-19); merge kararı
+  kullanıcıda. CI'ı bu oturum gözetliyor.
+- [x] **F2.1 Dağıtım paketi:** Dockerfile'lar (gateway, control-api, panel
+  standalone), `deploy/docker-compose.yml` (postgres + üç servis + Caddy
+  otomatik TLS, tek alan adında yol bazlı dağıtım), `.env.example`,
+  kurulum rehberi `docs/dagitim.md`. **Not:** bu geliştirme ortamında
+  Docker daemon yok — imaj derlemeleri VM'deki ilk `docker compose up
+  --build` ile doğrulanacak; sorun çıkarsa hata çıktısıyla düzeltilir.
+- [ ] **F2.2 VM kurulumu** *(kullanıcıyla birlikte)*: Oracle Always Free VM
+  + alan adı + `docs/dagitim.md` adımları; telefonların LTE'den katılımı.
+- [ ] **F2.3 Protobuf ikili teline geçiş** (~40 bayt/kue): buf generate ile
+  Go stub'ları, Dart stub'ları; wire paketinin devri; sürüm müzakeresi
+  hello'da hazır.
+- [ ] **F2.4 Yük testi:** loadgen'i 100k istemciye ölçekleme (çok bağlantılı
+  koşum, bellek/CPU profili), yeniden bağlanma fırtınası senaryosu.
+- [ ] **F2.5 Native zamanlanmış ses:** Android AudioTrack / iOS
+  AVAudioPlayer `play(atTime:)` platform kanalları; manifest audio
+  şeritlerinin çalınması; ses varlıklarının pakete girmesi + R2 sürücüsü.
+- [ ] **F2.6 NATS JetStream oda dağıtımı** (çok düğümlü gateway) ve
+  telemetri panoları (kalıcı Run tablosu, saat kalitesi ısı haritası).
+- [ ] **F2.7 Ultrasonik beacon + PA test kiti** (karar dokümanı §3).
 
 ## Notlar
 

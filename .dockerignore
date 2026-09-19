@@ -1,0 +1,7 @@
+# Kök bağlamlı Go imaj derlemeleri için bağlamı küçük tutar.
+.git
+apps/moderator/node_modules
+apps/moderator/.next
+data/
+docs/
+deploy/

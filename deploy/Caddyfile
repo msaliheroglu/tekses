@@ -1,0 +1,36 @@
+# Tek alan adı, yol bazlı dağıtım. TLS'i Caddy otomatik alır (Let's Encrypt).
+#
+# Telefonlar:   wss://ALAN/ws  +  https://ALAN (katılım: /join?code=…)
+# Moderatör:    https://ALAN (panel)
+# Uygulama içi adresler: Gateway = wss://ALAN/ws, Control = https://ALAN
+
+{$TEKSES_DOMAIN} {
+	encode gzip
+
+	# Gateway: WebSocket, Faz 0 konsol API'si ve tarayıcı katılımcı sayfası
+	handle /ws {
+		reverse_proxy gateway:8080
+	}
+	handle /api/v0/* {
+		reverse_proxy gateway:8080
+	}
+	handle /join {
+		reverse_proxy gateway:8080
+	}
+	handle /healthz {
+		reverse_proxy gateway:8080
+	}
+
+	# Control API: kontrol düzlemi ve paket indirme
+	handle /api/v1/* {
+		reverse_proxy control-api:8090
+	}
+	handle /packages/* {
+		reverse_proxy control-api:8090
+	}
+
+	# Geri kalan her şey moderatör paneli
+	handle {
+		reverse_proxy moderator:3000
+	}
+}
