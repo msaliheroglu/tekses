@@ -28,6 +28,11 @@ testler: `flutter test` (bu depo ortamında Flutter yok; telefonda/CI'da koşar)
 
 ## Kurulum (bir kez)
 
+> **Windows uyarısı:** Depo yolu yalnızca ASCII karakter içermeli — `Masaüstü`
+> gibi Türkçe karakterli ya da OneDrive altındaki bir klasörde Android
+> derlemesi başarısız olur (Gradle non-ASCII yol denetimi). Depoyu
+> `C:\dev\tekses` gibi bir yola koyun.
+
 Depoda yalnızca Dart kaynakları tutulur; Android/iOS iskeletini Flutter üretir:
 
 ```bash
