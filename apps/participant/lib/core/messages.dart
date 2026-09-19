@@ -1,9 +1,9 @@
-import 'dart:convert';
-
 /// Faz 0 JSON tel türleri. Şemanın gerçeği packages/proto/tekses/v1/*.proto;
 /// alan adları (snake_case) proto'yu birebir izler ve Go tarafındaki
 /// packages/proto/wire ile aynı tutulmalıdır.
 library;
+
+import 'dart:convert';
 
 const int protocolVersion = 1;
 

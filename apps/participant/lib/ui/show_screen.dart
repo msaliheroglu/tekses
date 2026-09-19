@@ -10,6 +10,7 @@ import '../core/messages.dart';
 import '../core/mono_clock.dart';
 import '../core/package_store.dart';
 import '../core/realtime_client.dart';
+import '../core/show_manifest.dart';
 import '../core/timeline_engine.dart';
 import '../core/torch_service.dart';
 
