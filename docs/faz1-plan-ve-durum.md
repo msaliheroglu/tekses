@@ -98,6 +98,9 @@ adım sırasını izler.
   uygulama v2'ye geçecek; o güne dek Flutter v1 JSON'da (gateway destekliyor).
 - [ ] **F2.4 Yük testi:** loadgen'i 100k istemciye ölçekleme (çok bağlantılı
   koşum, bellek/CPU profili), yeniden bağlanma fırtınası senaryosu.
+  *Ön yoklama (2026-09-19, geliştirme konteyneri, 4 çekirdek):* 2.000 ikili
+  istemci tek gateway'de sorunsuz — yayılım 3 ms. Gerçek 100k koşumu fd/port
+  sınırları gereği F2.2 VM'inde (ya da ayrı yük makinesinde) yapılacak.
 - [ ] **F2.5 Native zamanlanmış ses:** Android AudioTrack / iOS
   AVAudioPlayer `play(atTime:)` platform kanalları; manifest audio
   şeritlerinin çalınması; ses varlıklarının pakete girmesi + R2 sürücüsü.
