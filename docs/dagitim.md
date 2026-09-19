@@ -67,7 +67,18 @@ docker compose logs -f gateway   # canlı log
 docker compose exec postgres pg_dump -U postgres tekses > yedek.sql
 ```
 
-## 6. Sonrası (etkinlik günü ölçeği — Faz 2 devamı)
+## 6. İsteğe bağlı: otomatik söz çıkarma (deneysel)
+
+Panel, yüklenen sesten zamanlı söz TASLAĞI çıkarabilir. Sunucuda whisper.cpp
+kurulup control-api'ye `TEKSES_TRANSCRIBER=deploy/transcribe-whisper.sh`
+verilirse etkinleşir (kurulum adımları betiğin başındaki yorumda). Ayarsızsa
+paneldeki düğme "yapılandırılmamış" der; **LRC içe aktarma her zaman çalışır**
+ve şarkılar için daha isabetlidir — otomatik çıkarma müzikte hata yapar,
+çıktı panelde düzeltilmek üzere taslaktır. Docker dağıtımında bu özellik için
+control-api imajına ffmpeg/jq/whisper eklemek gerekir; pilotta önerimiz
+bare-metal çalıştırmak ya da özelliği kapalı bırakmaktır.
+
+## 7. Sonrası (etkinlik günü ölçeği — Faz 2 devamı)
 
 - Paket indirmeleri R2 + Cloudflare CDN'e taşınır (blob arayüzü hazır;
   yalnızca R2 sürücüsü ve `manifest_url`'in mutlak CDN adresi gerekir).

@@ -110,6 +110,14 @@ adım sırasını izler.
   `native/` altında (kopyalama adımı README + APK iş akışında). Panel'e ses
   yükleme arayüzü eklendi. **Cihaz doğrulaması bekliyor** (native dosyalar
   kopyalanıp sesli manifest denenecek); R2 sürücüsü F2.2 dağıtımına bağlı.
+- [x] **F2.5k Karaoke ve sözler (2026-09-19):** telefonda karaoke görünümü
+  (aktif satır + sıradaki satır soluk; TimelineFrame.nextLyric, testli);
+  panelde LRC içe aktarma (senkronlu sözler → lyric_lines) ve DENEYSEL
+  otomatik söz çıkarma: takılabilir çözümleyici komutu (TEKSES_TRANSCRIBER,
+  sözleşme transcribe.go; whisper.cpp uyarlayıcısı deploy/transcribe-
+  whisper.sh), bellek içi iş kuyruğu, panelde taslak üretimi. Şarkılarda
+  ASR hatalıdır — çıktı taslak; kesin yol LRC/elle zamanlama. Kelime bazlı
+  vurgulama (enhanced LRC) sonraki yineleme.
 - [ ] **F2.6 NATS JetStream oda dağıtımı** (çok düğümlü gateway) ve
   telemetri panoları (kalıcı Run tablosu, saat kalitesi ısı haritası).
 - [ ] **F2.7 Ultrasonik beacon + PA test kiti** (karar dokümanı §3).

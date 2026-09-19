@@ -10,8 +10,10 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/msaliheroglu/tekses/packages/blob"
 	"github.com/msaliheroglu/tekses/services/control-api/internal/store/memstore"
@@ -25,12 +27,17 @@ type client struct {
 
 func newTestAPI(t *testing.T) *client {
 	t.Helper()
+	return newTestAPIWithTranscriber(t, "")
+}
+
+func newTestAPIWithTranscriber(t *testing.T, transcriber string) *client {
+	t.Helper()
 	log := slog.New(slog.NewTextHandler(testWriter{t}, &slog.HandlerOptions{Level: slog.LevelError}))
 	packages, err := blob.NewFS(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
-	ts := httptest.NewServer(New(log, memstore.New(), packages).Handler())
+	ts := httptest.NewServer(New(log, memstore.New(), packages, transcriber).Handler())
 	t.Cleanup(ts.Close)
 	return &client{t: t, base: ts.URL}
 }
@@ -380,6 +387,82 @@ func TestAudioAssetFlow(t *testing.T) {
 	if status := c.do(http.MethodPost, "/api/v1/shows/"+show.ID+"/versions",
 		json.RawMessage(manifestWith("serbest-metin")), nil); status != http.StatusBadRequest {
 		t.Fatalf("biçimsiz asset_id ile yayın durumu = %d, beklenen 400", status)
+	}
+}
+
+func TestTranscriptionFlow(t *testing.T) {
+	// Sahte çözümleyici: sözleşmeye uygun sabit JSON basar (gerçek Whisper
+	// entegrasyonu deploy/transcribe-whisper.sh ile VM'de kurulur).
+	stub := t.TempDir() + "/stub-transcriber.sh"
+	if err := os.WriteFile(stub, []byte(`#!/bin/sh
+echo '{"segments":[{"start_ms":4000,"end_ms":8000,"text":"Nakarat"},{"start_ms":1200,"end_ms":4000,"text":" İlk satır "},{"start_ms":9000,"end_ms":9500,"text":"  "}]}'
+`), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	c := newTestAPIWithTranscriber(t, stub)
+	c.register("Karaoke AŞ", "kr@ornek.com")
+
+	// Varlık yükle.
+	req, _ := http.NewRequest(http.MethodPost, c.base+"/api/v1/assets", bytes.NewReader([]byte("sahte-ses")))
+	req.Header.Set("Content-Type", "audio/mpeg")
+	req.Header.Set("Authorization", "Bearer "+c.token)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var up struct {
+		AssetID string `json:"asset_id"`
+	}
+	_ = json.NewDecoder(resp.Body).Decode(&up)
+	resp.Body.Close()
+
+	// Çözümleme başlat ve bitene dek yokla.
+	var start struct {
+		TranscriptionID string `json:"transcription_id"`
+	}
+	if status := c.do(http.MethodPost, "/api/v1/assets/"+up.AssetID+"/transcribe", map[string]any{}, &start); status != http.StatusAccepted {
+		t.Fatalf("başlatma durumu = %d", status)
+	}
+	var result struct {
+		Status     string `json:"status"`
+		LyricLines []struct {
+			AtMs       int    `json:"at_ms"`
+			DurationMs int    `json:"duration_ms"`
+			Text       string `json:"text"`
+		} `json:"lyric_lines"`
+		Error string `json:"error"`
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		c.do(http.MethodGet, "/api/v1/transcriptions/"+start.TranscriptionID, nil, &result)
+		if result.Status != "running" || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(30 * time.Millisecond)
+	}
+	if result.Status != "done" {
+		t.Fatalf("iş durumu = %s (%s)", result.Status, result.Error)
+	}
+	// Sıralanmış, kırpılmış, boş satırlar atılmış.
+	if len(result.LyricLines) != 2 ||
+		result.LyricLines[0].Text != "İlk satır" || result.LyricLines[0].AtMs != 1200 ||
+		result.LyricLines[1].Text != "Nakarat" || result.LyricLines[1].DurationMs != 4000 {
+		t.Fatalf("beklenmeyen satırlar: %+v", result.LyricLines)
+	}
+
+	// Başka kiracı işi göremez.
+	other := &client{t: t, base: c.base}
+	other.register("B", "b2@ornek.com")
+	if status := other.do(http.MethodGet, "/api/v1/transcriptions/"+start.TranscriptionID, nil, nil); status != http.StatusNotFound {
+		t.Fatalf("çapraz kiracı iş erişimi = %d, beklenen 404", status)
+	}
+
+	// Yapılandırılmamış sunucuda 501.
+	c2 := newTestAPI(t)
+	c2.register("X", "x@ornek.com")
+	if status := c2.do(http.MethodPost, "/api/v1/assets/"+strings.Repeat("0", 64)+".mp3/transcribe", map[string]any{}, nil); status != http.StatusNotImplemented {
+		t.Fatalf("yapılandırılmamış durum = %d, beklenen 501", status)
 	}
 }
 

@@ -58,6 +58,7 @@ class _ShowScreenState extends State<ShowScreen> {
   Color _background = Colors.black;
   bool _torchTarget = false;
   String _lyric = '';
+  String _nextLyric = '';
 
   @override
   void initState() {
@@ -190,6 +191,7 @@ class _ShowScreenState extends State<ShowScreen> {
     final Color color;
     final bool torchWanted;
     final String lyric;
+    var nextLyric = '';
 
     final engine = _engine;
     if (engine != null) {
@@ -205,6 +207,7 @@ class _ShowScreenState extends State<ShowScreen> {
           : Colors.black;
       torchWanted = frame.torchOn;
       lyric = frame.lyric;
+      nextLyric = frame.nextLyric;
     } else {
       // Faz 0 modu: yük doğrudan kuenin içinde.
       if (elapsed >= cue.payload.durationMs) {
@@ -226,11 +229,15 @@ class _ShowScreenState extends State<ShowScreen> {
       lyric = '';
     }
 
-    if (color != _background || torchWanted != _torchTarget || lyric != _lyric) {
+    if (color != _background ||
+        torchWanted != _torchTarget ||
+        lyric != _lyric ||
+        nextLyric != _nextLyric) {
       setState(() {
         _background = color;
         _torchTarget = torchWanted;
         _lyric = lyric;
+        _nextLyric = nextLyric;
       });
       _torch.set(torchWanted);
     }
@@ -246,6 +253,7 @@ class _ShowScreenState extends State<ShowScreen> {
       setState(() {
         _background = Colors.black;
         _lyric = '';
+        _nextLyric = '';
       });
     }
   }
@@ -290,24 +298,43 @@ class _ShowScreenState extends State<ShowScreen> {
       body: SafeArea(
         child: Stack(
           children: [
-            // Söz satırı: ekranın ortasında, büyük ve dış çizgili — arka
-            // plan hangi renkte olursa olsun okunur.
-            if (_lyric.isNotEmpty)
+            // Karaoke görünümü: aktif satır ortada büyük, sıradaki satır
+            // altında soluk — arka plan hangi renkte olursa olsun okunur.
+            if (_lyric.isNotEmpty || _nextLyric.isNotEmpty)
               Center(
                 child: Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 24),
-                  child: Text(
-                    _lyric,
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(
-                      fontSize: 40,
-                      fontWeight: FontWeight.w800,
-                      color: Colors.white,
-                      shadows: [
-                        Shadow(blurRadius: 12, color: Colors.black),
-                        Shadow(blurRadius: 4, color: Colors.black),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (_lyric.isNotEmpty)
+                        Text(
+                          _lyric,
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            fontSize: 40,
+                            fontWeight: FontWeight.w800,
+                            color: Colors.white,
+                            shadows: [
+                              Shadow(blurRadius: 12, color: Colors.black),
+                              Shadow(blurRadius: 4, color: Colors.black),
+                            ],
+                          ),
+                        ),
+                      if (_nextLyric.isNotEmpty) ...[
+                        const SizedBox(height: 16),
+                        Text(
+                          _nextLyric,
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            fontSize: 24,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.white.withValues(alpha: 0.45),
+                            shadows: const [Shadow(blurRadius: 8, color: Colors.black)],
+                          ),
+                        ),
                       ],
-                    ),
+                    ],
                   ),
                 ),
               ),

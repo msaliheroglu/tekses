@@ -126,6 +126,24 @@ export async function uploadAsset(
   return data as { asset_id: string; url: string; bytes: number };
 }
 
+// Deneysel: sesten zamanlı söz taslağı çıkarma (sunucuda TEKSES_TRANSCRIBER
+// yapılandırılmışsa; değilse 501 döner).
+export type TranscriptionLyricLine = { at_ms: number; duration_ms: number; text: string };
+export type TranscriptionResult = {
+  transcription_id: string;
+  status: "running" | "done" | "error";
+  lyric_lines?: TranscriptionLyricLine[];
+  error?: string;
+};
+
+export function startTranscription(assetId: string): Promise<{ transcription_id: string }> {
+  return control.post(`/api/v1/assets/${assetId}/transcribe`, {});
+}
+
+export function getTranscription(id: string): Promise<TranscriptionResult> {
+  return control.get(`/api/v1/transcriptions/${id}`);
+}
+
 // Gateway çalıştırma kaydı (asgari telemetri).
 export type RunRecord = {
   run_id?: string;

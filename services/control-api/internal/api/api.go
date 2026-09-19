@@ -17,6 +17,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
@@ -42,13 +43,25 @@ type Server struct {
 	log      *slog.Logger
 	store    store.Store
 	packages blob.Store
+
+	// Deneysel söz çıkarma (transcribe.go). transcriber boşsa özellik kapalı.
+	transcriber string
+	trMu        sync.Mutex
+	trJobs      map[string]*transcriptionJob
 }
 
 // New, bir kontrol API sunucusu kurar. packages, yayınlanan manifestlerin
 // içerik adresli paket deposudur (pilotta dosya sistemi + bu API'nin
-// /packages ucu; üretimde R2 + CDN).
-func New(log *slog.Logger, st store.Store, packages blob.Store) *Server {
-	return &Server{log: log, store: st, packages: packages}
+// /packages ucu; üretimde R2 + CDN). transcriber, sesten söz çıkaran dış
+// komutun yoludur (boş = özellik kapalı; sözleşme transcribe.go'da).
+func New(log *slog.Logger, st store.Store, packages blob.Store, transcriber string) *Server {
+	return &Server{
+		log:         log,
+		store:       st,
+		packages:    packages,
+		transcriber: transcriber,
+		trJobs:      map[string]*transcriptionJob{},
+	}
 }
 
 func (s *Server) Handler() http.Handler {
@@ -86,6 +99,10 @@ func (s *Server) Handler() http.Handler {
 	// (telefon; asset_id = <sha256>.<uzantı>, içerik özetle doğrulanır).
 	mux.HandleFunc("POST /api/v1/assets", s.authed(s.handleUploadAsset))
 	mux.HandleFunc("GET /assets/{name}", s.handleAsset)
+
+	// Deneysel: sesten zamanlı söz taslağı (transcribe.go).
+	mux.HandleFunc("POST /api/v1/assets/{name}/transcribe", s.authed(s.handleTranscribeAsset))
+	mux.HandleFunc("GET /api/v1/transcriptions/{id}", s.authed(s.handleGetTranscription))
 
 	return mux
 }

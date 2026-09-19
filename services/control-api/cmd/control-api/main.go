@@ -66,7 +66,14 @@ func main() {
 	}
 	log.Info("paket deposu", "dizin", packagesDir)
 
-	srv := api.New(log, st, packages)
+	// Deneysel söz çıkarma: sesten zamanlı taslak üreten dış komut
+	// (ör. deploy/transcribe-whisper.sh). Ayarsızsa uç 501 döner.
+	transcriber := os.Getenv("TEKSES_TRANSCRIBER")
+	if transcriber != "" {
+		log.Info("söz çıkarma etkin", "komut", transcriber)
+	}
+
+	srv := api.New(log, st, packages, transcriber)
 
 	httpSrv := &http.Server{
 		Addr:              *addr,

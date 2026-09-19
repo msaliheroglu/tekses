@@ -29,6 +29,12 @@ void main() {
     expect(engine.frameAt(9999).lyric, 'Son satır');
   });
 
+  test('karaoke onizlemesi siradaki satiri verir', () {
+    expect(engine.frameAt(0).nextLyric, 'Son satır');
+    expect(engine.frameAt(1999).nextLyric, 'Son satır');
+    expect(engine.frameAt(2000).nextLyric, ''); // son satır aktif, sıradaki yok
+  });
+
   test('ekran kuesi ve flash fazi kue baslangicina gore', () {
     expect(engine.frameAt(500).screenColor, ''); // kue henüz başlamadı
     // 2 Hz → yarım periyot 250 ms; faz kue başına (1000 ms) göre.

@@ -1,7 +1,17 @@
 "use client";
 
 import { use, useCallback, useEffect, useState } from "react";
-import { control, uploadAsset, type Event, type Room, type ShowVersion } from "@/lib/api";
+import {
+  ApiError,
+  control,
+  getTranscription,
+  startTranscription,
+  uploadAsset,
+  type Event,
+  type Room,
+  type ShowVersion,
+} from "@/lib/api";
+import { parseLrc } from "@/lib/lrc";
 
 // Söz zamanlama/dalga formu editörü sonraki yineleme; MVP'de manifest JSON
 // olarak düzenlenir. Şema: packages/manifest (sunucu yayında doğrular).
@@ -81,6 +91,9 @@ export default function ShowDetailPage({ params }: { params: Promise<{ id: strin
   const [notice, setNotice] = useState("");
   const [assets, setAssets] = useState<{ name: string; assetId: string; bytes: number }[]>([]);
   const [uploading, setUploading] = useState(false);
+  const [lrcText, setLrcText] = useState("");
+  const [lyricOut, setLyricOut] = useState("");
+  const [transcribing, setTranscribing] = useState("");
 
   const load = useCallback(async () => {
     try {
@@ -153,6 +166,56 @@ export default function ShowDetailPage({ params }: { params: Promise<{ id: strin
     }
   }
 
+  function importLrc() {
+    setError("");
+    const lines = parseLrc(lrcText);
+    if (lines.length === 0) {
+      setError("LRC çözülemedi: [dd:ss.xx] zaman damgalı satır bulunamadı.");
+      return;
+    }
+    setLyricOut(JSON.stringify(lines, null, 2));
+    setNotice(`${lines.length} söz satırı üretildi; aşağıdaki çıktıyı manifestin "lyric_lines" alanına yapıştırın.`);
+  }
+
+  async function transcribe(assetId: string) {
+    setError("");
+    setNotice("");
+    setTranscribing(assetId);
+    try {
+      const { transcription_id } = await startTranscription(assetId);
+      const deadline = Date.now() + 10 * 60 * 1000;
+      for (;;) {
+        await new Promise((r) => setTimeout(r, 3000));
+        const res = await getTranscription(transcription_id);
+        if (res.status === "done") {
+          const lines = res.lyric_lines ?? [];
+          setLyricOut(JSON.stringify(lines, null, 2));
+          setNotice(
+            `${lines.length} satırlık TASLAK üretildi — şarkılarda tanıma hatalı olabilir, ` +
+              `metin ve zamanlamayı kontrol edip düzeltin; sonra "lyric_lines" alanına yapıştırın.`,
+          );
+          break;
+        }
+        if (res.status === "error") {
+          setError(`Söz çıkarma başarısız: ${res.error ?? "bilinmeyen hata"}`);
+          break;
+        }
+        if (Date.now() > deadline) {
+          setError("Söz çıkarma zaman aşımına uğradı.");
+          break;
+        }
+      }
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 501) {
+        setError("Bu sunucuda otomatik söz çıkarma yapılandırılmamış — LRC içe aktarmayı kullanın (docs/dagitim.md kurulum notu).");
+      } else {
+        setError(err instanceof Error ? err.message : "söz çıkarma hatası");
+      }
+    } finally {
+      setTranscribing("");
+    }
+  }
+
   return (
     <>
       <h1>Gösteri sürümleri</h1>
@@ -167,19 +230,56 @@ export default function ShowDetailPage({ params }: { params: Promise<{ id: strin
         {uploading && <p className="muted">yükleniyor…</p>}
         {assets.length > 0 && (
           <table>
-            <thead><tr><th>Dosya</th><th>asset_id</th><th>Boyut</th></tr></thead>
+            <thead><tr><th>Dosya</th><th>asset_id</th><th>Boyut</th><th></th></tr></thead>
             <tbody>
               {assets.map((a) => (
                 <tr key={a.assetId}>
                   <td>{a.name}</td>
                   <td><code>{a.assetId}</code></td>
                   <td className="muted">{(a.bytes / 1024 / 1024).toFixed(2)} MB</td>
+                  <td>
+                    <button
+                      type="button"
+                      className="ghost"
+                      disabled={transcribing !== ""}
+                      onClick={() => transcribe(a.assetId)}
+                    >
+                      {transcribing === a.assetId ? "çıkarılıyor…" : "Sözleri çıkar (deneysel)"}
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
         )}
       </div>
+
+      <div className="card">
+        <h2>Sözler: LRC içe aktar</h2>
+        <p className="muted">
+          Senkronlu söz dosyasını (<code>[01:23.45]söz satırı</code> biçimi)
+          yapıştırın; zamanlı <code>lyric_lines</code> listesine çevrilir. En
+          isabetli yol budur — otomatik çıkarma yalnızca taslak üretir.
+        </p>
+        <textarea
+          rows={6}
+          value={lrcText}
+          onChange={(e) => setLrcText(e.target.value)}
+          placeholder={"[00:12.30]İlk satır\n[00:20.50]İkinci satır"}
+        />
+        <button type="button" onClick={importLrc}>Sözlere çevir</button>
+      </div>
+
+      {lyricOut && (
+        <div className="card">
+          <h2>lyric_lines çıktısı</h2>
+          <p className="muted">
+            Aşağıyı kopyalayıp manifestte ilgili sekansın <code>&quot;lyric_lines&quot;</code>
+            alanına yapıştırın.
+          </p>
+          <textarea rows={10} readOnly value={lyricOut} onFocus={(e) => e.target.select()} />
+        </div>
+      )}
       <form className="card" onSubmit={publish}>
         <h2>Manifest yayınla</h2>
         <p className="muted">
