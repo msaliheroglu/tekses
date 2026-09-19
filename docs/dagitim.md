@@ -71,7 +71,9 @@ docker compose exec postgres pg_dump -U postgres tekses > yedek.sql
 
 Panel, yüklenen sesten zamanlı söz TASLAĞI çıkarabilir. Sunucuda whisper.cpp
 kurulup control-api'ye `TEKSES_TRANSCRIBER=deploy/transcribe-whisper.sh`
-verilirse etkinleşir (kurulum adımları betiğin başındaki yorumda). Ayarsızsa
+verilirse etkinleşir (kurulum adımları betiğin başındaki yorumda; **Windows
+yerel geliştirme için** `deploy/transcribe-whisper.ps1` başındaki adımlar +
+`TEKSES_TRANSCRIBER=...\deploy\transcribe-whisper.bat`). Ayarsızsa
 paneldeki düğme "yapılandırılmamış" der; **LRC içe aktarma her zaman çalışır**
 ve şarkılar için daha isabetlidir — otomatik çıkarma müzikte hata yapar,
 çıktı panelde düzeltilmek üzere taslaktır. Docker dağıtımında bu özellik için
