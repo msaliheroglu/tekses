@@ -64,11 +64,17 @@ adım sırasını izler.
   çalıştırmayı tutan `GET /api/v0/runs` kaydı eklendi. **Faz 2'ye devir:**
   kalıcı Run tablosu, saat kalitesi ısı haritası ve telemetri panoları.
 
-## Doğrulama borçları (kullanıcıdan beklenen)
+## Doğrulama durumu
 
-- Telefonda `flutter analyze && flutter test` (timeline_engine testleri) ve
-  kodlu katılım akışının denenmesi — Dart bu ortamda derlenemiyor.
-- GitHub Actions'ta yeni CI işlerinin (Go+Postgres, panel build) ilk koşumu.
+- [x] **Gerçek cihaz doğrulaması (2026-09-19):** release APK Android
+  cihazda çalıştı — kodla katılım, paket indirme + özet doğrulama, saat
+  senkronu (ofset/RTT görüldü) ve kue denemesi başarılı. Yol boyu düzelen
+  saha hataları: analyze hataları (library sırası, eksik import), release
+  manifest'te INTERNET izni, ASCII olmayan Windows yolu.
+- [ ] Çoklu telefon + 240 fps kamera ile fiziksel senkron ölçümü (≤30 ms
+  hedefi) — cihazlar toplanınca; kılavuz: docs/faz0-senkron-denemesi.md.
+- [ ] GitHub Actions koşumlarının gözden geçirilmesi; "Katılımcı APK" iş
+  akışının Run workflow düğmesi branch main'e merge edilince görünür.
 
 ## Notlar
 
