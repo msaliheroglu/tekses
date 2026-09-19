@@ -44,11 +44,12 @@ var processStart = time.Now()
 func monoMs() int64 { return time.Since(processStart).Milliseconds() }
 
 type clientResult struct {
-	id          int
-	est         clocksync.Estimate
-	runID       string
-	fireLocalMs int64 // kendi ofsetine göre hesapladığı yerel ateşleme anı
-	err         error
+	id            int
+	est           clocksync.Estimate
+	runID         string
+	fireLocalMs   int64 // kendi ofsetine göre hesapladığı yerel ateşleme anı
+	cueFrameBytes int   // alınan ilk kue çerçevesinin tel boyutu
+	err           error
 }
 
 func main() {
@@ -61,7 +62,14 @@ func main() {
 	cueDelay := flag.Int64("cueDelay", 2000, "-cue ile tetiklenen kuenin gecikmesi (ms)")
 	adminToken := flag.String("adminToken", "", "-cue için yönetici token'ı (varsa)")
 	waitCue := flag.Duration("waitCue", 60*time.Second, "kue bekleme süresi")
+	wireKind := flag.String("wire", "json", "tel kodlaması: json (v1) | proto (v2, ikili)")
 	flag.Parse()
+
+	binary := *wireKind == "proto"
+	if !binary && *wireKind != "json" {
+		fmt.Fprintln(os.Stderr, "-wire json ya da proto olmalı")
+		os.Exit(2)
+	}
 
 	results := make([]clientResult, *n)
 	var synced sync.WaitGroup
@@ -72,7 +80,7 @@ func main() {
 		done.Add(1)
 		go func(id int) {
 			defer done.Done()
-			results[id] = runClient(id, *server, *samples, *sampleInterval, *jitter, *waitCue, synced.Done)
+			results[id] = runClient(id, *server, binary, *samples, *sampleInterval, *jitter, *waitCue, synced.Done)
 		}(i)
 	}
 
@@ -95,7 +103,7 @@ func main() {
 
 // runClient tek bir simüle katılımcıdır. Senkron bitince onSynced çağrılır;
 // dönen sonuç kue alımını da içerir.
-func runClient(id int, server string, samples int, sampleInterval time.Duration, jitter int64, waitCue time.Duration, onSynced func()) clientResult {
+func runClient(id int, server string, binary bool, samples int, sampleInterval time.Duration, jitter int64, waitCue time.Duration, onSynced func()) clientResult {
 	syncedOnce := sync.OnceFunc(onSynced)
 	defer syncedOnce()
 	res := clientResult{id: id}
@@ -107,31 +115,52 @@ func runClient(id int, server string, samples int, sampleInterval time.Duration,
 	}
 	defer conn.Close()
 
+	frameKind := websocket.TextMessage
+	protocolVersion := uint32(wire.ProtocolVersion)
+	if binary {
+		frameKind = websocket.BinaryMessage
+		protocolVersion = wire.ProtocolVersionBinary
+	}
+
 	send := func(msgType string, msg any) error {
-		data, err := wire.Encode(msgType, msg)
+		var data []byte
+		var err error
+		if binary {
+			data, err = wire.EncodeBinary(msgType, msg)
+		} else {
+			data, err = wire.Encode(msgType, msg)
+		}
 		if err != nil {
 			return err
 		}
-		return conn.WriteMessage(websocket.TextMessage, data)
+		return conn.WriteMessage(frameKind, data)
 	}
 
-	if err := send(wire.TypeHello, wire.Hello{ProtocolVersion: wire.ProtocolVersion, ClientKind: "loadgen"}); err != nil {
+	if err := send(wire.TypeHello, wire.Hello{ProtocolVersion: protocolVersion, ClientKind: "loadgen"}); err != nil {
 		res.err = fmt.Errorf("hello: %w", err)
 		return res
 	}
 
-	readEnvelope := func(deadline time.Time) (wire.Envelope, error) {
+	// readMessage, kodeğe göre çözüp (tür, gövde, çerçeve boyutu) döndürür.
+	readMessage := func(deadline time.Time) (string, any, int, error) {
 		_ = conn.SetReadDeadline(deadline)
 		_, raw, err := conn.ReadMessage()
 		if err != nil {
-			return wire.Envelope{}, err
+			return "", nil, 0, err
 		}
-		return wire.Decode(raw)
+		var msgType string
+		var msg any
+		if binary {
+			msgType, msg, err = wire.DecodeBinary(raw)
+		} else {
+			msgType, msg, err = wire.DecodeMessage(raw)
+		}
+		return msgType, msg, len(raw), err
 	}
 
 	// welcome
-	if env, err := readEnvelope(time.Now().Add(10 * time.Second)); err != nil || env.Type != wire.TypeWelcome {
-		res.err = fmt.Errorf("welcome beklenirken: tür=%q hata=%v", env.Type, err)
+	if msgType, _, _, err := readMessage(time.Now().Add(10 * time.Second)); err != nil || msgType != wire.TypeWelcome {
+		res.err = fmt.Errorf("welcome beklenirken: tür=%q hata=%v", msgType, err)
 		return res
 	}
 
@@ -148,16 +177,16 @@ func runClient(id int, server string, samples int, sampleInterval time.Duration,
 			return res
 		}
 		for {
-			env, err := readEnvelope(time.Now().Add(10 * time.Second))
+			msgType, msg, _, err := readMessage(time.Now().Add(10 * time.Second))
 			if err != nil {
 				res.err = fmt.Errorf("senkron yanıtı: %w", err)
 				return res
 			}
-			if env.Type != wire.TypeClockSyncResponse {
+			if msgType != wire.TypeClockSyncResponse {
 				continue // erken gelen kue vb. bu turda yok sayılır
 			}
-			var resp wire.ClockSyncResponse
-			if err := json.Unmarshal(env.Data, &resp); err != nil || resp.Seq != seq {
+			resp, ok := msg.(wire.ClockSyncResponse)
+			if !ok || resp.Seq != seq {
 				continue
 			}
 			sleepJitter(jitter)
@@ -177,19 +206,20 @@ func runClient(id int, server string, samples int, sampleInterval time.Duration,
 	// Kue bekle; tekrarlar run_id ile tekilleştirilir, ilki esas alınır.
 	cueDeadline := time.Now().Add(waitCue)
 	for {
-		env, err := readEnvelope(cueDeadline)
+		msgType, msg, frameBytes, err := readMessage(cueDeadline)
 		if err != nil {
 			res.err = fmt.Errorf("kue beklenirken: %w", err)
 			return res
 		}
-		if env.Type != wire.TypeCueStart {
+		if msgType != wire.TypeCueStart {
 			continue
 		}
-		var cue wire.CueStart
-		if err := json.Unmarshal(env.Data, &cue); err != nil {
+		cue, ok := msg.(wire.CueStart)
+		if !ok {
 			continue
 		}
 		res.runID = cue.RunID
+		res.cueFrameBytes = frameBytes
 		// sunucuSaati ≈ yerelMonoton + ofset  ⇒  yerelAteşleme = fireAt − ofset
 		res.fireLocalMs = cue.FireAtServerMs - res.est.OffsetMs
 		return res
@@ -269,6 +299,7 @@ func report(results []clientResult) {
 	fmt.Println()
 	fmt.Println("=== Faz 0 yazılım içi senkron ölçümü ===")
 	fmt.Printf("istemci: %d başarılı / %d toplam (run_id %s)\n", len(ok), len(results), ok[0].runID)
+	fmt.Printf("kue çerçevesi    : %d bayt\n", ok[0].cueFrameBytes)
 	fmt.Printf("ofset kestirimi  : min %.0f ms, medyan %.0f ms, maks %.0f ms\n", offsets[0], percentile(offsets, 50), offsets[len(offsets)-1])
 	fmt.Printf("en iyi RTT       : medyan %.0f ms, p95 %.0f ms\n", percentile(rtts, 50), percentile(rtts, 95))
 	fmt.Printf("ateşleme yayılımı: maks−min %.0f ms, p95−p5 %.0f ms, σ %.1f ms\n",

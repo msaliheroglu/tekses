@@ -88,9 +88,14 @@ adım sırasını izler.
   --build` ile doğrulanacak; sorun çıkarsa hata çıktısıyla düzeltilir.
 - [ ] **F2.2 VM kurulumu** *(kullanıcıyla birlikte)*: Oracle Always Free VM
   + alan adı + `docs/dagitim.md` adımları; telefonların LTE'den katılımı.
-- [ ] **F2.3 Protobuf ikili teline geçiş** (~40 bayt/kue): buf generate ile
-  Go stub'ları, Dart stub'ları; wire paketinin devri; sürüm müzakeresi
-  hello'da hazır.
+- [x] **F2.3 Protobuf ikili teli (Go tarafı, 2026-09-19):** buf + protoc-gen-go
+  ile üretilen stub'lar commit'li; `wire` paketi iki kodeği tek arayüzde
+  taşıyor (EncodeBinary/DecodeBinary ↔ Encode/DecodeMessage). Gateway iki
+  kodeği aynı anda konuşuyor (hello çerçevesinin biçimi belirler); yayınlar
+  çift kodlamalı Frame ile. loadgen `-wire proto`: canlıda kue çerçevesi
+  **58 bayt** (JSON 207), senkron yayılımı değişmedi. **Kalan:** Dart
+  stub'ları Flutter'lı ortamda üretilecek (`buf.gen.dart.yaml` hazır) ve
+  uygulama v2'ye geçecek; o güne dek Flutter v1 JSON'da (gateway destekliyor).
 - [ ] **F2.4 Yük testi:** loadgen'i 100k istemciye ölçekleme (çok bağlantılı
   koşum, bellek/CPU profili), yeniden bağlanma fırtınası senaryosu.
 - [ ] **F2.5 Native zamanlanmış ses:** Android AudioTrack / iOS

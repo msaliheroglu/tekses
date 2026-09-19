@@ -1,0 +1,6 @@
+version: v2
+plugins:
+  # Dart stub'ları (Flutter kurulu ortamda; bkz. buf.gen.yaml içindeki not).
+  # Çıktı, katılımcı uygulamasının lib/gen dizinine gider.
+  - local: protoc-gen-dart
+    out: ../../apps/participant/lib/gen

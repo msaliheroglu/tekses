@@ -225,7 +225,7 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 	}()
 
 	for {
-		_, raw, err := conn.ReadMessage()
+		frameKind, raw, err := conn.ReadMessage()
 		// t1 olabildiğince erken, çözümlemeden önce damgalanır.
 		recvMs := s.clock.NowMs()
 		if err != nil {
@@ -233,23 +233,29 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 		}
 		resetDeadline()
 
-		env, err := wire.Decode(raw)
+		// Çerçevenin biçimi kodeki söyler: metin = JSON (v1),
+		// ikili = protobuf (v2). Yanıtlar istemcinin hello kodeğini izler.
+		binaryFrame := frameKind == websocket.BinaryMessage
+		var msgType string
+		var payload any
+		if binaryFrame {
+			msgType, payload, err = wire.DecodeBinary(raw)
+		} else {
+			msgType, payload, err = wire.DecodeMessage(raw)
+		}
 		if err != nil {
-			s.log.Warn("bozuk çerçeve", "hata", err)
+			s.log.Warn("bozuk çerçeve", "ikili", binaryFrame, "hata", err)
 			continue
 		}
 
-		switch env.Type {
+		switch msgType {
 		case wire.TypeHello:
-			var hello wire.Hello
-			if err := json.Unmarshal(env.Data, &hello); err != nil {
-				s.log.Warn("bozuk hello", "hata", err)
-				continue
-			}
-			if hello.ProtocolVersion != wire.ProtocolVersion {
+			hello := payload.(wire.Hello)
+			if hello.ProtocolVersion != wire.ProtocolVersion && hello.ProtocolVersion != wire.ProtocolVersionBinary {
 				s.log.Warn("uyumsuz protokol sürümü", "istemci", hello.ProtocolVersion)
 				return
 			}
+			client.SetBinary(binaryFrame)
 			room := hub.DefaultRoom
 			code := strings.ToUpper(strings.TrimSpace(hello.JoinCode))
 			if code != "" && s.resolver != nil {
@@ -267,25 +273,25 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 			s.hub.JoinRoom(client, room)
 			s.send(client, wire.TypeWelcome, wire.Welcome{
 				ServerTimeMs:    s.clock.NowMs(),
-				ProtocolVersion: wire.ProtocolVersion,
+				ProtocolVersion: hello.ProtocolVersion,
 				RoomID:          room,
 			})
 
 		case wire.TypeClockSyncRequest:
-			var req wire.ClockSyncRequest
-			if err := json.Unmarshal(env.Data, &req); err != nil {
-				s.log.Warn("bozuk saat senkronu isteği", "hata", err)
-				continue
-			}
+			req := payload.(wire.ClockSyncRequest)
 			// t2, yazma kilidi alındıktan sonra (SendLazy içinde) damgalanır:
 			// kilidin beklettiği süre t2'ye yansır, ofset saptırılmaz.
 			err := client.SendLazy(func() ([]byte, error) {
-				return wire.Encode(wire.TypeClockSyncResponse, wire.ClockSyncResponse{
+				resp := wire.ClockSyncResponse{
 					Seq:          req.Seq,
 					ClientMonoMs: req.ClientMonoMs,
 					ServerRecvMs: recvMs,
 					ServerSendMs: s.clock.NowMs(),
-				})
+				}
+				if client.IsBinary() {
+					return wire.EncodeBinary(wire.TypeClockSyncResponse, resp)
+				}
+				return wire.Encode(wire.TypeClockSyncResponse, resp)
 			})
 			if err != nil {
 				s.hub.Unregister(client)
@@ -293,13 +299,19 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 			}
 
 		default:
-			s.log.Warn("beklenmeyen mesaj türü", "tür", env.Type)
+			s.log.Warn("beklenmeyen mesaj türü", "tür", msgType)
 		}
 	}
 }
 
 func (s *Server) send(c *hub.Client, msgType string, msg any) {
-	data, err := wire.Encode(msgType, msg)
+	var data []byte
+	var err error
+	if c.IsBinary() {
+		data, err = wire.EncodeBinary(msgType, msg)
+	} else {
+		data, err = wire.Encode(msgType, msg)
+	}
 	if err != nil {
 		s.log.Error("mesaj kodlanamadı", "tür", msgType, "hata", err)
 		return
@@ -307,6 +319,19 @@ func (s *Server) send(c *hub.Client, msgType string, msg any) {
 	if err := c.Send(data); err != nil {
 		s.hub.Unregister(c)
 	}
+}
+
+// encodeFrame, yayın mesajını iki kodlamada birden üretir.
+func (s *Server) encodeFrame(msgType string, msg any) (hub.Frame, error) {
+	jsonData, err := wire.Encode(msgType, msg)
+	if err != nil {
+		return hub.Frame{}, err
+	}
+	binData, err := wire.EncodeBinary(msgType, msg)
+	if err != nil {
+		return hub.Frame{}, err
+	}
+	return hub.Frame{JSON: jsonData, Binary: binData}, nil
 }
 
 // --- Kontrol API'si ---
@@ -413,7 +438,7 @@ func (s *Server) broadcastCueWithRepeats(cue wire.CueStart, room string) {
 	for i := uint32(1); i <= cueRepeats; i++ {
 		repeat := cue
 		repeat.RepeatSeq = i
-		data, err := wire.Encode(wire.TypeCueStart, repeat)
+		frame, err := s.encodeFrame(wire.TypeCueStart, repeat)
 		if err != nil {
 			s.log.Error("kue kodlanamadı", "hata", err)
 			return
@@ -421,9 +446,9 @@ func (s *Server) broadcastCueWithRepeats(cue wire.CueStart, room string) {
 		delay := time.Duration(i-1) * cueRepeatInterval
 		time.AfterFunc(delay, func() {
 			if room == "" {
-				s.hub.Broadcast(data)
+				s.hub.Broadcast(frame)
 			} else {
-				s.hub.BroadcastRoom(room, data)
+				s.hub.BroadcastRoom(room, frame)
 			}
 		})
 	}
@@ -451,15 +476,15 @@ func (s *Server) handleIntervention(w http.ResponseWriter, r *http.Request) {
 		Kind:             req.Kind,
 		IssuedAtServerMs: s.clock.NowMs(),
 	}
-	data, err := wire.Encode(wire.TypeIntervention, msg)
+	frame, err := s.encodeFrame(wire.TypeIntervention, msg)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "mesaj kodlanamadı"})
 		return
 	}
 	if req.RoomID == "" {
-		s.hub.Broadcast(data)
+		s.hub.Broadcast(frame)
 	} else {
-		s.hub.BroadcastRoom(req.RoomID, data)
+		s.hub.BroadcastRoom(req.RoomID, frame)
 	}
 	s.log.Info("müdahale yayınlandı", "kind", req.Kind, "run_id", req.RunID, "oda", req.RoomID)
 	s.recordRun(runRecord{

@@ -6,15 +6,34 @@ Telin gerçeği `tekses/v1/*.proto` dosyalarıdır:
 - `cue.proto` — `CueStart`, `CuePayload`, `Intervention` (HOLD / STOP / SKIP / BLACKOUT).
 - `envelope.proto` — `Hello`, `Welcome` ve tüm mesajları saran `Envelope`.
 
-## Faz 0 tel biçimi: JSON
+## Tel sürümleri
 
-Bu geliştirme aşamasında WebSocket teli **JSON**'dur ve proto şemasını alan
-adlarıyla (snake_case) birebir izler; Go türleri `wire/` paketindedir ve hem
-gateway hem loadgen tarafından kullanılır. 5–10 telefonluk denemede kodlama
-biçimi ölçümü etkilemez.
+Gateway iki kodeği aynı anda konuşur; istemcinin **hello çerçevesinin biçimi**
+kodeki belirler:
 
-**Faz 1'de** ikili protobuf'a geçilir (~40 bayt/kue): `buf generate` ile Go
-stub'ları `gen/go/` altına, Dart stub'ları Flutter araç zinciriyle
-`apps/participant/lib/gen/` altına üretilecek. Şema değişikliği yalnızca
-`.proto` dosyalarında yapılır; `wire/` paketi o geçişte üretilmiş koda
-devrolur.
+| Sürüm | Çerçeve | Kodlama | Kim kullanıyor |
+|---|---|---|---|
+| v1 | metin | JSON (proto alan adlarını izler) | Flutter uygulaması, tarayıcı `/join` sayfası |
+| v2 | ikili | protobuf `Envelope` (~58 bayt/kue; JSON ~207) | loadgen (`-wire proto`); Flutter, Dart stub'ları üretilince geçecek |
+
+Go türleri `wire/` paketindedir: JSON yapıları + `Encode/Decode(Message)` ve
+protobuf köprüsü `EncodeBinary/DecodeBinary` (`binary.go`). İki kodek aynı
+wire yapılarıyla çalışır; çağıran kod kodekten bağımsızdır.
+
+## Kod üretimi
+
+Go stub'ları `gen/go/` altına **commit edilir** (derleme protoc istemez).
+Şema değiştiğinde:
+
+```bash
+go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
+go install github.com/bufbuild/buf/cmd/buf@latest
+cd packages/proto && buf lint && buf generate
+```
+
+Dart stub'ları Flutter kurulu ortamda üretilir (Flutter'ın v2'ye geçişi için):
+
+```bash
+dart pub global activate protoc_plugin
+cd packages/proto && buf generate --template buf.gen.dart.yaml
+```

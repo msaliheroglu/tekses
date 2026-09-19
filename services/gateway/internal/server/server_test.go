@@ -125,6 +125,86 @@ func TestHelloWelcome(t *testing.T) {
 	}
 }
 
+// İkili (protobuf) tel: v2 istemci ikili hello yollar, ikili welcome/saat
+// senkronu/kue alır; aynı yayında v1 istemci JSON metin çerçevesi almayı
+// sürdürür.
+func TestBinaryWireClient(t *testing.T) {
+	ts, wsURL := newTestServer(t, "")
+
+	// v2 istemci (ikili çerçeveler)
+	binConn := dial(t, wsURL)
+	helloBin, err := wire.EncodeBinary(wire.TypeHello, wire.Hello{
+		ProtocolVersion: wire.ProtocolVersionBinary, ClientKind: "test-bin"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := binConn.WriteMessage(websocket.BinaryMessage, helloBin); err != nil {
+		t.Fatal(err)
+	}
+	readBinary := func() (string, any) {
+		t.Helper()
+		_ = binConn.SetReadDeadline(time.Now().Add(5 * time.Second))
+		mt, raw, err := binConn.ReadMessage()
+		if err != nil {
+			t.Fatalf("ikili okuma hatası: %v", err)
+		}
+		if mt != websocket.BinaryMessage {
+			t.Fatalf("çerçeve türü = %d, beklenen ikili", mt)
+		}
+		msgType, msg, err := wire.DecodeBinary(raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return msgType, msg
+	}
+	msgType, msg := readBinary()
+	welcome, ok := msg.(wire.Welcome)
+	if msgType != wire.TypeWelcome || !ok || welcome.RoomID != hub.DefaultRoom {
+		t.Fatalf("ikili welcome beklenirken: %s %+v", msgType, msg)
+	}
+
+	// İkili saat senkronu değişimi.
+	ping, _ := wire.EncodeBinary(wire.TypeClockSyncRequest, wire.ClockSyncRequest{Seq: 3, ClientMonoMs: 777})
+	if err := binConn.WriteMessage(websocket.BinaryMessage, ping); err != nil {
+		t.Fatal(err)
+	}
+	msgType, msg = readBinary()
+	pong, ok := msg.(wire.ClockSyncResponse)
+	if msgType != wire.TypeClockSyncResponse || !ok || pong.Seq != 3 || pong.ClientMonoMs != 777 {
+		t.Fatalf("ikili saat yanıtı beklenirken: %s %+v", msgType, msg)
+	}
+
+	// v1 (JSON) istemci aynı anda bağlı.
+	jsonConn := dial(t, wsURL)
+	sendMsg(t, jsonConn, wire.TypeHello, wire.Hello{ProtocolVersion: wire.ProtocolVersion})
+	_ = readEnvelope(t, jsonConn) // welcome
+
+	// Yayın: iki istemci de kendi kodeğinde aynı kueyi almalı.
+	body, _ := json.Marshal(map[string]any{"delayMs": 600, "cue_id": "cift-kodek"})
+	resp, err := http.Post(ts.URL+"/api/v0/cue", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+
+	msgType, msg = readBinary()
+	binCue, ok := msg.(wire.CueStart)
+	if msgType != wire.TypeCueStart || !ok || binCue.CueID != "cift-kodek" {
+		t.Fatalf("ikili kue beklenirken: %s %+v", msgType, msg)
+	}
+	env := readEnvelope(t, jsonConn)
+	if env.Type != wire.TypeCueStart {
+		t.Fatalf("JSON istemci kue almadı: %s", env.Type)
+	}
+	var jsonCue wire.CueStart
+	if err := json.Unmarshal(env.Data, &jsonCue); err != nil {
+		t.Fatal(err)
+	}
+	if jsonCue.RunID != binCue.RunID || jsonCue.FireAtServerMs != binCue.FireAtServerMs {
+		t.Fatalf("iki kodek farklı kue taşıdı: %+v / %+v", jsonCue, binCue)
+	}
+}
+
 func TestRoomScopedJoinAndCue(t *testing.T) {
 	resolver := fakeResolver{codes: map[string]string{"ABC234": "room_a"}}
 	ts, wsURL := newTestServerWithResolver(t, "", resolver)
