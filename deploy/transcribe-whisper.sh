@@ -24,8 +24,20 @@ trap 'rm -rf "$OUT"' EXIT
 
 # Whisper 16 kHz mono WAV ister; mp3/m4a/ogg buradan geçer.
 ffmpeg -y -loglevel error -i "$AUDIO" -ar 16000 -ac 1 "$OUT/audio.wav"
+WAV="$OUT/audio.wav"
 
-"$WHISPER" -m "$MODEL" -l "$LANG" -f "$OUT/audio.wav" -oj -of "$OUT/audio" >/dev/null
+# Vokal ayrıştırma: Demucs kuruluysa (pip install demucs) otomatik —
+# şarkılarda Whisper tek başına vokali bulamaz, enstrüman maskesi kalkmalı.
+# Devre dışı: TEKSES_NO_DEMUCS=1
+if [ -z "${TEKSES_NO_DEMUCS:-}" ] && command -v "${DEMUCS_BIN:-demucs}" >/dev/null 2>&1; then
+	"${DEMUCS_BIN:-demucs}" --two-stems vocals -n htdemucs -d cpu -o "$OUT" "$WAV" >/dev/null 2>&1
+	if [ -f "$OUT/htdemucs/audio/vocals.wav" ]; then
+		ffmpeg -y -loglevel error -i "$OUT/htdemucs/audio/vocals.wav" -ar 16000 -ac 1 "$OUT/vocals16k.wav"
+		WAV="$OUT/vocals16k.wav"
+	fi
+fi
+
+"$WHISPER" -m "$MODEL" -l "$LANG" -f "$WAV" -oj -of "$OUT/audio" >/dev/null
 
 # whisper.cpp JSON'u → tekses sözleşmesi
 jq '{segments: [.transcription[] | {start_ms: .offsets.from, end_ms: .offsets.to, text: .text}]}' \
