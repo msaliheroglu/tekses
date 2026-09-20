@@ -134,6 +134,12 @@ adım sırasını izler.
   telefonlara canlı yansımıyor — telefon paketi yalnızca katılırken indiriyor,
   etkinleştirme sonrası yeniden katılmak gerekiyor. Gateway üzerinden odaya
   "show_activated" bildirimi + uygulamada otomatik paket yenileme eklenebilir.
+- F2.2 saha bulgularıyla eklendi (2026-09-20): (a) konsol yetkisi panel
+  oturumuyla — gateway, /api/v0 uçlarında TEKSES_ADMIN_TOKEN'ın yanında
+  panel oturum token'ını da kabul eder (control-api /api/v1/auth/whoami,
+  60 sn önbellek); (b) /join tarayıcı katılımcısı artık manifest koreografisi
+  oynatıyor (ekran şeridi + karaoke sözleri; TimelineEngine/ProgramEngine'in
+  JS karşılığı, node ile mantık testli). Fener/ses yalnızca uygulamada.
 
 - Mimari doküman (`tekses-architecture-v0.1.md`) hâlâ depoda değil; kullanıcı
   paylaşınca `docs/architecture/` altına eklenecek.
