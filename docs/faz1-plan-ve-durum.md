@@ -137,6 +137,12 @@ adım sırasını izler.
   telefonlara canlı yansımıyor — telefon paketi yalnızca katılırken indiriyor,
   etkinleştirme sonrası yeniden katılmak gerekiyor. Gateway üzerinden odaya
   "show_activated" bildirimi + uygulamada otomatik paket yenileme eklenebilir.
+- Görsel gösteri editörü (2026-09-20, kullanıcı isteği): panelde manifest
+  artık formla düzenleniyor — sekans kartları, müzik seçimi (süre otomatik),
+  ekran adımları (renk seçici + flaş), fener, satır satır sözler, otomatik
+  program özeti; "Editörde aç" eski sürümü yükler, "Gelişmiş (JSON)" duruyor.
+  Dönüşümler `apps/moderator/lib/manifestEditor.ts` (saf; gidiş-dönüş testli,
+  çıktı Go manifest.Parse ile doğrulandı).
 - F2.2 saha bulgularıyla eklendi (2026-09-20): (a) konsol yetkisi panel
   oturumuyla — gateway, /api/v0 uçlarında TEKSES_ADMIN_TOKEN'ın yanında
   panel oturum token'ını da kabul eder (control-api /api/v1/auth/whoami,
