@@ -92,8 +92,11 @@ adım sırasını izler.
   (IP 141.144.246.29). Docker + iptables 80/443 + DuckDNS alan adı +
   `deploy/` compose yığını: 5 konteyner ayakta (postgres healthy),
   `https://<alan>/healthz` → `{"status":"ok"}` — Caddy sertifikayı aldı,
-  TekSes internette. **Kalan doğrulama:** panelden kayıt + şablon gösteri
-  yayını + telefonun LTE üzerinden katılıp kue alması (aşağıda yürüyor).
+  TekSes internette. Panelden kayıt, gösteri yayını/etkinleştirme ve
+  telefonların katılıp konsoldan verilen kueyle KOREOGRAFİYİ OYNATMASI
+  kullanıcı tarafından doğrulandı. Yol boyu düzelenler: panel API'leri
+  Caddy'den yönlendirildi (Next rewrites imaja localhost gömüyordu),
+  konsol yetkisi panel oturumuna bağlandı, /join koreografi kazandı.
 - [x] **F2.3 Protobuf ikili teli (Go tarafı, 2026-09-19):** buf + protoc-gen-go
   ile üretilen stub'lar commit'li; `wire` paketi iki kodeği tek arayüzde
   taşıyor (EncodeBinary/DecodeBinary ↔ Encode/DecodeMessage). Gateway iki
