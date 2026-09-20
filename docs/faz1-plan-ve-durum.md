@@ -121,6 +121,14 @@ adım sırasını izler.
   - 10k ikili istemci (2026-09-20): 10000/10000 başarılı, yayılım
     maks−min 15 ms / p95−p5 5 ms / σ 1.6 ms, en iyi RTT medyan 2 ms —
     ≤30 ms hedefi TUTUYOR.
+  - 20k ikili istemci (2026-09-20): 20000/20000 başarılı (kopma yok);
+    yayılım maks−min 45 ms / p95−p5 25 ms / σ 7.6 ms, RTT medyan 6 ms /
+    p95 50 ms. Gateway RSS ~520 MiB (%9), CPU %43. NOT: VM 6 GB'lık
+    küçük kurulum çıktı (free: 5.8 Gi) — bozulma CPU sıkışması imzalı
+    (üreteç+gateway aynı çekirdekleri paylaşıyor); istemcilerin %90'ı
+    hâlâ 25 ms bandında. Ders: tek KÜÇÜK düğümün konforlu sınırı ~10-15k;
+    80k için düğüm başına ~10k hedefiyle çoklu gateway (F2.6 NATS) ve/veya
+    daha büyük makine. 4 OCPU/24 GB'a büyütüp yeniden ölçüm planlandı.
 - [x] **F2.5 Native zamanlanmış ses (2026-09-19):** (a) varlık boru hattı —
   POST /api/v1/assets (içerik adresli, <sha256>.<uzantı>), herkese açık
   /assets/{id}, yayında varlık doğrulaması; telefon varlıkları katılırken
