@@ -311,3 +311,57 @@ func (s *Store) ShowVersionByID(orgID, id string) (model.ShowVersion, error) {
 	}
 	return sv, err
 }
+
+// --- telemetri: kalıcı Run izleri ---
+
+func (s *Store) CreateRun(r model.Run) error {
+	// ON CONFLICT DO NOTHING: gateway yeniden denerse çift kayıt oluşmaz.
+	// org_id boş string yerine NULL yazılır ki kısmi indeks/sorgu semantiği
+	// temiz kalsın; okurken NULL → "" indirgenir.
+	var orgID any
+	if r.OrgID != "" {
+		orgID = r.OrgID
+	}
+	_, err := s.pool.Exec(bg,
+		`INSERT INTO runs (id, org_id, room_id, kind, run_id, cue_id,
+		                   fire_at_server_ms, issued_at_server_ms, clients, node, created_at)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+		 ON CONFLICT (id) DO NOTHING`,
+		r.ID, orgID, r.RoomID, r.Kind, r.RunID, r.CueID,
+		r.FireAtServerMs, r.IssuedAtServerMs, r.Clients, r.Node, r.CreatedAt)
+	return err
+}
+
+func (s *Store) ListRuns(orgID string, limit int) ([]model.Run, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	rows, err := s.pool.Query(bg,
+		`SELECT id, COALESCE(org_id, ''), room_id, kind, run_id, cue_id,
+		        fire_at_server_ms, issued_at_server_ms, clients, node, created_at
+		 FROM runs WHERE org_id = $1
+		 ORDER BY created_at DESC, id DESC LIMIT $2`, orgID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []model.Run
+	for rows.Next() {
+		var r model.Run
+		if err := rows.Scan(&r.ID, &r.OrgID, &r.RoomID, &r.Kind, &r.RunID, &r.CueID,
+			&r.FireAtServerMs, &r.IssuedAtServerMs, &r.Clients, &r.Node, &r.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+func (s *Store) OrgIDByRoom(roomID string) (string, error) {
+	var orgID string
+	err := s.pool.QueryRow(bg, `SELECT org_id FROM rooms WHERE id = $1`, roomID).Scan(&orgID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", store.ErrNotFound
+	}
+	return orgID, err
+}

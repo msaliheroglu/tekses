@@ -31,6 +31,7 @@ import (
 	"github.com/msaliheroglu/tekses/services/gateway/internal/fanout"
 	"github.com/msaliheroglu/tekses/services/gateway/internal/hub"
 	"github.com/msaliheroglu/tekses/services/gateway/internal/rooms"
+	"github.com/msaliheroglu/tekses/services/gateway/internal/runsink"
 )
 
 const (
@@ -81,6 +82,15 @@ type Server struct {
 	// yapılandırıldıysa SetBus ile değiştirir.
 	bus fanout.Bus
 
+	// nodeID, bu sürecin kimliğidir (crypto/rand hex; her başlatmada
+	// yenilenir). Run kayıtları, presence raporları ve clockstats aynı
+	// kimliği taşır ki panelde ilişkilendirilebilsinler.
+	nodeID string
+
+	// runSink, kue/müdahale izlerini control-api'ye kalıcılaştırır
+	// (nil = kapalı; Faz 0 yerel modu ya da TEKSES_INTERNAL_TOKEN yok).
+	runSink *runsink.Client
+
 	// Doğrulanmış panel oturumlarının kısa süreli önbelleği: konsolun 4 sn'de
 	// bir attığı runs sorgusu her seferinde control-api'ye gitmesin.
 	// token → önbellek son kullanma anı.
@@ -95,25 +105,65 @@ type Server struct {
 
 // runRecord, tek bir kue yayını ya da müdahalenin izidir.
 type runRecord struct {
+	ID               string `json:"id,omitempty"` // kayıt kimliği (rec_…)
 	RunID            string `json:"run_id,omitempty"`
 	Kind             string `json:"kind"` // "cue" | HOLD | STOP | SKIP | BLACKOUT
 	CueID            string `json:"cue_id,omitempty"`
 	RoomID           string `json:"room_id,omitempty"`
 	FireAtServerMs   int64  `json:"fire_at_server_ms,omitempty"`
 	IssuedAtServerMs int64  `json:"issued_at_server_ms"`
-	Clients          int    `json:"clients"`
+	// Clients bu DÜĞÜMÜN istemci sayısıdır (küme toplamı /api/v0/presence'ta).
+	Clients int    `json:"clients"`
+	Node    string `json:"node,omitempty"`
 }
 
 const maxRunRecords = 50
 
+// recordRun, izi yerel halkaya yazar (Faz 0 konsolu) ve yapılandırıldıysa
+// arka planda control-api'ye kalıcılaştırır. Kalıcılaştırma kue yolunu asla
+// engellemez: handler bağlamı değil arka plan bağlamı kullanılır, hata
+// yalnız loglanır.
 func (s *Server) recordRun(rec runRecord) {
+	if rec.ID == "" {
+		if id, err := newRunID(); err == nil {
+			rec.ID = "rec_" + id
+		}
+	}
+	rec.Node = s.nodeID
+
 	s.runsMu.Lock()
-	defer s.runsMu.Unlock()
 	s.runs = append([]runRecord{rec}, s.runs...)
 	if len(s.runs) > maxRunRecords {
 		s.runs = s.runs[:maxRunRecords]
 	}
+	s.runsMu.Unlock()
+
+	if s.runSink == nil || rec.ID == "" {
+		return
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		err := s.runSink.Persist(ctx, runsink.Record{
+			ID:               rec.ID,
+			RoomID:           rec.RoomID,
+			Kind:             rec.Kind,
+			RunID:            rec.RunID,
+			CueID:            rec.CueID,
+			FireAtServerMs:   rec.FireAtServerMs,
+			IssuedAtServerMs: rec.IssuedAtServerMs,
+			Clients:          rec.Clients,
+			Node:             rec.Node,
+		})
+		if err != nil {
+			s.log.Warn("run kaydı kalıcılaştırılamadı", "id", rec.ID, "hata", err)
+		}
+	}()
 }
+
+// SetRunSink, kalıcı Run kaydını etkinleştirir (main, TEKSES_CONTROL_URL +
+// TEKSES_INTERNAL_TOKEN ayarlıysa çağırır). Sunucu başlamadan çağrılmalıdır.
+func (s *Server) SetRunSink(c *runsink.Client) { s.runSink = c }
 
 // New, bir gateway sunucusu kurar. adminToken boş değilse /api/* uçları
 // "Authorization: Bearer <token>" başlığı ister; sessions verilmişse geçerli
@@ -136,6 +186,9 @@ func New(log *slog.Logger, adminToken string, resolver rooms.Resolver, sessions 
 			// katılım kodu doğrulaması ve origin listesi eklenecek.
 			CheckOrigin: func(*http.Request) bool { return true },
 		},
+	}
+	if id, err := newRunID(); err == nil {
+		s.nodeID = "node_" + id
 	}
 	s.bus = fanout.NewLocal(s.BroadcastSink())
 	return s

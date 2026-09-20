@@ -29,6 +29,7 @@ import (
 
 	"github.com/msaliheroglu/tekses/services/gateway/internal/fanout"
 	"github.com/msaliheroglu/tekses/services/gateway/internal/rooms"
+	"github.com/msaliheroglu/tekses/services/gateway/internal/runsink"
 	"github.com/msaliheroglu/tekses/services/gateway/internal/server"
 )
 
@@ -52,6 +53,13 @@ func main() {
 		log.Info("katılım kodları ve panel oturumları control-api'den doğrulanacak", "url", controlURL)
 	}
 	srv := server.New(log, os.Getenv("TEKSES_ADMIN_TOKEN"), resolver, sessions)
+
+	// Kalıcı Run kaydı: control-api adresi ve iç uç sırrı birlikte
+	// ayarlıysa açılır; yoksa izler yalnız yerel halkada yaşar.
+	if controlURL, internalToken := os.Getenv("TEKSES_CONTROL_URL"), os.Getenv("TEKSES_INTERNAL_TOKEN"); controlURL != "" && internalToken != "" {
+		srv.SetRunSink(runsink.New(controlURL, internalToken))
+		log.Info("run kayıtları control-api'ye kalıcılaştırılacak")
+	}
 
 	if natsURL := os.Getenv("TEKSES_NATS_URL"); natsURL != "" {
 		bus, err := fanout.NewNATS(natsURL, srv.BroadcastSink())

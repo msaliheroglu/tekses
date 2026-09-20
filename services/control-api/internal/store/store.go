@@ -48,4 +48,15 @@ type Store interface {
 	CreateShowVersion(sv model.ShowVersion) (model.ShowVersion, error)
 	ListShowVersions(orgID, showID string) ([]model.ShowVersion, error)
 	ShowVersionByID(orgID, id string) (model.ShowVersion, error)
+
+	// Telemetri: kalıcı Run izleri (F2.6).
+	// CreateRun idempotenttir: aynı ID ikinci kez gelirse sessizce yok
+	// sayılır (gateway'in olası yeniden denemesi çift kayıt üretmesin).
+	CreateRun(r model.Run) error
+	// ListRuns org kapsamlıdır ve en yenisi baştadır (created_at, sonra id
+	// azalan — eşit zaman damgasında sıra iki gerçeklemede de aynı kalsın).
+	ListRuns(orgID string, limit int) ([]model.Run, error)
+	// OrgIDByRoom, oda→org çözümüdür (run kaydına org damgalamak için);
+	// oda yoksa ErrNotFound.
+	OrgIDByRoom(roomID string) (string, error)
 }

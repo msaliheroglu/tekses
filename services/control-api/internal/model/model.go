@@ -68,3 +68,27 @@ type ShowVersion struct {
 	SHA256       string    `json:"sha256"`
 	CreatedAt    time.Time `json:"created_at"`
 }
+
+// Run, bir kue yayını ya da müdahalenin KALICI izidir (F2.6 telemetri).
+// Kaydı, olayı işleyen gateway düğümü üretir ve iç uçtan buraya yazdırır;
+// gateway'in kendi 50'lik halkası yalnız Faz 0 konsolu için yaşar.
+//
+// OrgID boş olabilir: oda kimliği boş ("tüm odalara"), varsayılan Faz 0
+// odası ya da control-api'de bilinmeyen bir odaysa kayıt org'suz saklanır
+// ve org kapsamlı listelerde görünmez. RunID benzersiz DEĞİLDİR (müdahale,
+// kuenin run_id'sini taşır ya da boştur); birincil anahtar ID'dir.
+type Run struct {
+	ID               string    `json:"id"` // gateway'de üretilir (rec_…)
+	OrgID            string    `json:"org_id,omitempty"`
+	RoomID           string    `json:"room_id,omitempty"`
+	Kind             string    `json:"kind"` // "cue" | HOLD | STOP | SKIP | BLACKOUT
+	RunID            string    `json:"run_id,omitempty"`
+	CueID            string    `json:"cue_id,omitempty"`
+	FireAtServerMs   int64     `json:"fire_at_server_ms,omitempty"`
+	IssuedAtServerMs int64     `json:"issued_at_server_ms"`
+	// Clients, kaydı üreten DÜĞÜMÜN o anki istemci sayısıdır (küme toplamı
+	// değil; küme geneli sayaç presence ucundadır).
+	Clients   int       `json:"clients"`
+	Node      string    `json:"node,omitempty"` // üreten düğümün kimliği
+	CreatedAt time.Time `json:"created_at"`
+}

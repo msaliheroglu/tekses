@@ -48,6 +48,10 @@ type Server struct {
 	transcriber string
 	trMu        sync.Mutex
 	trJobs      map[string]*transcriptionJob
+
+	// İç uç sırrı (gateway → POST /internal/runs). Boşsa iç uçlar kapalıdır
+	// (404): yanlış yapılandırılmış kurulumda kimliksiz yazma kapısı açılmaz.
+	internalToken string
 	// Tek işlik kapı: Demucs/Whisper CPU ve RAM'i tekeline alır; eşzamanlı
 	// işler küçük VM'yi devirir. Sıradaki işler kapıda bekler (durum: queued).
 	trGate chan struct{}
@@ -57,14 +61,17 @@ type Server struct {
 // içerik adresli paket deposudur (pilotta dosya sistemi + bu API'nin
 // /packages ucu; üretimde R2 + CDN). transcriber, sesten söz çıkaran dış
 // komutun yoludur (boş = özellik kapalı; sözleşme transcribe.go'da).
-func New(log *slog.Logger, st store.Store, packages blob.Store, transcriber string) *Server {
+// internalToken, servisler arası iç uçların (POST /internal/runs) paylaşımlı
+// sırrıdır (boş = iç uçlar kapalı).
+func New(log *slog.Logger, st store.Store, packages blob.Store, transcriber, internalToken string) *Server {
 	return &Server{
-		log:         log,
-		store:       st,
-		packages:    packages,
-		transcriber: transcriber,
-		trJobs:      map[string]*transcriptionJob{},
-		trGate:      make(chan struct{}, 1),
+		log:           log,
+		store:         st,
+		packages:      packages,
+		transcriber:   transcriber,
+		internalToken: internalToken,
+		trJobs:        map[string]*transcriptionJob{},
+		trGate:        make(chan struct{}, 1),
 	}
 }
 
@@ -92,6 +99,15 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/shows/{id}/versions", s.authedJSON(s.handlePublishShowVersion))
 	mux.HandleFunc("GET /api/v1/show-versions/{id}", s.authed(s.handleGetShowVersion))
 	mux.HandleFunc("POST /api/v1/rooms/{id}/activate", s.authedJSON(s.handleActivateRoom))
+
+	// Telemetri: kalıcı Run izleri. Yazan, gateway'dir (iç uç, paylaşımlı
+	// sırla); okuyan, panelin org kapsamlı listesidir.
+	// DİKKAT: /internal/* Caddy'de yalın yoldan dışarı açılmaz ama
+	// /control/internal/… önek soymasıyla ULAŞILABİLİR — bu yüzden uç yol
+	// gizliliğine değil TEKSES_INTERNAL_TOKEN'a güvenir (Caddyfile ayrıca
+	// /control/internal/* yolunu 404'ler).
+	mux.HandleFunc("POST /internal/runs", s.requireJSON(s.handleInternalCreateRun))
+	mux.HandleFunc("GET /api/v1/runs", s.authed(s.handleListRuns))
 
 	// Herkese açık katılım ucu: telefon, kodla oda + aktif gösteri sürümünü
 	// çeker. Kimlik istemez (katılımcı hesapsızdır, karar §1).

@@ -37,7 +37,7 @@ func newTestAPIWithTranscriber(t *testing.T, transcriber string) *client {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ts := httptest.NewServer(New(log, memstore.New(), packages, transcriber).Handler())
+	ts := httptest.NewServer(New(log, memstore.New(), packages, transcriber, "ic-sir").Handler())
 	t.Cleanup(ts.Close)
 	return &client{t: t, base: ts.URL}
 }
