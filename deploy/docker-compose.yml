@@ -37,11 +37,20 @@ services:
       postgres:
         condition: service_healthy
 
+  # Yayın dağıtım omurgası (F2.6): kue hangi gateway kopyasına gelirse
+  # gelsin NATS üzerinden hepsine yayılır. Tek kopyada da zararsızdır.
+  nats:
+    image: nats:2-alpine
+    restart: unless-stopped
+
   gateway:
     build:
       context: ..
       dockerfile: services/gateway/Dockerfile
     restart: unless-stopped
+    # Çok düğüm: `docker compose up -d --scale gateway=2` — kopyalar aynı
+    # NATS'e bağlanır; Caddy, Docker DNS üzerinden bağlantıları kopyalara
+    # dağıtır (WebSocket bağlantı başına yapışkandır).
     # On binlerce eşzamanlı WebSocket = o kadar dosya tanıtıcısı; dağıtım
     # ortamının varsayılanına güvenilmez (yük testi ve etkinlik günü için).
     ulimits:
@@ -50,9 +59,11 @@ services:
         hard: 1048576
     environment:
       TEKSES_CONTROL_URL: http://control-api:8090
+      TEKSES_NATS_URL: nats://nats:4222
       TEKSES_ADMIN_TOKEN: ${TEKSES_ADMIN_TOKEN:?TEKSES_ADMIN_TOKEN zorunlu (internete açık kurulumda konsol uçları korunmalı)}
     depends_on:
       - control-api
+      - nats
 
   moderator:
     build:

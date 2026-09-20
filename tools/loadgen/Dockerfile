@@ -4,7 +4,7 @@
 # VM'de gateway'e compose ağı üzerinden, Caddy/TLS'e uğramadan bağlanır
 # (ölçülen şey gateway'in kendisidir). Dosya tanıtıcısı ve yerel port
 # aralığı konteyner başına ayarlanır; kullanım docs/yuk-testi.md'de.
-FROM golang:1.25-alpine AS build
+FROM golang:1.26-alpine AS build
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download

@@ -71,6 +71,23 @@ VM'i 4 OCPU / 24 GB'a büyütüp (Always Free sınırı, ücretsiz) tek seferde
 deneyin. 100k tam koşumu için ayrı bir yük makinesi (ikinci Always Free
 VM) doğru araçtır — gateway'le CPU paylaşımı da ortadan kalkar.
 
+## 4. Çok düğümlü koşum (F2.6, NATS)
+
+Gateway'i iki kopyaya çıkarın; kopyalar NATS üzerinden aynı yayınları
+dağıtır (compose'ta hazır):
+
+```bash
+cd ~/tekses/deploy
+docker compose -f docker-compose.yml -f docker-compose.whisper.yml up -d --scale gateway=2
+```
+
+Loadgen komutu aynı kalır: `ws://gateway:8080/ws` adresi Docker DNS'iyle
+her bağlantıda kopyalardan birine düşer — istemciler kendiliğinden ikiye
+bölünür. Kue POST'u tek kopyaya gider, NATS hepsine yayar; rapor yine tek
+yayılım sayısı üretir (düğümler arası senkronun ta kendisi). Kopya başına
+kaynak için: `docker stats --no-stream $(docker ps --format '{{.Names}}' | grep gateway)`.
+Tek kopyaya dönmek: `... up -d --scale gateway=1`.
+
 ## 3. Temizlik / dikkat
 
 - Koşum bitince konteyner kendini siler (`--rm`); gateway'de kalıcı iz

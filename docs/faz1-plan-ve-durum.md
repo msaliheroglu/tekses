@@ -158,8 +158,16 @@ adım sırasını izler.
   whisper.sh), bellek içi iş kuyruğu, panelde taslak üretimi. Şarkılarda
   ASR hatalıdır — çıktı taslak; kesin yol LRC/elle zamanlama. Kelime bazlı
   vurgulama (enhanced LRC) sonraki yineleme.
-- [ ] **F2.6 NATS JetStream oda dağıtımı** (çok düğümlü gateway) ve
-  telemetri panoları (kalıcı Run tablosu, saat kalitesi ısı haritası).
+- [~] **F2.6 Çok düğümlü gateway (ilk yarı TAMAM, 2026-09-20):** yayınlar
+  (kue/müdahale/show_activated) çekirdek NATS pub/sub ile tüm düğümlere
+  dağıtılıyor — `internal/fanout` (yerel/NATS tek arayüz), TEKSES_NATS_URL,
+  compose'a nats servisi + `--scale gateway=2` desteği (Caddy Docker DNS
+  ile dağıtır), gömülü NATS'li çok düğüm testleri (aynı fire_at iki düğümde,
+  oda kapsamı, show_activated çapraz düğüm). Go 1.26'ya geçildi (nats.go
+  gereksinimi; Dockerfile'lar + CI go.mod'dan okuyor). JetStream bilinçli
+  KULLANILMADI (karar dokümanına satır eklendi). **Kalan (ikinci yarı):**
+  kalıcı Run tablosu + küme geneli istemci sayacı + saat kalitesi ısı
+  haritası (telemetri); VM'de 2 kopyayla yük koşumu doğrulaması.
 - [ ] **F2.7 Ultrasonik beacon + PA test kiti** (karar dokümanı §3).
 
 ## Notlar

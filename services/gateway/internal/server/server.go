@@ -28,6 +28,7 @@ import (
 
 	"github.com/msaliheroglu/tekses/packages/proto/wire"
 	"github.com/msaliheroglu/tekses/services/gateway/internal/clock"
+	"github.com/msaliheroglu/tekses/services/gateway/internal/fanout"
 	"github.com/msaliheroglu/tekses/services/gateway/internal/hub"
 	"github.com/msaliheroglu/tekses/services/gateway/internal/rooms"
 )
@@ -75,6 +76,11 @@ type Server struct {
 	sessions   rooms.SessionValidator
 	upgrader   websocket.Upgrader
 
+	// bus, yayın çerçevelerinin dağıtım yoludur: tek düğümde yerel hub,
+	// çok düğümde NATS (fanout paketi). New yerelle kurar; main, NATS
+	// yapılandırıldıysa SetBus ile değiştirir.
+	bus fanout.Bus
+
 	// Doğrulanmış panel oturumlarının kısa süreli önbelleği: konsolun 4 sn'de
 	// bir attığı runs sorgusu her seferinde control-api'ye gitmesin.
 	// token → önbellek son kullanma anı.
@@ -115,7 +121,7 @@ func (s *Server) recordRun(rec runRecord) {
 // anahtarı bilmesi gerekmez). resolver nil ise katılım kodu doğrulanmaz ve
 // herkes varsayılan odaya düşer (Faz 0 yerel denemesi).
 func New(log *slog.Logger, adminToken string, resolver rooms.Resolver, sessions rooms.SessionValidator) *Server {
-	return &Server{
+	s := &Server{
 		log:        log,
 		clock:      clock.New(),
 		hub:        hub.New(log),
@@ -130,6 +136,33 @@ func New(log *slog.Logger, adminToken string, resolver rooms.Resolver, sessions 
 			// katılım kodu doğrulaması ve origin listesi eklenecek.
 			CheckOrigin: func(*http.Request) bool { return true },
 		},
+	}
+	s.bus = fanout.NewLocal(s.BroadcastSink())
+	return s
+}
+
+// BroadcastSink, çerçeveyi yerel hub'a veren dağıtım ucudur; NATS yolu da
+// gelen çerçeveleri buraya boşaltır.
+func (s *Server) BroadcastSink() fanout.Sink {
+	return func(room string, f hub.Frame) {
+		if room == "" {
+			s.hub.Broadcast(f)
+			return
+		}
+		s.hub.BroadcastRoom(room, f)
+	}
+}
+
+// SetBus, dağıtım yolunu değiştirir (main, TEKSES_NATS_URL ayarlıysa NATS
+// yolunu takar). Sunucu başlamadan çağrılmalıdır.
+func (s *Server) SetBus(b fanout.Bus) { s.bus = b }
+
+// cast, yayın çerçevesini dağıtım yoluna verir; hata yayını durdurmaz
+// (kue yinelemeleri ve istemci yeniden bağlanması telafi eder), yalnızca
+// günlüklenir.
+func (s *Server) cast(room string, f hub.Frame) {
+	if err := s.bus.Cast(room, f); err != nil {
+		s.log.Error("yayın dağıtılamadı", "oda", room, "hata", err)
 	}
 }
 
@@ -469,6 +502,8 @@ func (s *Server) handleCue(w http.ResponseWriter, r *http.Request) {
 	}
 	s.broadcastCueWithRepeats(cue, req.RoomID)
 
+	// Çok düğümde bu sayaç yalnız BU düğümün istemcileridir; küme geneli
+	// sayım kalıcı telemetriye (F2.6 ikinci yarı) bırakıldı.
 	targetCount := s.hub.Count()
 	if req.RoomID != "" {
 		targetCount = s.hub.RoomCounts()[req.RoomID]
@@ -509,13 +544,7 @@ func (s *Server) broadcastCueWithRepeats(cue wire.CueStart, room string) {
 			return
 		}
 		delay := time.Duration(i-1) * cueRepeatInterval
-		time.AfterFunc(delay, func() {
-			if room == "" {
-				s.hub.Broadcast(frame)
-			} else {
-				s.hub.BroadcastRoom(room, frame)
-			}
-		})
+		time.AfterFunc(delay, func() { s.cast(room, frame) })
 	}
 }
 
@@ -546,11 +575,7 @@ func (s *Server) handleIntervention(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "mesaj kodlanamadı"})
 		return
 	}
-	if req.RoomID == "" {
-		s.hub.Broadcast(frame)
-	} else {
-		s.hub.BroadcastRoom(req.RoomID, frame)
-	}
+	s.cast(req.RoomID, frame)
 	s.log.Info("müdahale yayınlandı", "kind", req.Kind, "run_id", req.RunID, "oda", req.RoomID)
 	s.recordRun(runRecord{
 		RunID:            req.RunID,
@@ -591,7 +616,7 @@ func (s *Server) handleShowActivated(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "mesaj kodlanamadı"})
 		return
 	}
-	s.hub.BroadcastRoom(req.RoomID, hub.Frame{JSON: data})
+	s.cast(req.RoomID, hub.Frame{JSON: data})
 	clients := s.hub.RoomCounts()[req.RoomID]
 	s.log.Info("gösteri etkinleştirme sinyali yayınlandı",
 		"oda", req.RoomID, "sürüm", req.ShowVersionID, "istemci", clients)

@@ -11,6 +11,9 @@
 //	TEKSES_CONTROL_URL  boş değilse hello'daki join_code bu control-api
 //	                    üzerinden odaya çözülür; boşsa herkes "faz0" odasına
 //	                    düşer (Faz 0 yerel denemesi)
+//	TEKSES_NATS_URL     boş değilse yayınlar NATS üzerinden TÜM gateway
+//	                    düğümlerine dağıtılır (çok düğümlü kurulum, F2.6);
+//	                    boşsa tek düğüm — yayınlar yerel hub'a gider
 package main
 
 import (
@@ -24,6 +27,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/msaliheroglu/tekses/services/gateway/internal/fanout"
 	"github.com/msaliheroglu/tekses/services/gateway/internal/rooms"
 	"github.com/msaliheroglu/tekses/services/gateway/internal/server"
 )
@@ -48,6 +52,17 @@ func main() {
 		log.Info("katılım kodları ve panel oturumları control-api'den doğrulanacak", "url", controlURL)
 	}
 	srv := server.New(log, os.Getenv("TEKSES_ADMIN_TOKEN"), resolver, sessions)
+
+	if natsURL := os.Getenv("TEKSES_NATS_URL"); natsURL != "" {
+		bus, err := fanout.NewNATS(natsURL, srv.BroadcastSink())
+		if err != nil {
+			log.Error("nats dağıtımı kurulamadı", "hata", err)
+			os.Exit(1)
+		}
+		defer bus.Close()
+		srv.SetBus(bus)
+		log.Info("yayın dağıtımı NATS üzerinden (çok düğüm)", "url", natsURL)
+	}
 
 	httpSrv := &http.Server{
 		Addr:              *addr,
