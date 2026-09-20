@@ -281,7 +281,9 @@ export default function ShowDetailPage({ params }: { params: Promise<{ id: strin
     setTranscribing(assetId);
     try {
       const { transcription_id } = await startTranscription(assetId);
-      const deadline = Date.now() + 10 * 60 * 1000;
+      // Sunucu tarafı zaman aşımı ayarlanabilir (TEKSES_TRANSCRIBE_TIMEOUT,
+      // whisper'lı VM'de 30 dk); panel ondan önce pes etmesin.
+      const deadline = Date.now() + 30 * 60 * 1000;
       for (;;) {
         await new Promise((r) => setTimeout(r, 3000));
         const res = await getTranscription(transcription_id);

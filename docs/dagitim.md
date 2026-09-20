@@ -73,16 +73,28 @@ docker compose exec postgres pg_dump -U postgres tekses > yedek.sql
 
 ## 6. İsteğe bağlı: otomatik söz çıkarma (deneysel)
 
-Panel, yüklenen sesten zamanlı söz TASLAĞI çıkarabilir. Sunucuda whisper.cpp
-kurulup control-api'ye `TEKSES_TRANSCRIBER=deploy/transcribe-whisper.sh`
-verilirse etkinleşir (kurulum adımları betiğin başındaki yorumda; **Windows
-yerel geliştirme için** `deploy/transcribe-whisper.ps1` başındaki adımlar +
-`TEKSES_TRANSCRIBER=...\deploy\transcribe-whisper.bat`). Ayarsızsa
-paneldeki düğme "yapılandırılmamış" der; **LRC içe aktarma her zaman çalışır**
-ve şarkılar için daha isabetlidir — otomatik çıkarma müzikte hata yapar,
-çıktı panelde düzeltilmek üzere taslaktır. Docker dağıtımında bu özellik için
-control-api imajına ffmpeg/jq/whisper eklemek gerekir; pilotta önerimiz
-bare-metal çalıştırmak ya da özelliği kapalı bırakmaktır.
+Panel, yüklenen sesten zamanlı söz TASLAĞI çıkarabilir. VM'de etkinleştirmek
+tek komut (deploy/ dizininde):
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.whisper.yml up -d --build control-api
+```
+
+Bu, control-api'yi whisper.cpp + çok dilli "small" model gömülü varyantla
+(`services/control-api/Dockerfile.whisper`) yeniden derler. İlk derleme
+10-15 dk sürer, imaj ~1 GB büyür; sonrasında paneldeki "Sözleri çıkar"
+düğmesi çalışır. Geri almak: `docker compose up -d --build control-api`.
+
+Beklentiyi doğru kurun: **mikslenmiş şarkılarda taslak kalitesi düşüktür** —
+Whisper vokali enstrümandan ayıramaz; vokal ayrıştırma (Demucs) CPU'da tek
+şarkıda bile zaman aşımını aştığı için bu imaja bilerek konmadı. Tezahürat,
+anons gibi konuşma ağırlıklı seslerde iyi sonuç verir. Şarkı sözleri için en
+isabetli yol **LRC içe aktarma**dır (panelde her zaman çalışır). Yüksek
+kaliteli otomatik taslak isteyenler için Demucs'lu yerel boru hattı Windows'ta
+çalıştırılabilir: `deploy/transcribe-whisper.ps1` başındaki adımlar +
+`TEKSES_TRANSCRIBER=...\deploy\transcribe-whisper.bat` (yerel control-api ile).
+Çözümleme süresi sınırı `TEKSES_TRANSCRIBE_TIMEOUT` ile ayarlanır
+(whisper compose eki 30m verir; varsayılan 10m).
 
 ## 7. Sonrası (etkinlik günü ölçeği — Faz 2 devamı)
 

@@ -29,7 +29,18 @@ import (
 	"github.com/msaliheroglu/tekses/services/control-api/internal/model"
 )
 
-const transcribeTimeout = 10 * time.Minute
+const defaultTranscribeTimeout = 10 * time.Minute
+
+// transcribeTimeout: yavaş CPU'larda (ör. ücretsiz ARM VM) uzun şarkılar
+// varsayılana sığmayabilir; TEKSES_TRANSCRIBE_TIMEOUT ("30m" gibi) ile aşılır.
+func transcribeTimeout() time.Duration {
+	if v := os.Getenv("TEKSES_TRANSCRIBE_TIMEOUT"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil && d > 0 {
+			return d
+		}
+	}
+	return defaultTranscribeTimeout
+}
 
 type transcriptionJob struct {
 	ID     string
@@ -84,7 +95,7 @@ func (s *Server) runTranscription(job *transcriptionJob, assetID string) {
 		s.log.Warn("söz çıkarma başarısız", "iş", job.ID, "hata", msg)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), transcribeTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), transcribeTimeout())
 	defer cancel()
 
 	data, err := s.packages.Get(ctx, assetID)

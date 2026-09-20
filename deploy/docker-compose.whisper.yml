@@ -1,0 +1,22 @@
+# İSTEĞE BAĞLI EK: otomatik söz çıkarma (whisper.cpp) destekli control-api.
+#
+# Kullanım (deploy/ dizininde, ana compose ile BİRLİKTE):
+#   docker compose -f docker-compose.yml -f docker-compose.whisper.yml up -d --build control-api
+#
+# Geri almak (standart imaja dönmek):
+#   docker compose up -d --build control-api
+#
+# Notlar: ilk derleme 10-15 dk sürebilir ve imaj ~1 GB büyür (model gömülü).
+# Şarkılarda taslak kalitesi düşüktür (Demucs bilinçli olarak yok — CPU'da
+# zaman aşımına sığmaz); kesin yol LRC içe aktarmadır. Ayrıntı:
+# services/control-api/Dockerfile.whisper ve docs/dagitim.md §6.
+
+services:
+  control-api:
+    build:
+      context: ..
+      dockerfile: services/control-api/Dockerfile.whisper
+    environment:
+      # ARM CPU'da 3-5 dakikalık bir şarkının çözümlemesi dakikalar alır;
+      # varsayılan 10 dk'lık iş zaman aşımına pay bırakılır.
+      TEKSES_TRANSCRIBE_TIMEOUT: 30m
