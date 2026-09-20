@@ -117,8 +117,10 @@ adım sırasını izler.
   platform kanalı: Android Handler.postAtTime, iOS AVAudioPlayer
   play(atTime:); Dart MonoClock↔platform saati eşlemesi; kanal dosyaları
   `native/` altında (kopyalama adımı README + APK iş akışında). Panel'e ses
-  yükleme arayüzü eklendi. **Cihaz doğrulaması bekliyor** (native dosyalar
-  kopyalanıp sesli manifest denenecek); R2 sürücüsü F2.2 dağıtımına bağlı.
+  yükleme arayüzü eklendi. **Cihaz doğrulaması TAMAM (2026-09-20):** kullanıcı
+  MainActivity.kt'yi kopyalayıp APK'yi yeniden derledi, VM üzerinden yayınlanan
+  gösteride şarkı telefonda zamanında çaldı. (İlk deneme sessizdi — kanal
+  eksikti; uygulamaya ses teşhis satırı eklendi.) R2 sürücüsü ileriye kaldı.
 - [x] **F2.5k Karaoke ve sözler (2026-09-19):** telefonda karaoke görünümü
   (aktif satır + sıradaki satır soluk; TimelineFrame.nextLyric, testli);
   panelde LRC içe aktarma (senkronlu sözler → lyric_lines) ve DENEYSEL
@@ -137,6 +139,11 @@ adım sırasını izler.
   telefonlara canlı yansımıyor — telefon paketi yalnızca katılırken indiriyor,
   etkinleştirme sonrası yeniden katılmak gerekiyor. Gateway üzerinden odaya
   "show_activated" bildirimi + uygulamada otomatik paket yenileme eklenebilir.
+- VM'de söz çıkarma (2026-09-20): control-api'nin whisper.cpp gömülü imaj
+  varyantı (`Dockerfile.whisper` + `deploy/docker-compose.whisper.yml`,
+  docs/dagitim.md §6). Demucs bilinçli dışarıda (CPU'da zaman aşımı);
+  şarkılarda taslak sınırlı, kesin yol LRC. Zaman aşımı
+  TEKSES_TRANSCRIBE_TIMEOUT ile ayarlanabilir.
 - Görsel gösteri editörü (2026-09-20, kullanıcı isteği): panelde manifest
   artık formla düzenleniyor — sekans kartları, müzik seçimi (süre otomatik),
   ekran adımları (renk seçici + flaş), fener, satır satır sözler, otomatik
