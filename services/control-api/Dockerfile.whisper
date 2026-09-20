@@ -49,12 +49,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN python3 -m venv /opt/demucs-venv \
     && /opt/demucs-venv/bin/pip install --no-cache-dir \
         torch==2.4.1 torchaudio==2.4.1 demucs==4.0.1
-# htdemucs ağırlıkları derlemede indirilir (TORCH_HOME imaja gömülür); 1 sn'lik
-# sessiz dosya ayrıştırılarak indirme tetiklenir — çalışma anında ağ gerekmez.
+# htdemucs ağırlıkları derlemede indirilir (TORCH_HOME imaja gömülür) —
+# çalışma anında ağ gerekmez. Ayrıştırma ÇALIŞTIRILMAZ: kısa sesle deneme,
+# htdemucs'un ~8 sn'lik penceresine takılıyor (pad1d AssertionError);
+# get_model yalnızca ağırlıkları indirir.
 ENV TORCH_HOME=/opt/torch
-RUN ffmpeg -f lavfi -i anullsrc=r=44100:cl=stereo -t 1 /tmp/sessiz.wav \
-    && /opt/demucs-venv/bin/demucs --two-stems vocals -n htdemucs -d cpu -o /tmp/demucs-isinma /tmp/sessiz.wav \
-    && rm -rf /tmp/sessiz.wav /tmp/demucs-isinma \
+RUN /opt/demucs-venv/bin/python3 -c "from demucs.pretrained import get_model; get_model('htdemucs')" \
     && chmod -R a+rX /opt/torch /opt/demucs-venv
 
 FROM debian:bookworm-slim
