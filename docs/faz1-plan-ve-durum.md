@@ -130,6 +130,11 @@ adım sırasını izler.
 
 ## Notlar
 
+- İyileştirme adayı (F2.2 saha gözlemi): panelde "etkinleştir" bağlı
+  telefonlara canlı yansımıyor — telefon paketi yalnızca katılırken indiriyor,
+  etkinleştirme sonrası yeniden katılmak gerekiyor. Gateway üzerinden odaya
+  "show_activated" bildirimi + uygulamada otomatik paket yenileme eklenebilir.
+
 - Mimari doküman (`tekses-architecture-v0.1.md`) hâlâ depoda değil; kullanıcı
   paylaşınca `docs/architecture/` altına eklenecek.
 - Kullanıcının bekleyen istekleri: Android APK derleyen CI işi (isteğe bağlı,
