@@ -129,6 +129,10 @@ adım sırasını izler.
     hâlâ 25 ms bandında. Ders: tek KÜÇÜK düğümün konforlu sınırı ~10-15k;
     80k için düğüm başına ~10k hedefiyle çoklu gateway (F2.6 NATS) ve/veya
     daha büyük makine. 4 OCPU/24 GB'a büyütüp yeniden ölçüm planlandı.
+  - VM 4 OCPU / 24 GB'a büyütüldü (Always Free sınırı) → 20k ikili istemci
+    TEKRARI: 20000/20000 başarılı, yayılım maks−min **1 ms**, RTT medyan
+    0 ms — 1 OCPU'daki 45 ms'lik bozulmanın tamamı CPU sıkışmasıymış;
+    protokol 20k'da kusursuz. Sıradaki kademe 40k.
 - [x] **F2.5 Native zamanlanmış ses (2026-09-19):** (a) varlık boru hattı —
   POST /api/v1/assets (içerik adresli, <sha256>.<uzantı>), herkese açık
   /assets/{id}, yayında varlık doğrulaması; telefon varlıkları katılırken
