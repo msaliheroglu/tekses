@@ -5,3 +5,5 @@ apps/moderator/.next
 data/
 docs/
 deploy/
+# Dockerfile.whisper bu betiği imaja gömer; dışlamanın istisnası:
+!deploy/transcribe-whisper.sh
