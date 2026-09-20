@@ -107,8 +107,9 @@ adım sırasını izler.
   **58 bayt** (JSON 207), senkron yayılımı değişmedi. **Kalan:** Dart
   stub'ları Flutter'lı ortamda üretilecek (`buf.gen.dart.yaml` hazır) ve
   uygulama v2'ye geçecek; o güne dek Flutter v1 JSON'da (gateway destekliyor).
-- [ ] **F2.4 Yük testi:** loadgen'i 100k istemciye ölçekleme (çok bağlantılı
-  koşum, bellek/CPU profili), yeniden bağlanma fırtınası senaryosu.
+- [x] **F2.4 Yük testi (2026-09-20, VM ölçümleri tamam):** kalanlar nota
+  düşüldü (yeniden bağlanma fırtınası senaryosu; 100k tam koşumu ayrı yük
+  makinesiyle — ikisi de F2.6 sonrası anlamlı).
   *Ön yoklama (2026-09-19, geliştirme konteyneri, 4 çekirdek):* 2.000 ikili
   istemci tek gateway'de sorunsuz — yayılım 3 ms. Gerçek 100k koşumu fd/port
   sınırları gereği F2.2 VM'inde (ya da ayrı yük makinesinde) yapılacak.
@@ -132,7 +133,12 @@ adım sırasını izler.
   - VM 4 OCPU / 24 GB'a büyütüldü (Always Free sınırı) → 20k ikili istemci
     TEKRARI: 20000/20000 başarılı, yayılım maks−min **1 ms**, RTT medyan
     0 ms — 1 OCPU'daki 45 ms'lik bozulmanın tamamı CPU sıkışmasıymış;
-    protokol 20k'da kusursuz. Sıradaki kademe 40k.
+    protokol 20k'da kusursuz.
+  - **40k ikili istemci (4 OCPU): 40000/40000 başarılı, yayılım maks−min
+    2 ms / p95−p5 1 ms / σ 0.2 ms.** Gateway RSS 1.45 GiB, CPU %148/400,
+    VM boş RAM 19 Gi. SONUÇ: tek 4-OCPU düğümün kanıtlı kapasitesi ≥40k
+    (üreteçle CPU paylaşarak!); 80k hedefi = 2 böyle düğüm + oda dağıtımı
+    (F2.6 NATS) ya da daha büyük tek makine. Bellek istemci başına ~36 KB.
 - [x] **F2.5 Native zamanlanmış ses (2026-09-19):** (a) varlık boru hattı —
   POST /api/v1/assets (içerik adresli, <sha256>.<uzantı>), herkese açık
   /assets/{id}, yayında varlık doğrulaması; telefon varlıkları katılırken
