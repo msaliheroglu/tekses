@@ -42,8 +42,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         python3 python3-pip python3-venv python3-dev build-essential cmake \
         ffmpeg ca-certificates \
     && rm -rf /var/lib/apt/lists/*
+# torch/torchaudio 2.4.1'e sabit: daha yeni torchaudio'lar ses G/Ç'si için
+# "sphn" ister — Rust'la kaynaktan derleniyor ve aarch64 hazır tekeri yok.
+# 2.4.1 çifti sphn'siz ve ARM tekerleri PyPI'da hazır; demucs 4 ile uyumlu.
 RUN python3 -m venv /opt/demucs-venv \
-    && /opt/demucs-venv/bin/pip install --no-cache-dir demucs
+    && /opt/demucs-venv/bin/pip install --no-cache-dir \
+        torch==2.4.1 torchaudio==2.4.1 demucs
 # htdemucs ağırlıkları derlemede indirilir (TORCH_HOME imaja gömülür); 1 sn'lik
 # sessiz dosya ayrıştırılarak indirme tetiklenir — çalışma anında ağ gerekmez.
 ENV TORCH_HOME=/opt/torch
