@@ -11,9 +11,11 @@ package server
 import (
 	"context"
 	"crypto/rand"
+	"crypto/subtle"
 	"embed"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -70,7 +72,14 @@ type Server struct {
 	hub        *hub.Hub
 	adminToken string
 	resolver   rooms.Resolver
+	sessions   rooms.SessionValidator
 	upgrader   websocket.Upgrader
+
+	// Doğrulanmış panel oturumlarının kısa süreli önbelleği: konsolun 4 sn'de
+	// bir attığı runs sorgusu her seferinde control-api'ye gitmesin.
+	// token → önbellek son kullanma anı.
+	sessMu    sync.Mutex
+	sessCache map[string]time.Time
 
 	// Son çalıştırmaların halka kaydı (asgari telemetri; en yenisi başta).
 	// Kalıcı Run kaydı ve panolar Faz 2 telemetri işine devredildi.
@@ -101,15 +110,19 @@ func (s *Server) recordRun(rec runRecord) {
 }
 
 // New, bir gateway sunucusu kurar. adminToken boş değilse /api/* uçları
-// "Authorization: Bearer <token>" başlığı ister. resolver nil ise katılım
-// kodu doğrulanmaz ve herkes varsayılan odaya düşer (Faz 0 yerel denemesi).
-func New(log *slog.Logger, adminToken string, resolver rooms.Resolver) *Server {
+// "Authorization: Bearer <token>" başlığı ister; sessions verilmişse geçerli
+// bir panel oturum token'ı da kabul edilir (moderatörün ayrıca yönetici
+// anahtarı bilmesi gerekmez). resolver nil ise katılım kodu doğrulanmaz ve
+// herkes varsayılan odaya düşer (Faz 0 yerel denemesi).
+func New(log *slog.Logger, adminToken string, resolver rooms.Resolver, sessions rooms.SessionValidator) *Server {
 	return &Server{
 		log:        log,
 		clock:      clock.New(),
 		hub:        hub.New(log),
 		adminToken: adminToken,
 		resolver:   resolver,
+		sessions:   sessions,
+		sessCache:  map[string]time.Time{},
 		upgrader: websocket.Upgrader{
 			ReadBufferSize:  1024,
 			WriteBufferSize: 1024,
@@ -154,12 +167,63 @@ func (s *Server) handleHealthz(w http.ResponseWriter, _ *http.Request) {
 	})
 }
 
-// checkAdmin, token ayarlıysa Bearer başlığını doğrular; hata yazdıysa false.
+// Doğrulanmış panel oturumu bu kadar süre önbellekte kalır: çıkış yapan bir
+// moderatörün konsol yetkisi en geç bu süre sonunda düşer (kabul edilen gecikme).
+const sessionCacheTTL = 60 * time.Second
+
+// checkAdmin, yönetici kilidi açıksa (adminToken ayarlı) Bearer başlığını
+// doğrular: statik yönetici anahtarı YA DA geçerli bir panel oturumu kabul
+// edilir. Hata yazdıysa false döner.
 func (s *Server) checkAdmin(w http.ResponseWriter, r *http.Request) bool {
-	if s.adminToken != "" && r.Header.Get("Authorization") != "Bearer "+s.adminToken {
-		writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "geçersiz veya eksik yönetici token'ı"})
+	if s.adminToken == "" {
+		return true // kilit kapalı (Faz 0 yerel denemesi)
+	}
+	if token, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer "); ok && token != "" {
+		if subtle.ConstantTimeCompare([]byte(token), []byte(s.adminToken)) == 1 {
+			return true
+		}
+		if s.validPanelSession(r.Context(), token) {
+			return true
+		}
+	}
+	writeJSON(w, http.StatusUnauthorized, map[string]any{
+		"error": "geçersiz veya eksik yönetici token'ı (panelde oturum açmak da yeterlidir)"})
+	return false
+}
+
+// validPanelSession, token'ı control-api'ye doğrulatır; sonucu kısa süre
+// önbellekler. Geçici control-api arızası "geçersiz" sayılır (yönetici ucu
+// açık kalmaz) ama günlüğe geçersiz oturumdan farklı yazılır.
+func (s *Server) validPanelSession(ctx context.Context, token string) bool {
+	if s.sessions == nil {
 		return false
 	}
+	now := time.Now()
+	s.sessMu.Lock()
+	exp, ok := s.sessCache[token]
+	s.sessMu.Unlock()
+	if ok && now.Before(exp) {
+		return true
+	}
+	vctx, cancel := context.WithTimeout(ctx, resolveTimeout)
+	defer cancel()
+	if err := s.sessions.ValidateSession(vctx, token); err != nil {
+		if !errors.Is(err, rooms.ErrInvalidSession) {
+			s.log.Warn("panel oturumu doğrulanamadı", "hata", err)
+		}
+		return false
+	}
+	s.sessMu.Lock()
+	// Kaba temizlik: süresi geçmiş girdiler önbelleği şişirmesin.
+	if len(s.sessCache) > 1024 {
+		for k, e := range s.sessCache {
+			if now.After(e) {
+				delete(s.sessCache, k)
+			}
+		}
+	}
+	s.sessCache[token] = now.Add(sessionCacheTTL)
+	s.sessMu.Unlock()
 	return true
 }
 

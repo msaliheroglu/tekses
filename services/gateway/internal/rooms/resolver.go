@@ -1,4 +1,5 @@
-// Package rooms, katılım kodunu oda kimliğine çözer.
+// Package rooms, katılım kodunu oda kimliğine çözer ve panel oturumlarını
+// doğrular.
 //
 // Gerçek çözücü control-api'nin herkese açık /api/v1/join/{code} ucudur.
 // Gateway'e control-api adresi verilmemişse (Faz 0 yerel denemesi) çözücü
@@ -19,8 +20,18 @@ import (
 // ErrUnknownCode: kod control-api'de kayıtlı değil.
 var ErrUnknownCode = errors.New("rooms: katılım kodu geçersiz")
 
+// ErrInvalidSession: token control-api'de geçerli bir oturum değil.
+var ErrInvalidSession = errors.New("rooms: geçersiz oturum")
+
 type Resolver interface {
 	ResolveJoinCode(ctx context.Context, code string) (roomID string, err error)
+}
+
+// SessionValidator, bir Bearer token'ın control-api'de geçerli bir panel
+// oturumu olup olmadığını söyler. Gateway'in yönetici uçları, statik
+// TEKSES_ADMIN_TOKEN'a ek olarak panel oturumlarını da böyle kabul eder.
+type SessionValidator interface {
+	ValidateSession(ctx context.Context, token string) error
 }
 
 // ControlResolver, control-api üzerinden çözer.
@@ -61,4 +72,28 @@ func (r *ControlResolver) ResolveJoinCode(ctx context.Context, code string) (str
 		return "", fmt.Errorf("rooms: katılım yanıtı çözülemedi")
 	}
 	return body.RoomID, nil
+}
+
+// ValidateSession, token'ı control-api'nin whoami ucuna sorar: 200 geçerli,
+// 401 geçersiz oturumdur; diğer her şey (ağ, 5xx) geçici arızadır ve ayırt
+// edilir ki çağıran geçersiz token ile ulaşılamayan control-api'yi karıştırmasın.
+func (r *ControlResolver) ValidateSession(ctx context.Context, token string) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, r.baseURL+"/api/v1/auth/whoami", nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := r.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("rooms: control-api erişilemedi: %w", err)
+	}
+	defer resp.Body.Close()
+	switch resp.StatusCode {
+	case http.StatusOK:
+		return nil
+	case http.StatusUnauthorized:
+		return ErrInvalidSession
+	default:
+		return fmt.Errorf("rooms: control-api beklenmeyen durum %d", resp.StatusCode)
+	}
 }

@@ -72,6 +72,9 @@ func (s *Server) Handler() http.Handler {
 
 	mux.HandleFunc("POST /api/v1/auth/register", s.requireJSON(s.handleRegister))
 	mux.HandleFunc("POST /api/v1/auth/login", s.requireJSON(s.handleLogin))
+	// Oturum doğrulama: gateway, konsol isteklerindeki panel oturum token'ını
+	// bu uçla doğrular (moderatörün ayrıca TEKSES_ADMIN_TOKEN bilmesi gerekmez).
+	mux.HandleFunc("GET /api/v1/auth/whoami", s.authed(s.handleWhoami))
 
 	mux.HandleFunc("GET /api/v1/events", s.authed(s.handleListEvents))
 	mux.HandleFunc("POST /api/v1/events", s.authedJSON(s.handleCreateEvent))
@@ -198,6 +201,12 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 	}
 	s.log.Info("yeni organizasyon", "org", org.ID, "ad", org.Name)
 	writeJSON(w, http.StatusCreated, map[string]any{"token": token, "organization": org})
+}
+
+// handleWhoami, geçerli oturumun sahibini döndürür. Asıl işlevi gateway'in
+// yönetici uçlarında panel oturumunu doğrulamasıdır: 200 = geçerli oturum.
+func (s *Server) handleWhoami(w http.ResponseWriter, _ *http.Request, sess model.Session) {
+	writeJSON(w, http.StatusOK, map[string]any{"user_id": sess.UserID, "org_id": sess.OrgID})
 }
 
 type loginRequest struct {

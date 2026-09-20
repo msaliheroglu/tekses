@@ -38,11 +38,16 @@ func main() {
 
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	var resolver rooms.Resolver
+	var sessions rooms.SessionValidator
 	if controlURL := os.Getenv("TEKSES_CONTROL_URL"); controlURL != "" {
-		resolver = rooms.NewControlResolver(controlURL)
-		log.Info("katılım kodları control-api'den çözülecek", "url", controlURL)
+		cr := rooms.NewControlResolver(controlURL)
+		resolver = cr
+		// Aynı control-api, konsol isteklerindeki panel oturumlarını da
+		// doğrular: moderatörün TEKSES_ADMIN_TOKEN bilmesi gerekmez.
+		sessions = cr
+		log.Info("katılım kodları ve panel oturumları control-api'den doğrulanacak", "url", controlURL)
 	}
-	srv := server.New(log, os.Getenv("TEKSES_ADMIN_TOKEN"), resolver)
+	srv := server.New(log, os.Getenv("TEKSES_ADMIN_TOKEN"), resolver, sessions)
 
 	httpSrv := &http.Server{
 		Addr:              *addr,

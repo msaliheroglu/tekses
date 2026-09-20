@@ -61,8 +61,10 @@ async function gatewayRequest<T>(path: string, adminToken: string, init?: Reques
     ...((init?.headers as Record<string, string>) ?? {}),
   };
   // Terminalden kopyalanan token'ın başına/sonuna bulaşan boşluk ve satır
-  // sonu 401'e yol açar; kırparak gönderilir.
-  const token = adminToken.trim();
+  // sonu 401'e yol açar; kırparak gönderilir. Alan boşsa panel oturum token'ı
+  // kullanılır: gateway, panel oturumlarını control-api'ye doğrulatır —
+  // moderatörün ayrıca TEKSES_ADMIN_TOKEN bilmesi gerekmez.
+  const token = adminToken.trim() || getToken();
   if (token) headers["Authorization"] = `Bearer ${token}`;
   const resp = await fetch("/gw" + path, { ...init, headers });
   const data = await resp.json().catch(() => ({}));

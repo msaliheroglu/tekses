@@ -44,7 +44,7 @@ curl https://ALAN/api/v1/join/XXXXXX      # control-api: 404 "katılım kodu ge�
 | Yol | Servis |
 |---|---|
 | `/ws` | gateway (WebSocket) |
-| `/api/v0/*` | gateway (kue/müdahale/runs — `TEKSES_ADMIN_TOKEN` ister) |
+| `/api/v0/*` | gateway (kue/müdahale/runs — `TEKSES_ADMIN_TOKEN` YA DA geçerli panel oturumu ister) |
 | `/join` | gateway (tarayıcı katılımcısı; https olduğu için Wake Lock da çalışır) |
 | `/api/v1/*`, `/packages/*`, `/assets/*` | control-api |
 | `/control/*` (önek soyulur) | control-api (panelin API çağrıları) |
@@ -55,8 +55,10 @@ curl https://ALAN/api/v1/join/XXXXXX      # control-api: 404 "katılım kodu ge�
 
 - **Telefon uygulaması:** Gateway `wss://ALAN/ws`, Control `https://ALAN`.
   (TLS'li adreslerde Android cleartext istisnasına gerek kalmaz.)
-- **Panel:** `https://ALAN` — Canlı Konsol'daki "gateway yönetici token'ı"
-  alanına `.env`'deki `TEKSES_ADMIN_TOKEN` girilir.
+- **Panel:** `https://ALAN` — Canlı Konsol için panelde oturum açmış olmak
+  yeterlidir (gateway, oturumu control-api'ye doğrulatır). Konsoldaki token
+  alanı yalnızca panel oturumu olmadan (ör. otomasyon/acil durum) `.env`'deki
+  `TEKSES_ADMIN_TOKEN` ile kullanım içindir.
 - **QR kodları** derlemeye gömülü `https://ALAN` adresini kodlar
   (compose bunu `TEKSES_DOMAIN`'den geçirir).
 
