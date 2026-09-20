@@ -139,11 +139,13 @@ adım sırasını izler.
   telefonlara canlı yansımıyor — telefon paketi yalnızca katılırken indiriyor,
   etkinleştirme sonrası yeniden katılmak gerekiyor. Gateway üzerinden odaya
   "show_activated" bildirimi + uygulamada otomatik paket yenileme eklenebilir.
-- VM'de söz çıkarma (2026-09-20): control-api'nin whisper.cpp gömülü imaj
-  varyantı (`Dockerfile.whisper` + `deploy/docker-compose.whisper.yml`,
-  docs/dagitim.md §6). Demucs bilinçli dışarıda (CPU'da zaman aşımı);
-  şarkılarda taslak sınırlı, kesin yol LRC. Zaman aşımı
-  TEKSES_TRANSCRIBE_TIMEOUT ile ayarlanabilir.
+- VM'de söz çıkarma (2026-09-20, KULLANICI DOĞRULADI): control-api'nin
+  whisper.cpp + Demucs gömülü imaj varyantı (`Dockerfile.whisper` +
+  `deploy/docker-compose.whisper.yml`, docs/dagitim.md §6) VM'de çalışıyor —
+  şarkıdan taslak üretildi. ARM tuzakları çözüldü: demucs==4.0.1 +
+  torch/torchaudio==2.4.1 sabit (4.1.0'ın sphn'i aarch64'te derlenmiyor),
+  ısınma get_model ile, dockerignore istisnası, UID 1000, işler tek tek
+  sırada (trGate), zaman aşımı TEKSES_TRANSCRIBE_TIMEOUT (ekte 60m).
 - Görsel gösteri editörü (2026-09-20, kullanıcı isteği): panelde manifest
   artık formla düzenleniyor — sekans kartları, müzik seçimi (süre otomatik),
   ekran adımları (renk seçici + flaş), fener, satır satır sözler, otomatik
