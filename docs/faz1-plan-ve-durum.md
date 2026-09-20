@@ -112,6 +112,12 @@ adım sırasını izler.
   *Ön yoklama (2026-09-19, geliştirme konteyneri, 4 çekirdek):* 2.000 ikili
   istemci tek gateway'de sorunsuz — yayılım 3 ms. Gerçek 100k koşumu fd/port
   sınırları gereği F2.2 VM'inde (ya da ayrı yük makinesinde) yapılacak.
+  *Araçlar hazır (2026-09-20):* loadgen'e rampa (-ramp), ilerleme sayacı,
+  hata özetleme, küçük tamponlar; `tools/loadgen/Dockerfile`; gateway
+  compose'una nofile 1M; kademeli VM koşum kılavuzu **docs/yuk-testi.md**
+  (2k→10k→20k→40k; conntrack + port aralığı ayarlarıyla). Yerel duman
+  testi: 2.000 ikili istemci, yayılım 1 ms. **VM koşumları kullanıcıyla
+  birlikte yapılacak; sonuçlar buraya işlenecek.**
 - [x] **F2.5 Native zamanlanmış ses (2026-09-19):** (a) varlık boru hattı —
   POST /api/v1/assets (içerik adresli, <sha256>.<uzantı>), herkese açık
   /assets/{id}, yayında varlık doğrulaması; telefon varlıkları katılırken

@@ -42,6 +42,12 @@ services:
       context: ..
       dockerfile: services/gateway/Dockerfile
     restart: unless-stopped
+    # On binlerce eşzamanlı WebSocket = o kadar dosya tanıtıcısı; dağıtım
+    # ortamının varsayılanına güvenilmez (yük testi ve etkinlik günü için).
+    ulimits:
+      nofile:
+        soft: 1048576
+        hard: 1048576
     environment:
       TEKSES_CONTROL_URL: http://control-api:8090
       TEKSES_ADMIN_TOKEN: ${TEKSES_ADMIN_TOKEN:?TEKSES_ADMIN_TOKEN zorunlu (internete açık kurulumda konsol uçları korunmalı)}
