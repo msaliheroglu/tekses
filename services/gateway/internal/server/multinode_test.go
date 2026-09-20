@@ -33,7 +33,7 @@ func startEmbeddedNATS(t *testing.T) string {
 	return ns.ClientURL()
 }
 
-// newNATSNode, ortak NATS'e bağlı bir gateway düğümü kurar.
+// newNATSNode, ortak NATS'e bağlı bir gateway düğümü kurar (presence dahil).
 func newNATSNode(t *testing.T, natsURL string, resolver rooms.Resolver) (*httptest.Server, string) {
 	t.Helper()
 	log := slog.New(slog.NewTextHandler(testWriter{t}, &slog.HandlerOptions{Level: slog.LevelError}))
@@ -44,6 +44,10 @@ func newNATSNode(t *testing.T, natsURL string, resolver rooms.Resolver) (*httpte
 	}
 	t.Cleanup(bus.Close)
 	srv.SetBus(bus)
+	if p, ok := bus.(fanout.Presence); ok {
+		stop := srv.StartPresence(p)
+		t.Cleanup(stop)
+	}
 	ts := httptest.NewServer(srv.Handler())
 	t.Cleanup(ts.Close)
 	return ts, "ws" + strings.TrimPrefix(ts.URL, "http") + "/ws"
@@ -110,6 +114,52 @@ func TestMultiNodeCueFanout(t *testing.T) {
 	_ = connC.SetReadDeadline(time.Now().Add(300 * time.Millisecond))
 	if _, _, err := connC.ReadMessage(); err == nil {
 		t.Fatal("C başka odanın kuesini aldı")
+	}
+}
+
+// TestMultiNodePresence: iki düğümün istemcileri, hangi düğüme sorulursa
+// sorulsun küme toplamında görünmeli. Yayılım eventual olduğundan (ilk
+// rapor anında + peer teslimi) deadline'lı poll ile doğrulanır.
+func TestMultiNodePresence(t *testing.T) {
+	natsURL := startEmbeddedNATS(t)
+	resolver := fakeResolver{codes: map[string]string{"ABC234": "room_a"}}
+	node1, ws1 := newNATSNode(t, natsURL, resolver)
+	_, ws2 := newNATSNode(t, natsURL, resolver)
+
+	// Düğüm 1'de 2 istemci (biri room_a), düğüm 2'de 1 istemci.
+	connA := dial(t, ws1)
+	sendMsg(t, connA, wire.TypeHello, wire.Hello{ProtocolVersion: wire.ProtocolVersion, JoinCode: "ABC234"})
+	_ = readEnvelope(t, connA)
+	connB := dial(t, ws1)
+	sendMsg(t, connB, wire.TypeHello, wire.Hello{ProtocolVersion: wire.ProtocolVersion})
+	_ = readEnvelope(t, connB)
+	connC := dial(t, ws2)
+	sendMsg(t, connC, wire.TypeHello, wire.Hello{ProtocolVersion: wire.ProtocolVersion})
+	_ = readEnvelope(t, connC)
+
+	type presenceResp struct {
+		NodeCount int            `json:"node_count"`
+		Total     int            `json:"total"`
+		Rooms     map[string]int `json:"rooms"`
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		resp, err := http.Get(node1.URL + "/api/v0/presence")
+		if err != nil {
+			t.Fatal(err)
+		}
+		var got presenceResp
+		if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		if got.NodeCount == 2 && got.Total == 3 && got.Rooms["room_a"] == 1 {
+			return // küme geneli sayım doğru
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("presence yakınsamadı: %+v", got)
+		}
+		time.Sleep(100 * time.Millisecond)
 	}
 }
 

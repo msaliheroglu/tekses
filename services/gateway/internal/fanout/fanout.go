@@ -65,6 +65,8 @@ type castFrame struct {
 type natsBus struct {
 	conn *nats.Conn
 	sub  *nats.Subscription
+	// presSub, SubscribePresence kurulursa dolar (presence.go).
+	presSub *nats.Subscription
 }
 
 // NewNATS, NATS'e bağlanır ve gelen çerçeveleri sink'e veren aboneliği
@@ -104,5 +106,8 @@ func (b *natsBus) Cast(room string, f hub.Frame) error {
 
 func (b *natsBus) Close() {
 	_ = b.sub.Unsubscribe()
+	if b.presSub != nil {
+		_ = b.presSub.Unsubscribe()
+	}
 	b.conn.Close()
 }

@@ -69,6 +69,11 @@ func main() {
 		}
 		defer bus.Close()
 		srv.SetBus(bus)
+		// Varlık yayını: defer LIFO olduğundan stop, bus.Close'tan önce koşar.
+		if p, ok := bus.(fanout.Presence); ok {
+			stop := srv.StartPresence(p)
+			defer stop()
+		}
 		log.Info("yayın dağıtımı NATS üzerinden (çok düğüm)", "url", natsURL)
 	}
 

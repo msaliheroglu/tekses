@@ -91,6 +91,10 @@ type Server struct {
 	// (nil = kapalı; Faz 0 yerel modu ya da TEKSES_INTERNAL_TOKEN yok).
 	runSink *runsink.Client
 
+	// peers, diğer düğümlerin son presence raporlarıdır (presence.go).
+	presMu sync.Mutex
+	peers  map[string]presenceEntry
+
 	// Doğrulanmış panel oturumlarının kısa süreli önbelleği: konsolun 4 sn'de
 	// bir attığı runs sorgusu her seferinde control-api'ye gitmesin.
 	// token → önbellek son kullanma anı.
@@ -179,6 +183,7 @@ func New(log *slog.Logger, adminToken string, resolver rooms.Resolver, sessions 
 		resolver:   resolver,
 		sessions:   sessions,
 		sessCache:  map[string]time.Time{},
+		peers:      map[string]presenceEntry{},
 		upgrader: websocket.Upgrader{
 			ReadBufferSize:  1024,
 			WriteBufferSize: 1024,
@@ -230,6 +235,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v0/intervention", s.requireAdmin(s.handleIntervention))
 	mux.HandleFunc("POST /api/v0/show-activated", s.requireAdmin(s.handleShowActivated))
 	mux.HandleFunc("GET /api/v0/runs", s.handleRuns)
+	// GET uçları requireAdmin'e giremez (Content-Type zorunluluğu); yetki
+	// denetimi handler içinde checkAdmin ile yapılır (handleRuns kalıbı).
+	mux.HandleFunc("GET /api/v0/presence", s.handlePresence)
 	return mux
 }
 
