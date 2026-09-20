@@ -18,6 +18,7 @@ apps/participant/ios/Flutter/ephemeral/
 # Node (apps/moderator)
 **/node_modules/
 **/.next/
+*.tsbuildinfo
 
 # IDE / OS
 .idea/
