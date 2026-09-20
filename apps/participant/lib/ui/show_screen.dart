@@ -48,6 +48,10 @@ class _ShowScreenState extends State<ShowScreen> {
   ClockEstimate? _estimate;
   String _status = 'başlatılıyor';
 
+  /// Ses teşhis satırı: kanal yoksa ya da dosya inmemişse kullanıcı
+  /// SESSİZLİĞİN nedenini ekranda görür (sessizce yutulmasın).
+  String _audioNote = '';
+
   CueStartMsg? _activeCue;
   FrameSource? _engine; // cue_id sekansa/programa denk geldiyse dolu
   int _fireLocalMs = 0;
@@ -65,7 +69,12 @@ class _ShowScreenState extends State<ShowScreen> {
     super.initState();
     WakelockPlus.enable();
     _torch.init();
-    _audio.init();
+    _audio.init().then((_) {
+      if (mounted && !_audio.available) {
+        setState(() =>
+            _audioNote = 'ses kanalı yok — APK, native MainActivity ile derlenmeli (README)');
+      }
+    });
     _arbiter = CueArbiter(onAccepted: _onCueAccepted);
     _client = RealtimeClient(
       uri: widget.serverUri,
@@ -146,14 +155,19 @@ class _ShowScreenState extends State<ShowScreen> {
     _audio.stopAll();
     final plan = <({String playerId, int atMs})>[];
     final paths = widget.joinInfo?.assetPaths ?? const {};
+    var audioCues = 0, missing = 0;
     for (final entry in played) {
       final seq = manifest?.sequenceById(entry.sequenceId);
       if (seq == null) continue;
       for (final lane in seq.cueLanes) {
         if (lane.kind != 'audio') continue;
         for (final cue in lane.cues) {
+          audioCues++;
           final path = paths[cue.assetId];
-          if (path == null) continue; // varlık inmemiş; ışık koreografisi sürer
+          if (path == null) {
+            missing++; // varlık inmemiş; ışık koreografisi sürer
+            continue;
+          }
           final playerId = '${cue.assetId}#${plan.length}';
           _audio.prepare(playerId, path);
           plan.add((playerId: playerId, atMs: entry.baseMs + cue.atMs));
@@ -161,6 +175,16 @@ class _ShowScreenState extends State<ShowScreen> {
       }
     }
     _audioPlan = plan;
+    // Teşhis: gösteri ses istiyorsa ama çalamayacaksak nedeni ekrana yaz.
+    if (audioCues == 0) {
+      // gösteri sessiz; kanal uyarısı (init) varsa korunur
+    } else if (!_audio.available) {
+      _audioNote = 'ses kanalı yok — APK, native MainActivity ile derlenmeli (README)';
+    } else if (missing > 0) {
+      _audioNote = 'ses: $missing dosya inmemiş — odadan çıkıp yeniden katılın';
+    } else {
+      _audioNote = 'ses: ${plan.length} parça planlandı';
+    }
   }
 
   void _startEffect(CueStartMsg cue, int lateByMs) {
@@ -358,6 +382,7 @@ class _ShowScreenState extends State<ShowScreen> {
                         '· örnek ${estimate.usedSamples}'
                         '${_torch.available ? '' : ' · fener yok'}',
                       ),
+                    if (_audioNote.isNotEmpty) Text(_audioNote),
                     if (_activeCue != null)
                       Text('run ${_activeCue!.runId.substring(0, 8)}'),
                   ],
