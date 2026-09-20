@@ -34,10 +34,13 @@ RUN curl -fL -o /w/ggml-small.bin \
 
 FROM debian:bookworm-slim
 # libgomp1: whisper.cpp OpenMP ile derlenir; ffmpeg/jq betiğin bağımlılıkları.
+# UID 1000: standart imajla (Dockerfile, alpine adduser) AYNI olmak zorunda —
+# packages disk bölümü iki imaj arasında paylaşılır; UID kayarsa eski
+# dosyalara yazılamaz ("varlık depolanamadı").
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ffmpeg jq libgomp1 ca-certificates \
     && rm -rf /var/lib/apt/lists/* \
-    && useradd -r -M tekses && mkdir -p /data/packages && chown tekses /data/packages
+    && useradd -u 1000 -M tekses && mkdir -p /data/packages && chown tekses /data/packages
 COPY --from=gobuild /out/control-api /usr/local/bin/control-api
 COPY --from=whisperbuild /w/build/bin/whisper-cli /opt/whisper/whisper-cli
 COPY --from=whisperbuild /w/ggml-small.bin /opt/whisper/ggml-small.bin
