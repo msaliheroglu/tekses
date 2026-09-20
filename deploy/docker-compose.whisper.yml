@@ -6,10 +6,12 @@
 # Geri almak (standart imaja dönmek):
 #   docker compose up -d --build control-api
 #
-# Notlar: ilk derleme 10-15 dk sürebilir ve imaj ~1 GB büyür (model gömülü).
-# Şarkılarda taslak kalitesi düşüktür (Demucs bilinçli olarak yok — CPU'da
-# zaman aşımına sığmaz); kesin yol LRC içe aktarmadır. Ayrıntı:
-# services/control-api/Dockerfile.whisper ve docs/dagitim.md §6.
+# Notlar: ilk derleme 15-25 dk sürebilir ve imaj birkaç GB büyür (whisper
+# modeli + Demucs/torch + htdemucs ağırlıkları gömülü). Vokal ayrıştırma
+# CPU'da ağırdır: 2 OCPU'da 4 dk'lık şarkı 20-40 dk sürebilir (işler sıraya
+# alınır). Hızlı ama şarkılarda isabetsiz mod için aşağıya TEKSES_NO_DEMUCS=1
+# ekleyin. Ayrıntı: services/control-api/Dockerfile.whisper ve
+# docs/dagitim.md §6.
 
 services:
   control-api:
@@ -17,6 +19,6 @@ services:
       context: ..
       dockerfile: services/control-api/Dockerfile.whisper
     environment:
-      # ARM CPU'da 3-5 dakikalık bir şarkının çözümlemesi dakikalar alır;
-      # varsayılan 10 dk'lık iş zaman aşımına pay bırakılır.
-      TEKSES_TRANSCRIBE_TIMEOUT: 30m
+      # Demucs + Whisper zinciri CPU'da uzundur; işe geniş pay bırakılır
+      # (sayaç iş sıradan çıkıp BAŞLADIĞINDA işler).
+      TEKSES_TRANSCRIBE_TIMEOUT: 60m

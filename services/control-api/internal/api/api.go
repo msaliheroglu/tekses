@@ -48,6 +48,9 @@ type Server struct {
 	transcriber string
 	trMu        sync.Mutex
 	trJobs      map[string]*transcriptionJob
+	// Tek işlik kapı: Demucs/Whisper CPU ve RAM'i tekeline alır; eşzamanlı
+	// işler küçük VM'yi devirir. Sıradaki işler kapıda bekler (durum: queued).
+	trGate chan struct{}
 }
 
 // New, bir kontrol API sunucusu kurar. packages, yayınlanan manifestlerin
@@ -61,6 +64,7 @@ func New(log *slog.Logger, st store.Store, packages blob.Store, transcriber stri
 		packages:    packages,
 		transcriber: transcriber,
 		trJobs:      map[string]*transcriptionJob{},
+		trGate:      make(chan struct{}, 1),
 	}
 }
 

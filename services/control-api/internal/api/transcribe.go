@@ -95,6 +95,17 @@ func (s *Server) runTranscription(job *transcriptionJob, assetID string) {
 		s.log.Warn("söz çıkarma başarısız", "iş", job.ID, "hata", msg)
 	}
 
+	// Kapıda beklerken durum "queued" görünür; zaman aşımı iş BAŞLADIKTAN
+	// sonra işler (kuyruk beklemesi süreden yemez).
+	s.trMu.Lock()
+	job.Status = "queued"
+	s.trMu.Unlock()
+	s.trGate <- struct{}{}
+	defer func() { <-s.trGate }()
+	s.trMu.Lock()
+	job.Status = "running"
+	s.trMu.Unlock()
+
 	ctx, cancel := context.WithTimeout(context.Background(), transcribeTimeout())
 	defer cancel()
 

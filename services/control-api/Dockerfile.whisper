@@ -1,18 +1,19 @@
-# Söz çıkarma (whisper.cpp) DESTEKLİ control-api imajı — isteğe bağlı varyant.
+# Söz çıkarma (whisper.cpp + Demucs) DESTEKLİ control-api imajı — isteğe bağlı.
 #
 # Kullanım (deploy/ dizininde):
 #   docker compose -f docker-compose.yml -f docker-compose.whisper.yml up -d --build control-api
 #
 # Standart imajdan (Dockerfile) farkı: ffmpeg + jq + whisper-cli + çok dilli
-# "small" model (~466 MB) içerir ve TEKSES_TRANSCRIBER hazır ayarlıdır. İmaj
-# ~1 GB büyür; ilk derleme whisper.cpp'yi kaynaktan derlediği için VM'de
-# 10-15 dk sürebilir (bir kez).
+# "small" model (~466 MB) + Demucs (torch CPU) ve htdemucs ağırlıkları
+# gömülüdür; TEKSES_TRANSCRIBER hazır ayarlıdır. İmaj birkaç GB büyür; ilk
+# derleme (whisper derlemesi + torch/model indirmeleri) VM'de 15-25 dk
+# sürebilir (bir kez).
 #
-# Demucs (vokal ayrıştırma) bilinçli olarak YOK: torch tabanlı ve CPU'da tek
-# şarkı bile dakikalarca sürüyor — ücretsiz ARM VM'de zaman aşımına sığmaz.
-# Bu yüzden mikslenmiş şarkılarda taslak kalitesi düşüktür (Whisper vokali
-# enstrümandan ayıramaz); kesin yol LRC içe aktarma. Tezahürat/anons gibi
-# konuşma ağırlıklı seslerde iyi çalışır.
+# Süre beklentisi: vokal ayrıştırma CPU'da ağırdır — 2 OCPU Ampere'de 4 dk'lık
+# şarkı 20-40 dk sürebilir (4 OCPU'da yarıya iner; Always Free sınırı 4 OCPU /
+# 24 GB'dır, büyütmek ücretsizdir). İşler tek tek sıraya alınır (trGate).
+# Demucs'u kapatmak için control-api ortamına TEKSES_NO_DEMUCS=1 verin —
+# o zaman hızlıdır ama mikslenmiş şarkılarda Whisper vokali bulamaz.
 
 FROM golang:1.25-alpine AS gobuild
 WORKDIR /src
@@ -38,9 +39,19 @@ FROM debian:bookworm-slim
 # packages disk bölümü iki imaj arasında paylaşılır; UID kayarsa eski
 # dosyalara yazılamaz ("varlık depolanamadı").
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        ffmpeg jq libgomp1 ca-certificates \
+        ffmpeg jq libgomp1 ca-certificates python3 python3-pip \
     && rm -rf /var/lib/apt/lists/* \
     && useradd -u 1000 -M tekses && mkdir -p /data/packages && chown tekses /data/packages
+
+# Demucs (vokal ayrıştırma): torch CPU tekeriyle kurulur; htdemucs ağırlıkları
+# derlemede indirilir ki konteyner çalışırken ağa (ve yazılabilir ev dizinine)
+# ihtiyaç duymasın. 1 sn'lik sessiz dosya ayrıştırılarak indirme tetiklenir.
+ENV TORCH_HOME=/opt/torch
+RUN pip3 install --no-cache-dir --break-system-packages demucs \
+    && ffmpeg -f lavfi -i anullsrc=r=44100:cl=stereo -t 1 /tmp/sessiz.wav \
+    && demucs --two-stems vocals -n htdemucs -d cpu -o /tmp/demucs-isinma /tmp/sessiz.wav \
+    && rm -rf /tmp/sessiz.wav /tmp/demucs-isinma \
+    && chmod -R a+rX /opt/torch
 COPY --from=gobuild /out/control-api /usr/local/bin/control-api
 COPY --from=whisperbuild /w/build/bin/whisper-cli /opt/whisper/whisper-cli
 COPY --from=whisperbuild /w/ggml-small.bin /opt/whisper/ggml-small.bin

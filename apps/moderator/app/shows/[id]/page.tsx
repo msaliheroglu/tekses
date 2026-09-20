@@ -282,13 +282,22 @@ export default function ShowDetailPage({ params }: { params: Promise<{ id: strin
     try {
       const { transcription_id } = await startTranscription(assetId);
       // Sunucu tarafı zaman aşımı ayarlanabilir (TEKSES_TRANSCRIBE_TIMEOUT,
-      // whisper'lı VM'de 30 dk); panel ondan önce pes etmesin.
-      const deadline = Date.now() + 30 * 60 * 1000;
+      // whisper'lı VM'de 60 dk — Demucs CPU'da yavaştır); panel ondan önce
+      // pes etmesin.
+      const deadline = Date.now() + 65 * 60 * 1000;
       for (;;) {
         await new Promise((r) => setTimeout(r, 3000));
         const res = await getTranscription(transcription_id);
         if (res.status === "done") {
           const lines = res.lyric_lines ?? [];
+          if (lines.length === 0) {
+            // Boş sonuçtan "0 satır hazır" düğmesi üretmek yanıltıcı olur.
+            setError(
+              "Söz bulunamadı: Whisper bu kayıtta vokal seçemedi. Sunucuda Demucs yoksa " +
+                "(ya da kapalıysa) mikslenmiş şarkılarda bu beklenir — LRC içe aktarmayı deneyin.",
+            );
+            break;
+          }
           setPendingLyrics(lines.map((l) => ({ atMs: l.at_ms, durationMs: l.duration_ms, text: l.text })));
           setPendingSource("otomatik çıkarma (TASLAK)");
           setNotice(

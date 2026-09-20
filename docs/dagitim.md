@@ -80,21 +80,21 @@ tek komut (deploy/ dizininde):
 docker compose -f docker-compose.yml -f docker-compose.whisper.yml up -d --build control-api
 ```
 
-Bu, control-api'yi whisper.cpp + çok dilli "small" model gömülü varyantla
+Bu, control-api'yi whisper.cpp + çok dilli "small" model + **Demucs vokal
+ayrıştırma** (torch CPU + htdemucs ağırlıkları) gömülü varyantla
 (`services/control-api/Dockerfile.whisper`) yeniden derler. İlk derleme
-10-15 dk sürer, imaj ~1 GB büyür; sonrasında paneldeki "Sözleri çıkar"
+15-25 dk sürer, imaj birkaç GB büyür; sonrasında paneldeki "Sözleri çıkar"
 düğmesi çalışır. Geri almak: `docker compose up -d --build control-api`.
 
-Beklentiyi doğru kurun: **mikslenmiş şarkılarda taslak kalitesi düşüktür** —
-Whisper vokali enstrümandan ayıramaz; vokal ayrıştırma (Demucs) CPU'da tek
-şarkıda bile zaman aşımını aştığı için bu imaja bilerek konmadı. Tezahürat,
-anons gibi konuşma ağırlıklı seslerde iyi sonuç verir. Şarkı sözleri için en
-isabetli yol **LRC içe aktarma**dır (panelde her zaman çalışır). Yüksek
-kaliteli otomatik taslak isteyenler için Demucs'lu yerel boru hattı Windows'ta
-çalıştırılabilir: `deploy/transcribe-whisper.ps1` başındaki adımlar +
-`TEKSES_TRANSCRIBER=...\deploy\transcribe-whisper.bat` (yerel control-api ile).
-Çözümleme süresi sınırı `TEKSES_TRANSCRIBE_TIMEOUT` ile ayarlanır
-(whisper compose eki 30m verir; varsayılan 10m).
+Beklentiyi doğru kurun: **vokal ayrıştırma CPU'da ağırdır** — 2 OCPU
+Ampere'de 4 dakikalık şarkı 20-40 dk sürebilir; işler tek tek sıraya alınır
+(panelde durum "queued"). Always Free sınırı 4 OCPU / 24 GB'dır: VM'i
+büyütmek ücretsizdir ve süreyi yaklaşık yarıya indirir (Instance → Edit →
+shape). Demucs'suz hızlı mod için compose ekine `TEKSES_NO_DEMUCS: "1"`
+ekleyin — ama o zaman mikslenmiş şarkılarda Whisper vokal bulamaz, çıktı
+boş kalır. Çıktı her durumda TASLAKTIR; şarkı sözleri için en isabetli yol
+**LRC içe aktarma**dır. Çözümleme süresi sınırı `TEKSES_TRANSCRIBE_TIMEOUT`
+ile ayarlanır (whisper compose eki 60m verir; varsayılan 10m).
 
 ## 7. Sonrası (etkinlik günü ölçeği — Faz 2 devamı)
 

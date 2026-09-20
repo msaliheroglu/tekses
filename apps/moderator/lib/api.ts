@@ -136,7 +136,7 @@ export async function uploadAsset(
 export type TranscriptionLyricLine = { at_ms: number; duration_ms: number; text: string };
 export type TranscriptionResult = {
   transcription_id: string;
-  status: "running" | "done" | "error";
+  status: "queued" | "running" | "done" | "error";
   lyric_lines?: TranscriptionLyricLine[];
   error?: string;
 };
