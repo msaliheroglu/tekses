@@ -116,8 +116,11 @@ adım sırasını izler.
   hata özetleme, küçük tamponlar; `tools/loadgen/Dockerfile`; gateway
   compose'una nofile 1M; kademeli VM koşum kılavuzu **docs/yuk-testi.md**
   (2k→10k→20k→40k; conntrack + port aralığı ayarlarıyla). Yerel duman
-  testi: 2.000 ikili istemci, yayılım 1 ms. **VM koşumları kullanıcıyla
-  birlikte yapılacak; sonuçlar buraya işlenecek.**
+  testi: 2.000 ikili istemci, yayılım 1 ms. **VM koşum sonuçları
+  (Oracle A1.Flex, gateway+loadgen aynı VM):**
+  - 10k ikili istemci (2026-09-20): 10000/10000 başarılı, yayılım
+    maks−min 15 ms / p95−p5 5 ms / σ 1.6 ms, en iyi RTT medyan 2 ms —
+    ≤30 ms hedefi TUTUYOR.
 - [x] **F2.5 Native zamanlanmış ses (2026-09-19):** (a) varlık boru hattı —
   POST /api/v1/assets (içerik adresli, <sha256>.<uzantı>), herkese açık
   /assets/{id}, yayında varlık doğrulaması; telefon varlıkları katılırken
