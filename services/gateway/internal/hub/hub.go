@@ -6,6 +6,7 @@ package hub
 
 import (
 	"log/slog"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -36,6 +37,23 @@ type Client struct {
 
 	// room yalnızca hub kilidi altında okunur/yazılır.
 	room string
+
+	// Saat kalitesi (F2.6 telemetri): son ping-pong RTT'si ve ölçüm anı
+	// (sunucu saati, ms). Pong handler yazar; clockstats kilitsiz okur.
+	// rttAtMs == 0 → henüz örnek yok.
+	rttMs   atomic.Int64
+	rttAtMs atomic.Int64
+}
+
+// SetRTT, son ping-pong gidiş-dönüş süresini kaydeder.
+func (c *Client) SetRTT(rttMs, atMs int64) {
+	c.rttMs.Store(rttMs)
+	c.rttAtMs.Store(atMs)
+}
+
+// RTT, son örneği döndürür (atMs == 0 → örnek yok).
+func (c *Client) RTT() (rttMs, atMs int64) {
+	return c.rttMs.Load(), c.rttAtMs.Load()
 }
 
 // SetBinary, istemcinin kodeğini işaretler (hello çerçevesinin biçiminden).
@@ -94,12 +112,18 @@ func (c *Client) SendLazy(build func() ([]byte, error)) error {
 	return c.conn.WriteMessage(frameType(c.IsBinary()), data)
 }
 
-// Ping, keepalive ping çerçevesi yazar.
-func (c *Client) Ping() error {
+// Ping, keepalive ping çerçevesi yazar. Gövde, gönderim anının sunucu
+// saatidir (ondalık ms): RFC 6455 gereği pong aynı gövdeyi yankılar, yani
+// istemci başına eşleştirme durumu tutmadan RTT ölçülür. Damga, yazma
+// kilidi ALINDIKTAN sonra atılır (SendLazy'deki t2 gerekçesiyle aynı:
+// kilit beklemesi RTT'yi yapay şişirmesin) ve nowMs geri çağrısı sunucu
+// saatini enjekte eder — duvar saatiyle eksen karışmaz.
+func (c *Client) Ping(nowMs func() int64) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	_ = c.conn.SetWriteDeadline(time.Now().Add(writeTimeout))
-	return c.conn.WriteMessage(websocket.PingMessage, nil)
+	payload := strconv.AppendInt(nil, nowMs(), 10) // ≤125 bayt kontrol çerçevesi sınırına uyar
+	return c.conn.WriteMessage(websocket.PingMessage, payload)
 }
 
 // Close, bağlantıyı kapatır.
@@ -195,6 +219,42 @@ func (h *Hub) RoomCounts() map[string]int {
 		out[room] = len(members)
 	}
 	return out
+}
+
+// RTTSample, bir istemcinin son ping-pong ölçümüdür.
+type RTTSample struct {
+	RTTMs int64
+	AtMs  int64 // ölçüm anı (sunucu saati); bayatlık değerlendirmesi çağıranda
+}
+
+// RoomRTTSamples, oda başına RTT örneklerini ve henüz örneği olmayan istemci
+// sayısını döndürür. Kilit altında yalnızca işaretçiler kopyalanır; atomik
+// okumalar kilit DIŞINDA yapılır ki 40k üyeli odada yayınlarla yarışılmasın.
+func (h *Hub) RoomRTTSamples() (samples map[string][]RTTSample, noSample map[string]int) {
+	h.mu.RLock()
+	members := make(map[string][]*Client, len(h.rooms))
+	for room, set := range h.rooms {
+		list := make([]*Client, 0, len(set))
+		for c := range set {
+			list = append(list, c)
+		}
+		members[room] = list
+	}
+	h.mu.RUnlock()
+
+	samples = make(map[string][]RTTSample, len(members))
+	noSample = make(map[string]int, len(members))
+	for room, list := range members {
+		for _, c := range list {
+			rtt, at := c.RTT()
+			if at == 0 {
+				noSample[room]++
+				continue
+			}
+			samples[room] = append(samples[room], RTTSample{RTTMs: rtt, AtMs: at})
+		}
+	}
+	return samples, noSample
 }
 
 // Broadcast, çift kodlamalı çerçeveyi tüm istemcilere gönderir.

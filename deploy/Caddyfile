@@ -36,6 +36,14 @@
 	# doğrudan servislere gider. (Next.js rewrites yalnızca yerel geliştirme
 	# içindir: hedef adresler derleme anında gömüldüğünden Docker imajında
 	# localhost'a işaret eder — bu yüzden üretimde Caddy yönlendirir.)
+	#
+	# Servisler arası İÇ uçlar (/internal/*) internete kapatılır: önek
+	# soyma olmasa yol zaten panele düşer ama /control/internal/… soymayla
+	# control-api'ye VARIRDI. Uç ayrıca TEKSES_INTERNAL_TOKEN ister; bu
+	# kural derinlemesine savunmadır.
+	handle /control/internal/* {
+		respond "" 404
+	}
 	handle /control/* {
 		uri strip_prefix /control
 		reverse_proxy control-api:8090

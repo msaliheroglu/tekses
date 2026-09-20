@@ -20,6 +20,7 @@ import (
 	"log/slog"
 	"net/http"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -101,8 +102,8 @@ type Server struct {
 	sessMu    sync.Mutex
 	sessCache map[string]time.Time
 
-	// Son çalıştırmaların halka kaydı (asgari telemetri; en yenisi başta).
-	// Kalıcı Run kaydı ve panolar Faz 2 telemetri işine devredildi.
+	// Son çalıştırmaların halka kaydı (Faz 0 konsolu; en yenisi başta).
+	// Kalıcı kayıt runSink üzerinden control-api'ye yazılır (recordRun).
 	runsMu sync.Mutex
 	runs   []runRecord
 }
@@ -238,6 +239,7 @@ func (s *Server) Handler() http.Handler {
 	// GET uçları requireAdmin'e giremez (Content-Type zorunluluğu); yetki
 	// denetimi handler içinde checkAdmin ile yapılır (handleRuns kalıbı).
 	mux.HandleFunc("GET /api/v0/presence", s.handlePresence)
+	mux.HandleFunc("GET /api/v0/clockstats", s.handleClockStats)
 	return mux
 }
 
@@ -363,7 +365,19 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 	conn.SetReadLimit(maxMessageBytes)
 	resetDeadline := func() { _ = conn.SetReadDeadline(time.Now().Add(readTimeout)) }
 	resetDeadline()
-	conn.SetPongHandler(func(string) error { resetDeadline(); return nil })
+	// Pong, ping'e koyduğumuz gönderim damgasını (sunucu saati, ondalık ms)
+	// yankılar → istemci başına RTT örneği. Damga çözülemezse (eski/aykırı
+	// istemci gövdesiz pong dönebilir) örnek ATLANIR ama keepalive bozulmaz:
+	// resetDeadline her pongda çağrılır.
+	conn.SetPongHandler(func(appData string) error {
+		resetDeadline()
+		if t0, err := strconv.ParseInt(appData, 10, 64); err == nil {
+			if rtt := s.clock.NowMs() - t0; rtt >= 0 && rtt < 10*60*1000 {
+				client.SetRTT(rtt, s.clock.NowMs())
+			}
+		}
+		return nil
+	})
 
 	// Keepalive ping döngüsü; okuma döngüsü bitince kapanır.
 	done := make(chan struct{})
@@ -376,7 +390,7 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 			case <-done:
 				return
 			case <-t.C:
-				if err := client.Ping(); err != nil {
+				if err := client.Ping(s.clock.NowMs); err != nil {
 					return
 				}
 			}

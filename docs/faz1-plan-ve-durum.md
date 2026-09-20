@@ -165,9 +165,19 @@ adım sırasını izler.
   ile dağıtır), gömülü NATS'li çok düğüm testleri (aynı fire_at iki düğümde,
   oda kapsamı, show_activated çapraz düğüm). Go 1.26'ya geçildi (nats.go
   gereksinimi; Dockerfile'lar + CI go.mod'dan okuyor). JetStream bilinçli
-  KULLANILMADI (karar dokümanına satır eklendi). **Kalan (ikinci yarı):**
-  kalıcı Run tablosu + küme geneli istemci sayacı + saat kalitesi ısı
-  haritası (telemetri); VM'de 2 kopyayla yük koşumu doğrulaması.
+  KULLANILMADI (karar dokümanına satır eklendi). **İkinci yarı — telemetri
+  (2026-09-20) TAMAM:** (a) kalıcı Run izleri: gateway (rec_… kimlik + node
+  damgası) → control-api iç ucu (/internal/runs, TEKSES_INTERNAL_TOKEN;
+  Caddy /control/internal'ı 404'ler) → Postgres (migration 0002, storetest'li);
+  panel konsolu org kapsamlı GET /api/v1/runs'tan okur, oturumsuz/eskide
+  düğüm halkasına düşer. (b) küme geneli katılımcı sayacı: NATS
+  tekses.presence (5 sn rapor / 15 sn bayatlama), GET /api/v0/presence —
+  hangi kopyaya sorulsa küme geneli; konsolda büyük sayaç. (c) saat kalitesi
+  ısı haritası: keepalive ping'ine sunucu saati damgası → pong RTT'si
+  istemci başına atomik; GET /api/v0/clockstats oda bazlı p50/p95 + kovalar
+  (<10/<30/<100/≥100 ms), konsolda renkli ısı çubuğu. RTT senkron kalite
+  VEKİLİDİR (ofset değil) — panel öyle etiketler. **Kalan:** VM'de 2 kopyayla
+  yük koşumu doğrulaması (kullanıcıyla).
 - [ ] **F2.7 Ultrasonik beacon + PA test kiti** (karar dokümanı §3).
 
 ## Notlar

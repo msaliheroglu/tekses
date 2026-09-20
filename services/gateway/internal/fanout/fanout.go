@@ -7,8 +7,10 @@
 //
 // Neden çekirdek NATS, JetStream değil: kue teli zaten kayba dayanıklıdır
 // (aynı run_id 3 kez yinelenir, istemci tekilleştirir); kalıcılık gereksiz
-// gecikme ekler. JetStream, kalıcı Run/telemetri akışı için ayrılmıştır
-// (F2.6'nın ikinci yarısı).
+// gecikme ekler. Kalıcı Run izleri de JetStream'e değil, gateway→control-api
+// HTTP iç ucuyla Postgres'e yazılır (internal/runsink) — kontrol düzlemi
+// hızı düşük, control-api NATS'siz kalır. JetStream ihtiyaç doğarsa
+// (yüksek hacimli telefon telemetrisi) yeniden değerlendirilir.
 //
 // Saat notu: fire_at_server_ms, kueyi alan düğümün saatinde hesaplanır ve
 // tüm düğümlerde aynen yayınlanır. Sunucu saati duvar saatine sabitlenmiş

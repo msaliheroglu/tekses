@@ -83,7 +83,9 @@ docker compose -f docker-compose.yml -f docker-compose.whisper.yml up -d --scale
 
 Loadgen komutu aynı kalır: `ws://gateway:8080/ws` adresi Docker DNS'iyle
 her bağlantıda kopyalardan birine düşer — istemciler kendiliğinden ikiye
-bölünür. Kue POST'u tek kopyaya gider, NATS hepsine yayar; rapor yine tek
+bölünür. (Saat kalitesi ölçümü için not: gateway'in ping'ine loadgen dahil
+tüm istemciler gövdeyi yankılayan pong'u otomatik döner — gorilla, okuma
+döngüsü aktifken bunu kendisi yapar; loadgen'de değişiklik gerekmez.) Kue POST'u tek kopyaya gider, NATS hepsine yayar; rapor yine tek
 yayılım sayısı üretir (düğümler arası senkronun ta kendisi). Kopya başına
 kaynak için: `docker stats --no-stream $(docker ps --format '{{.Names}}' | grep gateway)`.
 Tek kopyaya dönmek: `... up -d --scale gateway=1`.

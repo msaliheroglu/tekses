@@ -31,6 +31,9 @@ services:
     restart: unless-stopped
     environment:
       TEKSES_DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD}@postgres:5432/tekses?sslmode=disable
+      # Servisler arası iç uç sırrı (gateway → /internal/runs). Boş bırakılırsa
+      # kalıcı Run kaydı kapalı kalır; eski .env'li kurulum kırılmaz.
+      TEKSES_INTERNAL_TOKEN: ${TEKSES_INTERNAL_TOKEN:-}
     volumes:
       - packages:/data/packages
     depends_on:
@@ -61,6 +64,7 @@ services:
       TEKSES_CONTROL_URL: http://control-api:8090
       TEKSES_NATS_URL: nats://nats:4222
       TEKSES_ADMIN_TOKEN: ${TEKSES_ADMIN_TOKEN:?TEKSES_ADMIN_TOKEN zorunlu (internete açık kurulumda konsol uçları korunmalı)}
+      TEKSES_INTERNAL_TOKEN: ${TEKSES_INTERNAL_TOKEN:-}
     depends_on:
       - control-api
       - nats
