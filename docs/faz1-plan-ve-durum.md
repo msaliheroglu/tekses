@@ -86,8 +86,14 @@ adım sırasını izler.
   kurulum rehberi `docs/dagitim.md`. **Not:** bu geliştirme ortamında
   Docker daemon yok — imaj derlemeleri VM'deki ilk `docker compose up
   --build` ile doğrulanacak; sorun çıkarsa hata çıktısıyla düzeltilir.
-- [ ] **F2.2 VM kurulumu** *(kullanıcıyla birlikte)*: Oracle Always Free VM
-  + alan adı + `docs/dagitim.md` adımları; telefonların LTE'den katılımı.
+- [x] **F2.2 VM kurulumu (2026-09-20):** Oracle Always Free VM (Ubuntu 22.04,
+  A1.Flex) kuruldu — ilk deneme Oracle Linux imajıyla açıldığı için SSH
+  reddetti (kullanıcı `ubuntu` yok), VM Ubuntu ile yeniden yaratıldı
+  (IP 141.144.246.29). Docker + iptables 80/443 + DuckDNS alan adı +
+  `deploy/` compose yığını: 5 konteyner ayakta (postgres healthy),
+  `https://<alan>/healthz` → `{"status":"ok"}` — Caddy sertifikayı aldı,
+  TekSes internette. **Kalan doğrulama:** panelden kayıt + şablon gösteri
+  yayını + telefonun LTE üzerinden katılıp kue alması (aşağıda yürüyor).
 - [x] **F2.3 Protobuf ikili teli (Go tarafı, 2026-09-19):** buf + protoc-gen-go
   ile üretilen stub'lar commit'li; `wire` paketi iki kodeği tek arayüzde
   taşıyor (EncodeBinary/DecodeBinary ↔ Encode/DecodeMessage). Gateway iki
