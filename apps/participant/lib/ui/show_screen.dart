@@ -8,6 +8,7 @@ import '../core/cue_arbiter.dart';
 import '../core/cue_scheduler.dart';
 import '../core/messages.dart';
 import '../core/mono_clock.dart';
+import '../core/native_audio.dart';
 import '../core/package_store.dart';
 import '../core/realtime_client.dart';
 import '../core/show_manifest.dart';
@@ -39,9 +40,17 @@ class _ShowScreenState extends State<ShowScreen> {
   late final RealtimeClient _client;
   late final CueArbiter _arbiter;
   final _torch = TorchService();
+  final _audio = NativeAudio();
+
+  /// Aktif kuenin ses planı: ateşleme anına göre (atMs, hazırlanmış çalar id).
+  List<({String playerId, int atMs})> _audioPlan = const [];
 
   ClockEstimate? _estimate;
   String _status = 'başlatılıyor';
+
+  /// Ses teşhis satırı: kanal yoksa ya da dosya inmemişse kullanıcı
+  /// SESSİZLİĞİN nedenini ekranda görür (sessizce yutulmasın).
+  String _audioNote = '';
 
   CueStartMsg? _activeCue;
   FrameSource? _engine; // cue_id sekansa/programa denk geldiyse dolu
@@ -53,12 +62,19 @@ class _ShowScreenState extends State<ShowScreen> {
   Color _background = Colors.black;
   bool _torchTarget = false;
   String _lyric = '';
+  String _nextLyric = '';
 
   @override
   void initState() {
     super.initState();
     WakelockPlus.enable();
     _torch.init();
+    _audio.init().then((_) {
+      if (mounted && !_audio.available) {
+        setState(() =>
+            _audioNote = 'ses kanalı yok — APK, native MainActivity ile derlenmeli (README)');
+      }
+    });
     _arbiter = CueArbiter(onAccepted: _onCueAccepted);
     _client = RealtimeClient(
       uri: widget.serverUri,
@@ -103,16 +119,23 @@ class _ShowScreenState extends State<ShowScreen> {
     // ediyorsa tek sekans; ikisi de değilse Faz 0 yükü oynar.
     final manifest = widget.joinInfo?.manifest;
     String statusLabel;
+    List<({String sequenceId, int baseMs})> played = const [];
     if (cue.cueId == programCueId && manifest != null && manifest.program.isNotEmpty) {
       _engine = ProgramEngine(manifest);
+      played = [
+        for (final item in manifest.program)
+          (sequenceId: item.sequenceId, baseMs: item.atOffsetMs),
+      ];
       statusLabel = 'otomatik program hazır (${manifest.program.length} sekans)';
     } else {
       final sequence = manifest?.sequenceById(cue.cueId);
       _engine = sequence == null ? null : TimelineEngine(sequence);
+      if (sequence != null) played = [(sequenceId: sequence.id, baseMs: 0)];
       statusLabel = sequence == null
           ? 'kue alındı (${cue.cueId})'
           : 'sekans hazır: ${sequence.title}';
     }
+    _prepareAudio(manifest, played);
     setState(() {
       _activeCue = cue;
       _status = '$statusLabel; ateşleme bekleniyor';
@@ -125,8 +148,54 @@ class _ShowScreenState extends State<ShowScreen> {
     );
   }
 
+  /// Sekansların ses kuelerini hazırlar: her kue kendi çalar örneğini alır
+  /// (aynı varlık iki kez çalınabilsin), kod çözme ateşleme öncesi biter.
+  void _prepareAudio(ShowManifest? manifest,
+      List<({String sequenceId, int baseMs})> played) {
+    _audio.stopAll();
+    final plan = <({String playerId, int atMs})>[];
+    final paths = widget.joinInfo?.assetPaths ?? const {};
+    var audioCues = 0, missing = 0;
+    for (final entry in played) {
+      final seq = manifest?.sequenceById(entry.sequenceId);
+      if (seq == null) continue;
+      for (final lane in seq.cueLanes) {
+        if (lane.kind != 'audio') continue;
+        for (final cue in lane.cues) {
+          audioCues++;
+          final path = paths[cue.assetId];
+          if (path == null) {
+            missing++; // varlık inmemiş; ışık koreografisi sürer
+            continue;
+          }
+          final playerId = '${cue.assetId}#${plan.length}';
+          _audio.prepare(playerId, path);
+          plan.add((playerId: playerId, atMs: entry.baseMs + cue.atMs));
+        }
+      }
+    }
+    _audioPlan = plan;
+    // Teşhis: gösteri ses istiyorsa ama çalamayacaksak nedeni ekrana yaz.
+    if (audioCues == 0) {
+      // gösteri sessiz; kanal uyarısı (init) varsa korunur
+    } else if (!_audio.available) {
+      _audioNote = 'ses kanalı yok — APK, native MainActivity ile derlenmeli (README)';
+    } else if (missing > 0) {
+      _audioNote = 'ses: $missing dosya inmemiş — odadan çıkıp yeniden katılın';
+    } else {
+      _audioNote = 'ses: ${plan.length} parça planlandı';
+    }
+  }
+
   void _startEffect(CueStartMsg cue, int lateByMs) {
     if (!mounted) return;
+    // Ses planı ateşleme anında, kesinleşmiş fireLocal üzerinden platforma
+    // devredilir; bu andan sonra çalma anını platformun kendi saati tutar.
+    for (final entry in _audioPlan) {
+      if (entry.atMs >= lateByMs) {
+        _audio.playAtMono(entry.playerId, _fireLocalMs + entry.atMs);
+      }
+    }
     setState(() => _status = lateByMs > 0
         ? 'koreografi sürüyor (geç katılım: +$lateByMs ms)'
         : 'koreografi sürüyor');
@@ -146,6 +215,7 @@ class _ShowScreenState extends State<ShowScreen> {
     final Color color;
     final bool torchWanted;
     final String lyric;
+    var nextLyric = '';
 
     final engine = _engine;
     if (engine != null) {
@@ -161,6 +231,7 @@ class _ShowScreenState extends State<ShowScreen> {
           : Colors.black;
       torchWanted = frame.torchOn;
       lyric = frame.lyric;
+      nextLyric = frame.nextLyric;
     } else {
       // Faz 0 modu: yük doğrudan kuenin içinde.
       if (elapsed >= cue.payload.durationMs) {
@@ -182,11 +253,15 @@ class _ShowScreenState extends State<ShowScreen> {
       lyric = '';
     }
 
-    if (color != _background || torchWanted != _torchTarget || lyric != _lyric) {
+    if (color != _background ||
+        torchWanted != _torchTarget ||
+        lyric != _lyric ||
+        nextLyric != _nextLyric) {
       setState(() {
         _background = color;
         _torchTarget = torchWanted;
         _lyric = lyric;
+        _nextLyric = nextLyric;
       });
       _torch.set(torchWanted);
     }
@@ -197,10 +272,12 @@ class _ShowScreenState extends State<ShowScreen> {
     _effectTicker = null;
     _torchTarget = false;
     _torch.off();
+    _audio.stopAll();
     if (toBlack && mounted) {
       setState(() {
         _background = Colors.black;
         _lyric = '';
+        _nextLyric = '';
       });
     }
   }
@@ -216,9 +293,10 @@ class _ShowScreenState extends State<ShowScreen> {
           _status = intervention.kind == 'BLACKOUT' ? 'KARARTMA' : 'durduruldu';
         });
       case 'HOLD':
-        // Ekran son karede kalır; güvenlik gereği fener söndürülür.
+        // Ekran son karede kalır; güvenlik gereği fener ve ses susturulur.
         _held = true;
         _torch.off();
+        _audio.stopAll();
         setState(() => _status = 'beklemede (HOLD)');
       case 'SKIP':
         // Faz 0'da sekans listesi yok; Faz 1'de timeline_engine ele alacak.
@@ -244,24 +322,43 @@ class _ShowScreenState extends State<ShowScreen> {
       body: SafeArea(
         child: Stack(
           children: [
-            // Söz satırı: ekranın ortasında, büyük ve dış çizgili — arka
-            // plan hangi renkte olursa olsun okunur.
-            if (_lyric.isNotEmpty)
+            // Karaoke görünümü: aktif satır ortada büyük, sıradaki satır
+            // altında soluk — arka plan hangi renkte olursa olsun okunur.
+            if (_lyric.isNotEmpty || _nextLyric.isNotEmpty)
               Center(
                 child: Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 24),
-                  child: Text(
-                    _lyric,
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(
-                      fontSize: 40,
-                      fontWeight: FontWeight.w800,
-                      color: Colors.white,
-                      shadows: [
-                        Shadow(blurRadius: 12, color: Colors.black),
-                        Shadow(blurRadius: 4, color: Colors.black),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (_lyric.isNotEmpty)
+                        Text(
+                          _lyric,
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            fontSize: 40,
+                            fontWeight: FontWeight.w800,
+                            color: Colors.white,
+                            shadows: [
+                              Shadow(blurRadius: 12, color: Colors.black),
+                              Shadow(blurRadius: 4, color: Colors.black),
+                            ],
+                          ),
+                        ),
+                      if (_nextLyric.isNotEmpty) ...[
+                        const SizedBox(height: 16),
+                        Text(
+                          _nextLyric,
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            fontSize: 24,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.white.withValues(alpha: 0.45),
+                            shadows: const [Shadow(blurRadius: 8, color: Colors.black)],
+                          ),
+                        ),
                       ],
-                    ),
+                    ],
                   ),
                 ),
               ),
@@ -285,6 +382,7 @@ class _ShowScreenState extends State<ShowScreen> {
                         '· örnek ${estimate.usedSamples}'
                         '${_torch.available ? '' : ' · fener yok'}',
                       ),
+                    if (_audioNote.isNotEmpty) Text(_audioNote),
                     if (_activeCue != null)
                       Text('run ${_activeCue!.runId.substring(0, 8)}'),
                   ],

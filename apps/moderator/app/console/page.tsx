@@ -159,12 +159,12 @@ export default function ConsolePage() {
             </select>
           </div>
           <div>
-            <label>Gateway yönetici token&apos;ı (ayarlıysa)</label>
+            <label>Gateway yönetici token&apos;ı (gerekmez)</label>
             <input
               type="password"
               value={adminToken}
               onChange={(e) => setAdminToken(e.target.value)}
-              placeholder="boş bırakılabilir"
+              placeholder="boş = panel oturumunuz kullanılır"
             />
           </div>
         </div>

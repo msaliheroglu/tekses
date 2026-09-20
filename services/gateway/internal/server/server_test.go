@@ -36,8 +36,13 @@ func newTestServer(t *testing.T, adminToken string) (*httptest.Server, string) {
 
 func newTestServerWithResolver(t *testing.T, adminToken string, resolver rooms.Resolver) (*httptest.Server, string) {
 	t.Helper()
+	return newTestServerFull(t, adminToken, resolver, nil)
+}
+
+func newTestServerFull(t *testing.T, adminToken string, resolver rooms.Resolver, sessions rooms.SessionValidator) (*httptest.Server, string) {
+	t.Helper()
 	log := slog.New(slog.NewTextHandler(testWriter{t}, &slog.HandlerOptions{Level: slog.LevelError}))
-	ts := httptest.NewServer(New(log, adminToken, resolver).Handler())
+	ts := httptest.NewServer(New(log, adminToken, resolver, sessions).Handler())
 	t.Cleanup(ts.Close)
 	wsURL := "ws" + strings.TrimPrefix(ts.URL, "http") + "/ws"
 	return ts, wsURL
@@ -122,6 +127,86 @@ func TestHelloWelcome(t *testing.T) {
 	}
 	if welcome.RoomID != hub.DefaultRoom || welcome.ServerTimeMs == 0 {
 		t.Fatalf("beklenmeyen welcome: %+v", welcome)
+	}
+}
+
+// İkili (protobuf) tel: v2 istemci ikili hello yollar, ikili welcome/saat
+// senkronu/kue alır; aynı yayında v1 istemci JSON metin çerçevesi almayı
+// sürdürür.
+func TestBinaryWireClient(t *testing.T) {
+	ts, wsURL := newTestServer(t, "")
+
+	// v2 istemci (ikili çerçeveler)
+	binConn := dial(t, wsURL)
+	helloBin, err := wire.EncodeBinary(wire.TypeHello, wire.Hello{
+		ProtocolVersion: wire.ProtocolVersionBinary, ClientKind: "test-bin"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := binConn.WriteMessage(websocket.BinaryMessage, helloBin); err != nil {
+		t.Fatal(err)
+	}
+	readBinary := func() (string, any) {
+		t.Helper()
+		_ = binConn.SetReadDeadline(time.Now().Add(5 * time.Second))
+		mt, raw, err := binConn.ReadMessage()
+		if err != nil {
+			t.Fatalf("ikili okuma hatası: %v", err)
+		}
+		if mt != websocket.BinaryMessage {
+			t.Fatalf("çerçeve türü = %d, beklenen ikili", mt)
+		}
+		msgType, msg, err := wire.DecodeBinary(raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return msgType, msg
+	}
+	msgType, msg := readBinary()
+	welcome, ok := msg.(wire.Welcome)
+	if msgType != wire.TypeWelcome || !ok || welcome.RoomID != hub.DefaultRoom {
+		t.Fatalf("ikili welcome beklenirken: %s %+v", msgType, msg)
+	}
+
+	// İkili saat senkronu değişimi.
+	ping, _ := wire.EncodeBinary(wire.TypeClockSyncRequest, wire.ClockSyncRequest{Seq: 3, ClientMonoMs: 777})
+	if err := binConn.WriteMessage(websocket.BinaryMessage, ping); err != nil {
+		t.Fatal(err)
+	}
+	msgType, msg = readBinary()
+	pong, ok := msg.(wire.ClockSyncResponse)
+	if msgType != wire.TypeClockSyncResponse || !ok || pong.Seq != 3 || pong.ClientMonoMs != 777 {
+		t.Fatalf("ikili saat yanıtı beklenirken: %s %+v", msgType, msg)
+	}
+
+	// v1 (JSON) istemci aynı anda bağlı.
+	jsonConn := dial(t, wsURL)
+	sendMsg(t, jsonConn, wire.TypeHello, wire.Hello{ProtocolVersion: wire.ProtocolVersion})
+	_ = readEnvelope(t, jsonConn) // welcome
+
+	// Yayın: iki istemci de kendi kodeğinde aynı kueyi almalı.
+	body, _ := json.Marshal(map[string]any{"delayMs": 600, "cue_id": "cift-kodek"})
+	resp, err := http.Post(ts.URL+"/api/v0/cue", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+
+	msgType, msg = readBinary()
+	binCue, ok := msg.(wire.CueStart)
+	if msgType != wire.TypeCueStart || !ok || binCue.CueID != "cift-kodek" {
+		t.Fatalf("ikili kue beklenirken: %s %+v", msgType, msg)
+	}
+	env := readEnvelope(t, jsonConn)
+	if env.Type != wire.TypeCueStart {
+		t.Fatalf("JSON istemci kue almadı: %s", env.Type)
+	}
+	var jsonCue wire.CueStart
+	if err := json.Unmarshal(env.Data, &jsonCue); err != nil {
+		t.Fatal(err)
+	}
+	if jsonCue.RunID != binCue.RunID || jsonCue.FireAtServerMs != binCue.FireAtServerMs {
+		t.Fatalf("iki kodek farklı kue taşıdı: %+v / %+v", jsonCue, binCue)
 	}
 }
 
@@ -323,6 +408,53 @@ func TestAdminTokenRequired(t *testing.T) {
 	resp2.Body.Close()
 	if resp2.StatusCode != http.StatusOK {
 		t.Fatalf("token'lı istek durumu = %d, beklenen 200", resp2.StatusCode)
+	}
+}
+
+// fakeSessions: sabit token listesini geçerli oturum sayar ve çağrıları sayar.
+type fakeSessions struct {
+	valid map[string]bool
+	calls int
+}
+
+func (f *fakeSessions) ValidateSession(_ context.Context, token string) error {
+	f.calls++
+	if f.valid[token] {
+		return nil
+	}
+	return rooms.ErrInvalidSession
+}
+
+func TestAdminAcceptsPanelSession(t *testing.T) {
+	sessions := &fakeSessions{valid: map[string]bool{"panel-oturumu": true}}
+	ts, _ := newTestServerFull(t, "gizli", nil, sessions)
+
+	post := func(token string) int {
+		t.Helper()
+		req, _ := http.NewRequest(http.MethodPost, ts.URL+"/api/v0/cue", strings.NewReader(`{}`))
+		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		return resp.StatusCode
+	}
+
+	if got := post("panel-oturumu"); got != http.StatusOK {
+		t.Fatalf("panel oturumu ile durum = %d, beklenen 200", got)
+	}
+	if got := post("sahte-oturum"); got != http.StatusUnauthorized {
+		t.Fatalf("geçersiz oturum ile durum = %d, beklenen 401", got)
+	}
+	// Önbellek: aynı geçerli token ikinci kez control-api'ye sorulmaz.
+	before := sessions.calls
+	if got := post("panel-oturumu"); got != http.StatusOK {
+		t.Fatalf("önbellekli oturum ile durum = %d, beklenen 200", got)
+	}
+	if sessions.calls != before {
+		t.Fatalf("önbelleğe rağmen doğrulayıcı yeniden çağrıldı (%d → %d)", before, sessions.calls)
 	}
 }
 

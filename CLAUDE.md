@@ -23,6 +23,9 @@
 - Go modülü depo kökünde tektir (`github.com/msaliheroglu/tekses`); servisler
   `services/`, araçlar `tools/`, paylaşılan Go paketleri `packages/` altında.
 - Protobuf sözleşmeleri `packages/proto/tekses/v1/` — telin gerçeği bunlardır.
-  Faz 0 JSON tel türleri (`packages/proto/wire`) proto alan adlarını birebir izler.
+  Tel v1 = JSON (Flutter/tarayıcı), v2 = ikili protobuf; gateway ikisini aynı
+  anda konuşur, hello çerçevesinin biçimi kodeki belirler. Go stub'ları
+  `gen/go` altına commit'lidir; yenileme: `buf generate` (packages/proto
+  README'sindeki kurulum notu).
 - Doğrulama: `go build ./... && go vet ./... && go test ./...`
-- Flutter ve protoc bu geliştirme ortamında yok; Dart kodu telefonda/CI'da doğrulanır.
+- Flutter bu geliştirme ortamında yok; Dart kodu telefonda/CI'da doğrulanır.

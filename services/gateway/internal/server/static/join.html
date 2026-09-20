@@ -14,6 +14,21 @@
     transition: none;
   }
   #stage { position: fixed; inset: 0; background: #000; }
+  /* Karaoke katmanı: aktif satır büyük, sıradaki soluk. Renkli zeminde de
+     okunsun diye koyu gölge kullanılır. */
+  #lyrics {
+    position: fixed; inset: 0; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 14px;
+    padding: 24px; text-align: center; pointer-events: none;
+  }
+  #lyricNow {
+    font-size: clamp(22px, 6vw, 42px); font-weight: 800; color: #fff;
+    text-shadow: 0 2px 8px rgba(0,0,0,.85);
+  }
+  #lyricNext {
+    font-size: clamp(14px, 3.5vw, 24px); font-weight: 600;
+    color: rgba(255,255,255,.55); text-shadow: 0 1px 4px rgba(0,0,0,.85);
+  }
   #status {
     position: fixed; top: max(8px, env(safe-area-inset-top)); left: 12px; right: 12px;
     font-size: 12px; color: rgba(255,255,255,.55); pointer-events: none;
@@ -35,13 +50,14 @@
 </head>
 <body>
 <div id="stage"></div>
+<div id="lyrics"><div id="lyricNow"></div><div id="lyricNext"></div></div>
 <div id="status"></div>
 <div id="overlay">
   <h1>TekSes</h1>
-  <p>Faz 0 tarayıcı deneme sayfası. Parlaklığı elle sonuna kadar açın.
+  <p>Tarayıcı katılımcı sayfası: gösteri koreografisi (ekran rengi + sözler)
+     burada da oynar. Parlaklığı elle sonuna kadar açın.
      <b>Yanıp sönen ışık içerir.</b><br><br>
-     Fener yalnızca telefon uygulamasında çalışır; tarayıcıda ekran rengiyle
-     ölçüm yapılır.</p>
+     Fener ve zamanlanmış ses yalnızca telefon uygulamasında çalışır.</p>
   <p id="wlWarn" hidden style="color:#ffb74d">
      ⚠ Bu adres şifresiz (http) olduğu için tarayıcı ekranı otomatik açık
      tutamıyor. Denemeden önce telefonun <b>ekran kapanma süresini 5 dakika
@@ -62,6 +78,8 @@ const SPIN_WINDOW_MS = 40;
 
 const stage = document.getElementById("stage");
 const statusEl = document.getElementById("status");
+const lyricNowEl = document.getElementById("lyricNow");
+const lyricNextEl = document.getElementById("lyricNext");
 
 const mono = () => performance.now(); // monoton, ms (kesirli)
 
@@ -100,7 +118,90 @@ function wsUrl() {
 
 // Katılım kodu URL'den gelir (panelin ürettiği QR: /join?code=ABC234);
 // kod yoksa varsayılan odaya girilir (Faz 0 yerel denemesi).
-const joinCode = (new URLSearchParams(location.search).get("code") || "").trim().toUpperCase();
+const params = new URLSearchParams(location.search);
+const joinCode = (params.get("code") || "").trim().toUpperCase();
+// control-api normalde aynı origin'dedir (Caddy yol tablosu); yerel geliştirme
+// gibi ayrık kurulumlar için ?control=http://host:8090 ile geçilebilir.
+const controlBase = (params.get("control") || "").replace(/\/+$/, "");
+
+// --- gösteri manifesti (koreografi) ---
+// Telefon uygulamasındaki TimelineEngine/ProgramEngine'in tarayıcı karşılığı.
+// Aynı elapsed için aynı kare: kue aktifliği, çakışmada son kue kazanır ve
+// flaş fazı floor((e−at)·hz/500) aritmetiği Dart/Go ile birebir aynıdır.
+// Tarayıcıda fener ve zamanlanmış ses yoktur; ekran şeridi + sözler oynar.
+
+let showManifest = null; // /api/v1/join yanıtındaki inline manifest
+
+async function loadManifest() {
+  if (!joinCode) return;
+  try {
+    const resp = await fetch(controlBase + "/api/v1/join/" + encodeURIComponent(joinCode));
+    if (!resp.ok) return;
+    const d = await resp.json();
+    if (d && d.show_version && d.show_version.manifest) {
+      showManifest = d.show_version.manifest;
+      if (!active) setStatus("gösteri yüklendi: " + (showManifest.title || "?"));
+    }
+  } catch { /* control-api'ye ulaşılamazsa Faz 0 flash'a düşülür */ }
+}
+
+const IDLE_FRAME = { done: false, lyric: "", nextLyric: "", screenColor: "", screenLit: false };
+const DONE_FRAME = { done: true, lyric: "", nextLyric: "", screenColor: "", screenLit: false };
+
+function cueActiveAt(cue, e) {
+  return e >= cue.at_ms && (!cue.duration_ms || e < cue.at_ms + cue.duration_ms);
+}
+
+function cueLitAt(cue, e) {
+  if (!cue.flash_hz) return true;
+  return Math.floor(((e - cue.at_ms) * cue.flash_hz) / 500) % 2 === 0;
+}
+
+function seqFrameAt(seq, e) {
+  if (e >= seq.duration_ms) return DONE_FRAME;
+
+  let lyric = "", nextLyric = "", nextAt = Infinity;
+  for (const line of seq.lyric_lines || []) {
+    const end = line.duration_ms ? line.at_ms + line.duration_ms : seq.duration_ms;
+    if (e >= line.at_ms && e < end) lyric = line.text;
+    if (line.at_ms > e && line.at_ms < nextAt) { nextAt = line.at_ms; nextLyric = line.text; }
+  }
+
+  let screenColor = "", screenLit = false;
+  for (const lane of seq.cue_lanes || []) {
+    if (lane.kind !== "screen") continue; // torch/audio tarayıcıda yok
+    let activeCue = null;
+    for (const c of lane.cues || []) if (cueActiveAt(c, e)) activeCue = c;
+    if (activeCue) { screenColor = activeCue.color || ""; screenLit = cueLitAt(activeCue, e); }
+  }
+  return { done: false, lyric, nextLyric, screenColor, screenLit };
+}
+
+// cue_id'den kare üreticisi: "program" → gömülü otomatik akış, sekans
+// kimliği → o sekans, tanınmayan kimlik → null (Faz 0 flash'a düşülür).
+function makeFrameSource(cueId) {
+  if (!showManifest) return null;
+  const seqs = showManifest.sequences || [];
+  if (cueId === "program") {
+    const items = (showManifest.program || [])
+      .map((it) => ({ at: it.at_offset_ms || 0, seq: seqs.find((s) => s.id === it.sequence_id) }))
+      .filter((it) => it.seq);
+    if (!items.length) return null;
+    return (e) => {
+      let cur = null, curIdx = -1;
+      for (let i = 0; i < items.length; i++) {
+        if (items[i].at <= e) { cur = items[i]; curIdx = i; }
+      }
+      if (!cur) return IDLE_FRAME; // ilk öğe henüz başlamadı
+      const f = seqFrameAt(cur.seq, e - cur.at);
+      if (!f.done) return f;
+      // Öğeler arası boşlukta karanlık beklenir; son öğe bitince program biter.
+      return curIdx === items.length - 1 ? DONE_FRAME : IDLE_FRAME;
+    };
+  }
+  const seq = seqs.find((s) => s.id === cueId);
+  return seq ? (e) => seqFrameAt(seq, e) : null;
+}
 
 function connect() {
   if (closedByUser) return;
@@ -143,6 +244,9 @@ function onFrame(raw) {
       reconnectAttempt = 0;
       setStatus("odaya bağlanıldı: " + d.room_id);
       startSyncRound();
+      // Aktif gösteri her bağlantıda tazelenir: panelde yeni sürüm
+      // etkinleştirildiyse yeniden bağlanan sayfa onu alır.
+      loadManifest();
       break;
     case "clock_sync_response": onClockResponse(d); break;
     case "cue_start": onCue(d); break;
@@ -219,7 +323,13 @@ function onCue(cue) {
 
   cancelActive(true);
   held = false;
-  active = { cue, fireLocalMs: cue.fire_at_server_ms - estimate.offsetMs, fired: false };
+  active = {
+    cue,
+    fireLocalMs: cue.fire_at_server_ms - estimate.offsetMs,
+    fired: false,
+    // Manifest tanıyorsa koreografi motoru; tanımıyorsa Faz 0 flash yükü.
+    frameSource: makeFrameSource(cue.cue_id),
+  };
   setStatus("kue alındı (" + (cue.cue_id || "?") + "); ateşleme bekleniyor");
   armFireTimer();
 }
@@ -249,9 +359,25 @@ function startEffect() {
 }
 
 function applyFrame() {
-  const { cue, fireLocalMs } = active;
-  const p = cue.payload || {};
+  const { cue, fireLocalMs, frameSource } = active;
   const elapsed = mono() - fireLocalMs;
+
+  // Manifest koreografisi: sekans ya da otomatik program.
+  if (frameSource) {
+    const f = frameSource(elapsed);
+    if (f.done) {
+      cancelActive(true);
+      setStatus("koreografi bitti; yeni kue bekleniyor");
+      return;
+    }
+    stage.style.background = f.screenColor && f.screenLit ? f.screenColor : "#000";
+    lyricNowEl.textContent = f.lyric;
+    lyricNextEl.textContent = f.nextLyric;
+    return;
+  }
+
+  // Faz 0 yolu: kue yükündeki düz renk/flash.
+  const p = cue.payload || {};
   if (elapsed >= (p.duration_ms || 3000)) {
     cancelActive(true);
     setStatus("koreografi bitti; yeni kue bekleniyor");
@@ -272,6 +398,8 @@ function cancelActive(toBlack) {
   clearTimeout(fireTimer);
   cancelAnimationFrame(rafId);
   active = null;
+  lyricNowEl.textContent = "";
+  lyricNextEl.textContent = "";
   if (toBlack) stage.style.background = "#000";
 }
 

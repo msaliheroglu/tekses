@@ -1,8 +1,13 @@
 version: v2
 plugins:
-  # Go üretimi (Faz 1'de devreye girer): buf generate
-  - remote: buf.build/protocolbuffers/go
+  # Go üretimi (yerel eklenti):
+  #   go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
+  #   go install github.com/bufbuild/buf/cmd/buf@latest
+  #   cd packages/proto && buf generate
+  # Üretilen kod gen/go altına COMMIT edilir; derleme protoc istemez.
+  - local: protoc-gen-go
     out: gen/go
     opt: paths=source_relative
-  # Dart üretimi Flutter araç zinciriyle birlikte eklenecek:
-  # dart pub global activate protoc_plugin && protoc --dart_out=...
+  # Dart üretimi Flutter araç zinciri olan ortamda yapılır:
+  #   dart pub global activate protoc_plugin
+  #   cd packages/proto && buf generate --template buf.gen.dart.yaml

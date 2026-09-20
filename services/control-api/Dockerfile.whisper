@@ -1,0 +1,86 @@
+# Söz çıkarma (whisper.cpp + Demucs) DESTEKLİ control-api imajı — isteğe bağlı.
+#
+# Kullanım (deploy/ dizininde):
+#   docker compose -f docker-compose.yml -f docker-compose.whisper.yml up -d --build control-api
+#
+# Standart imajdan (Dockerfile) farkı: ffmpeg + jq + whisper-cli + çok dilli
+# "small" model (~466 MB) + Demucs (torch CPU) ve htdemucs ağırlıkları
+# gömülüdür; TEKSES_TRANSCRIBER hazır ayarlıdır. İmaj birkaç GB büyür; ilk
+# derleme (whisper derlemesi + torch/model indirmeleri) VM'de 15-25 dk
+# sürebilir (bir kez).
+#
+# Süre beklentisi: vokal ayrıştırma CPU'da ağırdır — 2 OCPU Ampere'de 4 dk'lık
+# şarkı 20-40 dk sürebilir (4 OCPU'da yarıya iner; Always Free sınırı 4 OCPU /
+# 24 GB'dır, büyütmek ücretsizdir). İşler tek tek sıraya alınır (trGate).
+# Demucs'u kapatmak için control-api ortamına TEKSES_NO_DEMUCS=1 verin —
+# o zaman hızlıdır ama mikslenmiş şarkılarda Whisper vokali bulamaz.
+
+FROM golang:1.25-alpine AS gobuild
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY packages/ packages/
+COPY services/control-api/ services/control-api/
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/control-api ./services/control-api/cmd/control-api
+
+FROM debian:bookworm-slim AS whisperbuild
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        git build-essential cmake ca-certificates curl \
+    && rm -rf /var/lib/apt/lists/*
+RUN git clone --depth 1 https://github.com/ggml-org/whisper.cpp /w
+RUN cmake -B /w/build /w -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF \
+    && cmake --build /w/build -j --target whisper-cli
+RUN curl -fL -o /w/ggml-small.bin \
+    https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin
+
+# Demucs ayrı aşamada, venv içine kurulur: bazı bağımlılıkların (ör. lameenc)
+# ARM'de hazır tekeri yok ve kaynaktan derleme gcc/cmake/python3-dev ister —
+# bunlar çalışma imajına bulaşmasın. venv, aynı yola kopyalanacağı için
+# taşınabilirdir (iki aşama da bookworm, aynı python3.11).
+FROM debian:bookworm-slim AS demucsbuild
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        python3 python3-pip python3-venv python3-dev build-essential cmake \
+        ffmpeg ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+# Sürümler sabit: demucs 4.1.0, ses G/Ç'si için "sphn" ister — sphn Rust'la
+# kaynaktan derleniyor ve aarch64 hazır tekeri YOK (PyPI'dan doğrulandı).
+# demucs 4.0.1 sphn'siz (G/Ç torchaudio'dan) ve torch/torchaudio 2.4.1 ile
+# temiz çözülüyor; bu üçlünün tüm bağımlılıklarının aarch64 tekerleri hazır.
+RUN python3 -m venv /opt/demucs-venv \
+    && /opt/demucs-venv/bin/pip install --no-cache-dir \
+        torch==2.4.1 torchaudio==2.4.1 demucs==4.0.1
+# htdemucs ağırlıkları derlemede indirilir (TORCH_HOME imaja gömülür) —
+# çalışma anında ağ gerekmez. Ayrıştırma ÇALIŞTIRILMAZ: kısa sesle deneme,
+# htdemucs'un ~8 sn'lik penceresine takılıyor (pad1d AssertionError);
+# get_model yalnızca ağırlıkları indirir.
+ENV TORCH_HOME=/opt/torch
+RUN /opt/demucs-venv/bin/python3 -c "from demucs.pretrained import get_model; get_model('htdemucs')" \
+    && chmod -R a+rX /opt/torch /opt/demucs-venv
+
+FROM debian:bookworm-slim
+# libgomp1: whisper.cpp OpenMP ile derlenir; ffmpeg/jq betiğin bağımlılıkları.
+# UID 1000: standart imajla (Dockerfile, alpine adduser) AYNI olmak zorunda —
+# packages disk bölümü iki imaj arasında paylaşılır; UID kayarsa eski
+# dosyalara yazılamaz ("varlık depolanamadı").
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ffmpeg jq libgomp1 ca-certificates python3 \
+    && rm -rf /var/lib/apt/lists/* \
+    && useradd -u 1000 -M tekses && mkdir -p /data/packages && chown tekses /data/packages
+
+# Demucs: derleme aşamasından hazır venv + gömülü model ağırlıkları.
+COPY --from=demucsbuild /opt/demucs-venv /opt/demucs-venv
+COPY --from=demucsbuild /opt/torch /opt/torch
+ENV TORCH_HOME=/opt/torch \
+    DEMUCS_BIN=/opt/demucs-venv/bin/demucs
+COPY --from=gobuild /out/control-api /usr/local/bin/control-api
+COPY --from=whisperbuild /w/build/bin/whisper-cli /opt/whisper/whisper-cli
+COPY --from=whisperbuild /w/ggml-small.bin /opt/whisper/ggml-small.bin
+COPY --chmod=755 deploy/transcribe-whisper.sh /opt/tekses/transcribe-whisper.sh
+USER tekses
+ENV TEKSES_PACKAGES_DIR=/data/packages \
+    TEKSES_TRANSCRIBER=/opt/tekses/transcribe-whisper.sh \
+    WHISPER_BIN=/opt/whisper/whisper-cli \
+    WHISPER_MODEL=/opt/whisper/ggml-small.bin
+VOLUME /data/packages
+EXPOSE 8090
+ENTRYPOINT ["control-api"]

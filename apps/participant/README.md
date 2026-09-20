@@ -55,6 +55,17 @@ Sonrasında iki platform dokunuşu gerekir:
 
   ve `<application ...>` etiketine, Faz 0/1'in yerel ağdaki şifresiz
   `ws://` bağlantısı için: `android:usesCleartextTraffic="true"`.
+
+- **Native zamanlanmış ses (Faz 2)** — kanal dosyalarını kopyalayın
+  (var olanların ÜZERİNE):
+
+  ```
+  native/android/MainActivity.kt → android/app/src/main/kotlin/app/tekses/tekses_participant/MainActivity.kt
+  native/ios/AppDelegate.swift   → ios/Runner/AppDelegate.swift
+  ```
+
+  Kopyalanmazsa uygulama çalışmaya devam eder; yalnızca ses kueleri sessizce
+  atlanır (ışık koreografisi etkilenmez).
 - **iOS** — `ios/Runner/Info.plist` içine fener için kamera açıklaması ve
   Faz 0 için ATS istisnası ekleyin:
 

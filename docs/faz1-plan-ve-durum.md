@@ -86,21 +86,78 @@ adım sırasını izler.
   kurulum rehberi `docs/dagitim.md`. **Not:** bu geliştirme ortamında
   Docker daemon yok — imaj derlemeleri VM'deki ilk `docker compose up
   --build` ile doğrulanacak; sorun çıkarsa hata çıktısıyla düzeltilir.
-- [ ] **F2.2 VM kurulumu** *(kullanıcıyla birlikte)*: Oracle Always Free VM
-  + alan adı + `docs/dagitim.md` adımları; telefonların LTE'den katılımı.
-- [ ] **F2.3 Protobuf ikili teline geçiş** (~40 bayt/kue): buf generate ile
-  Go stub'ları, Dart stub'ları; wire paketinin devri; sürüm müzakeresi
-  hello'da hazır.
+- [x] **F2.2 VM kurulumu (2026-09-20):** Oracle Always Free VM (Ubuntu 22.04,
+  A1.Flex) kuruldu — ilk deneme Oracle Linux imajıyla açıldığı için SSH
+  reddetti (kullanıcı `ubuntu` yok), VM Ubuntu ile yeniden yaratıldı
+  (IP 141.144.246.29). Docker + iptables 80/443 + DuckDNS alan adı +
+  `deploy/` compose yığını: 5 konteyner ayakta (postgres healthy),
+  `https://<alan>/healthz` → `{"status":"ok"}` — Caddy sertifikayı aldı,
+  TekSes internette. Panelden kayıt, gösteri yayını/etkinleştirme ve
+  telefonların katılıp konsoldan verilen kueyle KOREOGRAFİYİ OYNATMASI
+  kullanıcı tarafından doğrulandı. Yol boyu düzelenler: panel API'leri
+  Caddy'den yönlendirildi (Next rewrites imaja localhost gömüyordu),
+  konsol yetkisi panel oturumuna bağlandı, /join koreografi kazandı.
+- [x] **F2.3 Protobuf ikili teli (Go tarafı, 2026-09-19):** buf + protoc-gen-go
+  ile üretilen stub'lar commit'li; `wire` paketi iki kodeği tek arayüzde
+  taşıyor (EncodeBinary/DecodeBinary ↔ Encode/DecodeMessage). Gateway iki
+  kodeği aynı anda konuşuyor (hello çerçevesinin biçimi belirler); yayınlar
+  çift kodlamalı Frame ile. loadgen `-wire proto`: canlıda kue çerçevesi
+  **58 bayt** (JSON 207), senkron yayılımı değişmedi. **Kalan:** Dart
+  stub'ları Flutter'lı ortamda üretilecek (`buf.gen.dart.yaml` hazır) ve
+  uygulama v2'ye geçecek; o güne dek Flutter v1 JSON'da (gateway destekliyor).
 - [ ] **F2.4 Yük testi:** loadgen'i 100k istemciye ölçekleme (çok bağlantılı
   koşum, bellek/CPU profili), yeniden bağlanma fırtınası senaryosu.
-- [ ] **F2.5 Native zamanlanmış ses:** Android AudioTrack / iOS
-  AVAudioPlayer `play(atTime:)` platform kanalları; manifest audio
-  şeritlerinin çalınması; ses varlıklarının pakete girmesi + R2 sürücüsü.
+  *Ön yoklama (2026-09-19, geliştirme konteyneri, 4 çekirdek):* 2.000 ikili
+  istemci tek gateway'de sorunsuz — yayılım 3 ms. Gerçek 100k koşumu fd/port
+  sınırları gereği F2.2 VM'inde (ya da ayrı yük makinesinde) yapılacak.
+- [x] **F2.5 Native zamanlanmış ses (2026-09-19):** (a) varlık boru hattı —
+  POST /api/v1/assets (içerik adresli, <sha256>.<uzantı>), herkese açık
+  /assets/{id}, yayında varlık doğrulaması; telefon varlıkları katılırken
+  indirir ve özetle doğrular (path_provider önbelleği). (b) tekses/audio
+  platform kanalı: Android Handler.postAtTime, iOS AVAudioPlayer
+  play(atTime:); Dart MonoClock↔platform saati eşlemesi; kanal dosyaları
+  `native/` altında (kopyalama adımı README + APK iş akışında). Panel'e ses
+  yükleme arayüzü eklendi. **Cihaz doğrulaması TAMAM (2026-09-20):** kullanıcı
+  MainActivity.kt'yi kopyalayıp APK'yi yeniden derledi, VM üzerinden yayınlanan
+  gösteride şarkı telefonda zamanında çaldı. (İlk deneme sessizdi — kanal
+  eksikti; uygulamaya ses teşhis satırı eklendi.) R2 sürücüsü ileriye kaldı.
+- [x] **F2.5k Karaoke ve sözler (2026-09-19):** telefonda karaoke görünümü
+  (aktif satır + sıradaki satır soluk; TimelineFrame.nextLyric, testli);
+  panelde LRC içe aktarma (senkronlu sözler → lyric_lines) ve DENEYSEL
+  otomatik söz çıkarma: takılabilir çözümleyici komutu (TEKSES_TRANSCRIBER,
+  sözleşme transcribe.go; whisper.cpp uyarlayıcısı deploy/transcribe-
+  whisper.sh), bellek içi iş kuyruğu, panelde taslak üretimi. Şarkılarda
+  ASR hatalıdır — çıktı taslak; kesin yol LRC/elle zamanlama. Kelime bazlı
+  vurgulama (enhanced LRC) sonraki yineleme.
 - [ ] **F2.6 NATS JetStream oda dağıtımı** (çok düğümlü gateway) ve
   telemetri panoları (kalıcı Run tablosu, saat kalitesi ısı haritası).
 - [ ] **F2.7 Ultrasonik beacon + PA test kiti** (karar dokümanı §3).
 
 ## Notlar
+
+- İyileştirme adayı (F2.2 saha gözlemi): panelde "etkinleştir" bağlı
+  telefonlara canlı yansımıyor — telefon paketi yalnızca katılırken indiriyor,
+  etkinleştirme sonrası yeniden katılmak gerekiyor. Gateway üzerinden odaya
+  "show_activated" bildirimi + uygulamada otomatik paket yenileme eklenebilir.
+- VM'de söz çıkarma (2026-09-20, KULLANICI DOĞRULADI): control-api'nin
+  whisper.cpp + Demucs gömülü imaj varyantı (`Dockerfile.whisper` +
+  `deploy/docker-compose.whisper.yml`, docs/dagitim.md §6) VM'de çalışıyor —
+  şarkıdan taslak üretildi. ARM tuzakları çözüldü: demucs==4.0.1 +
+  torch/torchaudio==2.4.1 sabit (4.1.0'ın sphn'i aarch64'te derlenmiyor),
+  ısınma get_model ile, dockerignore istisnası, UID 1000, işler tek tek
+  sırada (trGate), zaman aşımı TEKSES_TRANSCRIBE_TIMEOUT (ekte 60m).
+- Görsel gösteri editörü (2026-09-20, kullanıcı isteği): panelde manifest
+  artık formla düzenleniyor — sekans kartları, müzik seçimi (süre otomatik),
+  ekran adımları (renk seçici + flaş), fener, satır satır sözler, otomatik
+  program özeti; "Editörde aç" eski sürümü yükler, "Gelişmiş (JSON)" duruyor.
+  Dönüşümler `apps/moderator/lib/manifestEditor.ts` (saf; gidiş-dönüş testli,
+  çıktı Go manifest.Parse ile doğrulandı).
+- F2.2 saha bulgularıyla eklendi (2026-09-20): (a) konsol yetkisi panel
+  oturumuyla — gateway, /api/v0 uçlarında TEKSES_ADMIN_TOKEN'ın yanında
+  panel oturum token'ını da kabul eder (control-api /api/v1/auth/whoami,
+  60 sn önbellek); (b) /join tarayıcı katılımcısı artık manifest koreografisi
+  oynatıyor (ekran şeridi + karaoke sözleri; TimelineEngine/ProgramEngine'in
+  JS karşılığı, node ile mantık testli). Fener/ses yalnızca uygulamada.
 
 - Mimari doküman (`tekses-architecture-v0.1.md`) hâlâ depoda değil; kullanıcı
   paylaşınca `docs/architecture/` altına eklenecek.

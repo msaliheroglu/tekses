@@ -110,3 +110,56 @@ func Decode(raw []byte) (Envelope, error) {
 	}
 	return env, nil
 }
+
+// DecodeMessage, JSON zarfını tür ayırıcısı ve wire gövdesine çözer;
+// DecodeBinary'nin JSON eşleniğidir — çağıran taraf iki kodeği de aynı
+// (msgType, msg) çiftiyle işler.
+func DecodeMessage(raw []byte) (msgType string, msg any, err error) {
+	env, err := Decode(raw)
+	if err != nil {
+		return "", nil, err
+	}
+	unmarshal := func(v any) (string, any, error) {
+		if err := json.Unmarshal(env.Data, v); err != nil {
+			return "", nil, fmt.Errorf("wire: %s gövdesi çözülemedi: %w", env.Type, err)
+		}
+		return env.Type, deref(v), nil
+	}
+	switch env.Type {
+	case TypeHello:
+		return unmarshal(&Hello{})
+	case TypeWelcome:
+		return unmarshal(&Welcome{})
+	case TypeClockSyncRequest:
+		return unmarshal(&ClockSyncRequest{})
+	case TypeClockSyncResponse:
+		return unmarshal(&ClockSyncResponse{})
+	case TypeCueStart:
+		return unmarshal(&CueStart{})
+	case TypeIntervention:
+		return unmarshal(&Intervention{})
+	default:
+		return "", nil, fmt.Errorf("wire: bilinmeyen mesaj türü %q", env.Type)
+	}
+}
+
+// deref, işaretçiyi değere indirger ki DecodeMessage ve DecodeBinary aynı
+// somut türleri (Hello, CueStart, …) döndürsün.
+func deref(v any) any {
+	switch p := v.(type) {
+	case *Hello:
+		return *p
+	case *Welcome:
+		return *p
+	case *ClockSyncRequest:
+		return *p
+	case *ClockSyncResponse:
+		return *p
+	case *CueStart:
+		return *p
+	case *Intervention:
+		return *p
+	default:
+		return v
+	}
+}

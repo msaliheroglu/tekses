@@ -7,6 +7,7 @@ package api
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -16,6 +17,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
@@ -41,13 +43,29 @@ type Server struct {
 	log      *slog.Logger
 	store    store.Store
 	packages blob.Store
+
+	// Deneysel söz çıkarma (transcribe.go). transcriber boşsa özellik kapalı.
+	transcriber string
+	trMu        sync.Mutex
+	trJobs      map[string]*transcriptionJob
+	// Tek işlik kapı: Demucs/Whisper CPU ve RAM'i tekeline alır; eşzamanlı
+	// işler küçük VM'yi devirir. Sıradaki işler kapıda bekler (durum: queued).
+	trGate chan struct{}
 }
 
 // New, bir kontrol API sunucusu kurar. packages, yayınlanan manifestlerin
 // içerik adresli paket deposudur (pilotta dosya sistemi + bu API'nin
-// /packages ucu; üretimde R2 + CDN).
-func New(log *slog.Logger, st store.Store, packages blob.Store) *Server {
-	return &Server{log: log, store: st, packages: packages}
+// /packages ucu; üretimde R2 + CDN). transcriber, sesten söz çıkaran dış
+// komutun yoludur (boş = özellik kapalı; sözleşme transcribe.go'da).
+func New(log *slog.Logger, st store.Store, packages blob.Store, transcriber string) *Server {
+	return &Server{
+		log:         log,
+		store:       st,
+		packages:    packages,
+		transcriber: transcriber,
+		trJobs:      map[string]*transcriptionJob{},
+		trGate:      make(chan struct{}, 1),
+	}
 }
 
 func (s *Server) Handler() http.Handler {
@@ -58,6 +76,9 @@ func (s *Server) Handler() http.Handler {
 
 	mux.HandleFunc("POST /api/v1/auth/register", s.requireJSON(s.handleRegister))
 	mux.HandleFunc("POST /api/v1/auth/login", s.requireJSON(s.handleLogin))
+	// Oturum doğrulama: gateway, konsol isteklerindeki panel oturum token'ını
+	// bu uçla doğrular (moderatörün ayrıca TEKSES_ADMIN_TOKEN bilmesi gerekmez).
+	mux.HandleFunc("GET /api/v1/auth/whoami", s.authed(s.handleWhoami))
 
 	mux.HandleFunc("GET /api/v1/events", s.authed(s.handleListEvents))
 	mux.HandleFunc("POST /api/v1/events", s.authedJSON(s.handleCreateEvent))
@@ -80,6 +101,15 @@ func (s *Server) Handler() http.Handler {
 	// Üretimde bu yol CDN/R2'ye devrolur; sözleşme aynı kalır:
 	// /packages/<sha256>.json ve içerik özetle doğrulanır.
 	mux.HandleFunc("GET /packages/{name}", s.handlePackage)
+
+	// Ses varlıkları: içerik adresli yükleme (moderatör) ve indirme
+	// (telefon; asset_id = <sha256>.<uzantı>, içerik özetle doğrulanır).
+	mux.HandleFunc("POST /api/v1/assets", s.authed(s.handleUploadAsset))
+	mux.HandleFunc("GET /assets/{name}", s.handleAsset)
+
+	// Deneysel: sesten zamanlı söz taslağı (transcribe.go).
+	mux.HandleFunc("POST /api/v1/assets/{name}/transcribe", s.authed(s.handleTranscribeAsset))
+	mux.HandleFunc("GET /api/v1/transcriptions/{id}", s.authed(s.handleGetTranscription))
 
 	return mux
 }
@@ -175,6 +205,12 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 	}
 	s.log.Info("yeni organizasyon", "org", org.ID, "ad", org.Name)
 	writeJSON(w, http.StatusCreated, map[string]any{"token": token, "organization": org})
+}
+
+// handleWhoami, geçerli oturumun sahibini döndürür. Asıl işlevi gateway'in
+// yönetici uçlarında panel oturumunu doğrulamasıdır: 200 = geçerli oturum.
+func (s *Server) handleWhoami(w http.ResponseWriter, _ *http.Request, sess model.Session) {
+	writeJSON(w, http.StatusOK, map[string]any{"user_id": sess.UserID, "org_id": sess.OrgID})
 }
 
 type loginRequest struct {
@@ -395,6 +431,34 @@ func (s *Server) handlePublishShowVersion(w http.ResponseWriter, r *http.Request
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	// Ses kueleri var olan varlıklara işaret etmeli: sürüm değişmez olduğu
+	// için eksik varlık, gösteri gecesi telefonda 404 demektir — yayında
+	// yakalanır.
+	for _, seq := range m.Sequences {
+		for _, lane := range seq.CueLanes {
+			if lane.Kind != manifest.LaneAudio {
+				continue
+			}
+			for _, cue := range lane.Cues {
+				if !assetNameRe.MatchString(cue.AssetID) {
+					writeErr(w, http.StatusBadRequest, fmt.Sprintf(
+						"%s/%s: asset_id %q geçersiz (POST /api/v1/assets çıktısındaki kimlik kullanılmalı)",
+						seq.ID, lane.ID, cue.AssetID))
+					return
+				}
+				exists, err := s.packages.Exists(r.Context(), cue.AssetID)
+				if err != nil {
+					writeErr(w, http.StatusInternalServerError, "varlık denetlenemedi")
+					return
+				}
+				if !exists {
+					writeErr(w, http.StatusBadRequest, fmt.Sprintf(
+						"%s/%s: %s varlığı yüklenmemiş", seq.ID, lane.ID, cue.AssetID))
+					return
+				}
+			}
+		}
+	}
 	canonical, sum, err := m.Canonical()
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "manifest kanonikleştirilemedi")
@@ -517,6 +581,84 @@ func (s *Server) handleJoin(w http.ResponseWriter, r *http.Request) {
 func packageKey(sha256Hex string) string { return sha256Hex + ".json" }
 
 var packageNameRe = regexp.MustCompile(`^[0-9a-f]{64}\.json$`)
+
+// --- ses varlıkları ---
+
+const maxAssetBytes = 20 << 20 // 20 MiB / varlık (karar: ~5 MB tipik paket)
+
+// Kabul edilen ses türleri → varlık uzantısı. asset_id = <sha256>.<uzantı>
+// olduğundan telefon, indirdiği baytları addaki özetle doğrular.
+var audioExtByType = map[string]string{
+	"audio/mpeg":  "mp3",
+	"audio/mp3":   "mp3",
+	"audio/mp4":   "m4a",
+	"audio/aac":   "m4a",
+	"audio/x-m4a": "m4a",
+	"audio/wav":   "wav",
+	"audio/x-wav": "wav",
+	"audio/ogg":   "ogg",
+}
+
+var assetNameRe = regexp.MustCompile(`^[0-9a-f]{64}\.(mp3|m4a|wav|ogg)$`)
+
+var audioContentTypeByExt = map[string]string{
+	"mp3": "audio/mpeg",
+	"m4a": "audio/mp4",
+	"wav": "audio/wav",
+	"ogg": "audio/ogg",
+}
+
+func (s *Server) handleUploadAsset(w http.ResponseWriter, r *http.Request, _ model.Session) {
+	ct := r.Header.Get("Content-Type")
+	if i := strings.Index(ct, ";"); i >= 0 {
+		ct = strings.TrimSpace(ct[:i])
+	}
+	ext, ok := audioExtByType[strings.ToLower(ct)]
+	if !ok {
+		writeErr(w, http.StatusUnsupportedMediaType,
+			"Content-Type ses türü olmalı (audio/mpeg, audio/mp4, audio/wav, audio/ogg)")
+		return
+	}
+	data, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxAssetBytes))
+	if err != nil {
+		writeErr(w, http.StatusRequestEntityTooLarge, fmt.Sprintf("varlık en çok %d bayt olabilir", maxAssetBytes))
+		return
+	}
+	if len(data) == 0 {
+		writeErr(w, http.StatusBadRequest, "boş gövde")
+		return
+	}
+	sum := sha256.Sum256(data)
+	assetID := hex.EncodeToString(sum[:]) + "." + ext
+	if err := s.packages.Put(r.Context(), assetID, data); err != nil {
+		s.log.Error("varlık yazılamadı", "hata", err)
+		writeErr(w, http.StatusInternalServerError, "varlık depolanamadı")
+		return
+	}
+	s.log.Info("ses varlığı yüklendi", "asset_id", assetID, "bayt", len(data))
+	writeJSON(w, http.StatusCreated, map[string]any{
+		"asset_id": assetID,
+		"url":      "/assets/" + assetID,
+		"bytes":    len(data),
+	})
+}
+
+func (s *Server) handleAsset(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	if !assetNameRe.MatchString(name) {
+		writeErr(w, http.StatusNotFound, "varlık bulunamadı")
+		return
+	}
+	data, err := s.packages.Get(r.Context(), name)
+	if err != nil {
+		writeErr(w, http.StatusNotFound, "varlık bulunamadı")
+		return
+	}
+	ext := name[strings.LastIndexByte(name, '.')+1:]
+	w.Header().Set("Content-Type", audioContentTypeByExt[ext])
+	w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+	_, _ = w.Write(data)
+}
 
 func (s *Server) handlePackage(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")

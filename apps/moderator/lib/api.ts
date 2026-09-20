@@ -60,7 +60,12 @@ async function gatewayRequest<T>(path: string, adminToken: string, init?: Reques
   const headers: Record<string, string> = {
     ...((init?.headers as Record<string, string>) ?? {}),
   };
-  if (adminToken) headers["Authorization"] = `Bearer ${adminToken}`;
+  // Terminalden kopyalanan token'ın başına/sonuna bulaşan boşluk ve satır
+  // sonu 401'e yol açar; kırparak gönderilir. Alan boşsa panel oturum token'ı
+  // kullanılır: gateway, panel oturumlarını control-api'ye doğrulatır —
+  // moderatörün ayrıca TEKSES_ADMIN_TOKEN bilmesi gerekmez.
+  const token = adminToken.trim() || getToken();
+  if (token) headers["Authorization"] = `Bearer ${token}`;
   const resp = await fetch("/gw" + path, { ...init, headers });
   const data = await resp.json().catch(() => ({}));
   if (!resp.ok) {
@@ -107,6 +112,41 @@ export async function fetchManifestSummary(showVersionID: string): Promise<Manif
     sequences: (resp.manifest.sequences ?? []).map((s) => ({ id: s.id, title: s.title ?? s.id })),
     hasProgram: (resp.manifest.program ?? []).length > 0,
   };
+}
+
+// Ses varlığı yükleme: ham gövde, Content-Type dosyanın ses türü.
+export async function uploadAsset(
+  file: File,
+): Promise<{ asset_id: string; url: string; bytes: number }> {
+  const headers: Record<string, string> = {
+    "Content-Type": file.type || "audio/mpeg",
+  };
+  const token = getToken();
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+  const resp = await fetch("/control/api/v1/assets", { method: "POST", headers, body: file });
+  const data = await resp.json().catch(() => ({}));
+  if (!resp.ok) {
+    throw new ApiError(resp.status, (data as { error?: string }).error ?? `HTTP ${resp.status}`);
+  }
+  return data as { asset_id: string; url: string; bytes: number };
+}
+
+// Deneysel: sesten zamanlı söz taslağı çıkarma (sunucuda TEKSES_TRANSCRIBER
+// yapılandırılmışsa; değilse 501 döner).
+export type TranscriptionLyricLine = { at_ms: number; duration_ms: number; text: string };
+export type TranscriptionResult = {
+  transcription_id: string;
+  status: "queued" | "running" | "done" | "error";
+  lyric_lines?: TranscriptionLyricLine[];
+  error?: string;
+};
+
+export function startTranscription(assetId: string): Promise<{ transcription_id: string }> {
+  return control.post(`/api/v1/assets/${assetId}/transcribe`, {});
+}
+
+export function getTranscription(id: string): Promise<TranscriptionResult> {
+  return control.get(`/api/v1/transcriptions/${id}`);
 }
 
 // Gateway çalıştırma kaydı (asgari telemetri).

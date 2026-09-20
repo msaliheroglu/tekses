@@ -10,8 +10,10 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/msaliheroglu/tekses/packages/blob"
 	"github.com/msaliheroglu/tekses/services/control-api/internal/store/memstore"
@@ -25,12 +27,17 @@ type client struct {
 
 func newTestAPI(t *testing.T) *client {
 	t.Helper()
+	return newTestAPIWithTranscriber(t, "")
+}
+
+func newTestAPIWithTranscriber(t *testing.T, transcriber string) *client {
+	t.Helper()
 	log := slog.New(slog.NewTextHandler(testWriter{t}, &slog.HandlerOptions{Level: slog.LevelError}))
 	packages, err := blob.NewFS(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
-	ts := httptest.NewServer(New(log, memstore.New(), packages).Handler())
+	ts := httptest.NewServer(New(log, memstore.New(), packages, transcriber).Handler())
 	t.Cleanup(ts.Close)
 	return &client{t: t, base: ts.URL}
 }
@@ -303,6 +310,159 @@ func TestPublishActivateJoinFlow(t *testing.T) {
 	if status := c.do(http.MethodPost, "/api/v1/rooms/"+room.ID+"/activate",
 		map[string]string{"show_version_id": otherV.ID}, nil); status != http.StatusNotFound {
 		t.Fatalf("çapraz kiracı etkinleştirme durumu = %d, beklenen 404", status)
+	}
+}
+
+func TestAudioAssetFlow(t *testing.T) {
+	c := newTestAPI(t)
+	c.register("Ses AŞ", "ses@ornek.com")
+
+	// Yükleme: ham ses gövdesi → içerik adresli asset_id.
+	fakeMp3 := []byte("ID3-sahte-mp3-govdesi-test")
+	req, _ := http.NewRequest(http.MethodPost, c.base+"/api/v1/assets", bytes.NewReader(fakeMp3))
+	req.Header.Set("Content-Type", "audio/mpeg")
+	req.Header.Set("Authorization", "Bearer "+c.token)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var up struct {
+		AssetID string `json:"asset_id"`
+		URL     string `json:"url"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&up); err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusCreated || !strings.HasSuffix(up.AssetID, ".mp3") {
+		t.Fatalf("yükleme durumu = %d, asset_id = %q", resp.StatusCode, up.AssetID)
+	}
+	wantSum := sha256.Sum256(fakeMp3)
+	if up.AssetID != hex.EncodeToString(wantSum[:])+".mp3" {
+		t.Fatalf("asset_id içerik adresli değil: %s", up.AssetID)
+	}
+
+	// Herkese açık indirme, bayt bayt aynı ve immutable.
+	dl, err := http.Get(c.base + up.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(dl.Body)
+	dl.Body.Close()
+	if dl.StatusCode != http.StatusOK || string(body) != string(fakeMp3) {
+		t.Fatalf("indirme durumu = %d, gövde eşleşmiyor", dl.StatusCode)
+	}
+	if ct := dl.Header.Get("Content-Type"); ct != "audio/mpeg" {
+		t.Fatalf("içerik türü = %q", ct)
+	}
+
+	// Ses türü olmayan yükleme reddedilir.
+	req2, _ := http.NewRequest(http.MethodPost, c.base+"/api/v1/assets", strings.NewReader("x"))
+	req2.Header.Set("Content-Type", "application/json")
+	req2.Header.Set("Authorization", "Bearer "+c.token)
+	resp2, _ := http.DefaultClient.Do(req2)
+	resp2.Body.Close()
+	if resp2.StatusCode != http.StatusUnsupportedMediaType {
+		t.Fatalf("json yükleme durumu = %d, beklenen 415", resp2.StatusCode)
+	}
+
+	// Yayın doğrulaması: var olan varlıkla geçer, olmayanla 400.
+	var show struct {
+		ID string `json:"id"`
+	}
+	c.do(http.MethodPost, "/api/v1/shows", map[string]string{"title": "Sesli"}, &show)
+	manifestWith := func(assetID string) string {
+		return `{"title":"X","sequences":[{"id":"a","title":"t","duration_ms":10000,
+		  "cue_lanes":[{"id":"ses","kind":"audio","cues":[{"at_ms":0,"duration_ms":5000,"asset_id":"` + assetID + `"}]}]}]}`
+	}
+	if status := c.do(http.MethodPost, "/api/v1/shows/"+show.ID+"/versions",
+		json.RawMessage(manifestWith(up.AssetID)), nil); status != http.StatusCreated {
+		t.Fatalf("var olan varlıkla yayın durumu = %d", status)
+	}
+	missing := strings.Repeat("0", 64) + ".mp3"
+	if status := c.do(http.MethodPost, "/api/v1/shows/"+show.ID+"/versions",
+		json.RawMessage(manifestWith(missing)), nil); status != http.StatusBadRequest {
+		t.Fatalf("olmayan varlıkla yayın durumu = %d, beklenen 400", status)
+	}
+	if status := c.do(http.MethodPost, "/api/v1/shows/"+show.ID+"/versions",
+		json.RawMessage(manifestWith("serbest-metin")), nil); status != http.StatusBadRequest {
+		t.Fatalf("biçimsiz asset_id ile yayın durumu = %d, beklenen 400", status)
+	}
+}
+
+func TestTranscriptionFlow(t *testing.T) {
+	// Sahte çözümleyici: sözleşmeye uygun sabit JSON basar (gerçek Whisper
+	// entegrasyonu deploy/transcribe-whisper.sh ile VM'de kurulur).
+	stub := t.TempDir() + "/stub-transcriber.sh"
+	if err := os.WriteFile(stub, []byte(`#!/bin/sh
+echo '{"segments":[{"start_ms":4000,"end_ms":8000,"text":"Nakarat"},{"start_ms":1200,"end_ms":4000,"text":" İlk satır "},{"start_ms":9000,"end_ms":9500,"text":"  "},{"start_ms":10000,"end_ms":30000,"text":"[MÜZİK ÇALIYOR]"},{"start_ms":31000,"end_ms":32000,"text":"(alkış)"},{"start_ms":33000,"end_ms":34000,"text":"♪ ♪"}]}'
+`), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	c := newTestAPIWithTranscriber(t, stub)
+	c.register("Karaoke AŞ", "kr@ornek.com")
+
+	// Varlık yükle.
+	req, _ := http.NewRequest(http.MethodPost, c.base+"/api/v1/assets", bytes.NewReader([]byte("sahte-ses")))
+	req.Header.Set("Content-Type", "audio/mpeg")
+	req.Header.Set("Authorization", "Bearer "+c.token)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var up struct {
+		AssetID string `json:"asset_id"`
+	}
+	_ = json.NewDecoder(resp.Body).Decode(&up)
+	resp.Body.Close()
+
+	// Çözümleme başlat ve bitene dek yokla.
+	var start struct {
+		TranscriptionID string `json:"transcription_id"`
+	}
+	if status := c.do(http.MethodPost, "/api/v1/assets/"+up.AssetID+"/transcribe", map[string]any{}, &start); status != http.StatusAccepted {
+		t.Fatalf("başlatma durumu = %d", status)
+	}
+	var result struct {
+		Status     string `json:"status"`
+		LyricLines []struct {
+			AtMs       int    `json:"at_ms"`
+			DurationMs int    `json:"duration_ms"`
+			Text       string `json:"text"`
+		} `json:"lyric_lines"`
+		Error string `json:"error"`
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		c.do(http.MethodGet, "/api/v1/transcriptions/"+start.TranscriptionID, nil, &result)
+		if result.Status != "running" || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(30 * time.Millisecond)
+	}
+	if result.Status != "done" {
+		t.Fatalf("iş durumu = %s (%s)", result.Status, result.Error)
+	}
+	// Sıralanmış, kırpılmış, boş satırlar atılmış.
+	if len(result.LyricLines) != 2 ||
+		result.LyricLines[0].Text != "İlk satır" || result.LyricLines[0].AtMs != 1200 ||
+		result.LyricLines[1].Text != "Nakarat" || result.LyricLines[1].DurationMs != 4000 {
+		t.Fatalf("beklenmeyen satırlar: %+v", result.LyricLines)
+	}
+
+	// Başka kiracı işi göremez.
+	other := &client{t: t, base: c.base}
+	other.register("B", "b2@ornek.com")
+	if status := other.do(http.MethodGet, "/api/v1/transcriptions/"+start.TranscriptionID, nil, nil); status != http.StatusNotFound {
+		t.Fatalf("çapraz kiracı iş erişimi = %d, beklenen 404", status)
+	}
+
+	// Yapılandırılmamış sunucuda 501.
+	c2 := newTestAPI(t)
+	c2.register("X", "x@ornek.com")
+	if status := c2.do(http.MethodPost, "/api/v1/assets/"+strings.Repeat("0", 64)+".mp3/transcribe", map[string]any{}, nil); status != http.StatusNotImplemented {
+		t.Fatalf("yapılandırılmamış durum = %d, beklenen 501", status)
 	}
 }
 

@@ -13,6 +13,7 @@ class TimelineFrame {
   const TimelineFrame({
     required this.done,
     required this.lyric,
+    this.nextLyric = '',
     required this.screenColor,
     required this.screenLit,
     required this.torchOn,
@@ -23,6 +24,9 @@ class TimelineFrame {
 
   /// O an ekranda durması gereken söz satırı ('' = boş).
   final String lyric;
+
+  /// Karaoke önizlemesi: sıradaki söz satırı ('' = kalmadı).
+  final String nextLyric;
 
   /// Aktif screen kuesinin rengi (#RRGGBB; '' = kue yok → siyah).
   final String screenColor;
@@ -70,9 +74,16 @@ class TimelineEngine implements FrameSource {
     }
 
     var lyric = '';
+    var nextLyric = '';
+    var nextAtMs = 1 << 62;
     for (final line in sequence.lyricLines) {
       final end = line.durationMs == 0 ? sequence.durationMs : line.atMs + line.durationMs;
       if (elapsedMs >= line.atMs && elapsedMs < end) lyric = line.text;
+      // Karaoke önizlemesi: henüz başlamamış en yakın satır.
+      if (line.atMs > elapsedMs && line.atMs < nextAtMs) {
+        nextAtMs = line.atMs;
+        nextLyric = line.text;
+      }
     }
 
     var screenColor = '';
@@ -96,6 +107,7 @@ class TimelineEngine implements FrameSource {
     return TimelineFrame(
       done: false,
       lyric: lyric,
+      nextLyric: nextLyric,
       screenColor: screenColor,
       screenLit: screenLit,
       torchOn: torchOn,

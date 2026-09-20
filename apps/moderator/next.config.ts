@@ -2,6 +2,10 @@ import type { NextConfig } from "next";
 
 // Panel, control-api ve gateway'e Next.js sunucusu üzerinden vekillenir:
 // tarayıcı hep aynı origin'e konuşur, CORS derdi olmaz.
+//
+// DİKKAT: rewrites hedefleri DERLEME anında gömülür — bu vekiller yalnızca
+// yerel geliştirme (`npm run dev`) içindir. Üretimde (Docker) /control ve
+// /gw yollarını Caddy yönlendirir (deploy/Caddyfile); istekler Next'e uğramaz.
 const controlUrl = process.env.CONTROL_API_URL ?? "http://localhost:8090";
 const gatewayUrl = process.env.GATEWAY_URL ?? "http://localhost:8080";
 

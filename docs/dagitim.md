@@ -44,17 +44,21 @@ curl https://ALAN/api/v1/join/XXXXXX      # control-api: 404 "katılım kodu ge�
 | Yol | Servis |
 |---|---|
 | `/ws` | gateway (WebSocket) |
-| `/api/v0/*` | gateway (kue/müdahale/runs — `TEKSES_ADMIN_TOKEN` ister) |
-| `/join` | gateway (tarayıcı katılımcısı; https olduğu için Wake Lock da çalışır) |
-| `/api/v1/*`, `/packages/*` | control-api |
+| `/api/v0/*` | gateway (kue/müdahale/runs — `TEKSES_ADMIN_TOKEN` YA DA geçerli panel oturumu ister) |
+| `/join` | gateway (tarayıcı katılımcısı: gösteri koreografisi ekran+söz olarak oynar; https olduğu için Wake Lock da çalışır) |
+| `/api/v1/*`, `/packages/*`, `/assets/*` | control-api |
+| `/control/*` (önek soyulur) | control-api (panelin API çağrıları) |
+| `/gw/*` (önek soyulur) | gateway (panelin konsol çağrıları) |
 | diğer her şey | moderatör paneli |
 
 ## 4. İstemci ayarları
 
 - **Telefon uygulaması:** Gateway `wss://ALAN/ws`, Control `https://ALAN`.
   (TLS'li adreslerde Android cleartext istisnasına gerek kalmaz.)
-- **Panel:** `https://ALAN` — Canlı Konsol'daki "gateway yönetici token'ı"
-  alanına `.env`'deki `TEKSES_ADMIN_TOKEN` girilir.
+- **Panel:** `https://ALAN` — Canlı Konsol için panelde oturum açmış olmak
+  yeterlidir (gateway, oturumu control-api'ye doğrulatır). Konsoldaki token
+  alanı yalnızca panel oturumu olmadan (ör. otomasyon/acil durum) `.env`'deki
+  `TEKSES_ADMIN_TOKEN` ile kullanım içindir.
 - **QR kodları** derlemeye gömülü `https://ALAN` adresini kodlar
   (compose bunu `TEKSES_DOMAIN`'den geçirir).
 
@@ -67,7 +71,32 @@ docker compose logs -f gateway   # canlı log
 docker compose exec postgres pg_dump -U postgres tekses > yedek.sql
 ```
 
-## 6. Sonrası (etkinlik günü ölçeği — Faz 2 devamı)
+## 6. İsteğe bağlı: otomatik söz çıkarma (deneysel)
+
+Panel, yüklenen sesten zamanlı söz TASLAĞI çıkarabilir. VM'de etkinleştirmek
+tek komut (deploy/ dizininde):
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.whisper.yml up -d --build control-api
+```
+
+Bu, control-api'yi whisper.cpp + çok dilli "small" model + **Demucs vokal
+ayrıştırma** (torch CPU + htdemucs ağırlıkları) gömülü varyantla
+(`services/control-api/Dockerfile.whisper`) yeniden derler. İlk derleme
+15-25 dk sürer, imaj birkaç GB büyür; sonrasında paneldeki "Sözleri çıkar"
+düğmesi çalışır. Geri almak: `docker compose up -d --build control-api`.
+
+Beklentiyi doğru kurun: **vokal ayrıştırma CPU'da ağırdır** — 2 OCPU
+Ampere'de 4 dakikalık şarkı 20-40 dk sürebilir; işler tek tek sıraya alınır
+(panelde durum "queued"). Always Free sınırı 4 OCPU / 24 GB'dır: VM'i
+büyütmek ücretsizdir ve süreyi yaklaşık yarıya indirir (Instance → Edit →
+shape). Demucs'suz hızlı mod için compose ekine `TEKSES_NO_DEMUCS: "1"`
+ekleyin — ama o zaman mikslenmiş şarkılarda Whisper vokal bulamaz, çıktı
+boş kalır. Çıktı her durumda TASLAKTIR; şarkı sözleri için en isabetli yol
+**LRC içe aktarma**dır. Çözümleme süresi sınırı `TEKSES_TRANSCRIBE_TIMEOUT`
+ile ayarlanır (whisper compose eki 60m verir; varsayılan 10m).
+
+## 7. Sonrası (etkinlik günü ölçeği — Faz 2 devamı)
 
 - Paket indirmeleri R2 + Cloudflare CDN'e taşınır (blob arayüzü hazır;
   yalnızca R2 sürücüsü ve `manifest_url`'in mutlak CDN adresi gerekir).
