@@ -78,8 +78,10 @@ adım sırasını izler.
 
 ## Faz 2 — Ölçek ve ses
 
-- [x] **F2.0 PR:** Faz 1 main'e PR #2 ile açıldı (2026-09-19); merge kararı
-  kullanıcıda. CI'ı bu oturum gözetliyor.
+- [x] **F2.0 PR:** Faz 1 main'e PR #2 ile merge edildi (2026-09-19). Faz 2
+  işleri (dağıtım, çift kodek, ses+karaoke, görsel editör, VM söz çıkarma)
+  **PR #3 ile main'e merge edildi (2026-09-20)**; çalışma dalı yeni main'in
+  üzerine alındı.
 - [x] **F2.1 Dağıtım paketi:** Dockerfile'lar (gateway, control-api, panel
   standalone), `deploy/docker-compose.yml` (postgres + üç servis + Caddy
   otomatik TLS, tek alan adında yol bazlı dağıtım), `.env.example`,
