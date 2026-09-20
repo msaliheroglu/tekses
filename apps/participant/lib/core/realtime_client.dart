@@ -24,6 +24,7 @@ class RealtimeClient {
     required this.onCue,
     required this.onIntervention,
     required this.onStatus,
+    this.onShowActivated,
     this.joinCode = '',
     this.samplesPerRound = 10,
     this.samplePause = const Duration(milliseconds: 40),
@@ -40,6 +41,10 @@ class RealtimeClient {
   final void Function(CueStartMsg cue) onCue;
   final void Function(InterventionMsg intervention) onIntervention;
   final void Function(String status) onStatus;
+
+  /// Odada yeni gösteri etkinleştirildiğinde çağrılır (isteğe bağlı):
+  /// dinleyici paketi yeniden indirir; süren koreografi etkilenmez.
+  final void Function(ShowActivatedMsg msg)? onShowActivated;
 
   final _estimator = ClockSyncEstimator();
   final _random = Random();
@@ -124,6 +129,8 @@ class RealtimeClient {
       case typeIntervention:
         final intervention = InterventionMsg.fromJson(env.data);
         if (intervention != null) onIntervention(intervention);
+      case typeShowActivated:
+        onShowActivated?.call(ShowActivatedMsg.fromJson(env.data));
     }
   }
 

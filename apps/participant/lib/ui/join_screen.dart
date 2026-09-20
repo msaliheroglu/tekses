@@ -42,8 +42,9 @@ class _JoinScreenState extends State<JoinScreen> {
     final code = _codeController.text.trim().toUpperCase();
 
     JoinInfo? joinInfo;
+    Uri? controlUri;
     if (code.isNotEmpty) {
-      final controlUri = Uri.tryParse(_controlController.text.trim());
+      controlUri = Uri.tryParse(_controlController.text.trim());
       if (controlUri == null || (controlUri.scheme != 'http' && controlUri.scheme != 'https')) {
         setState(() => _error = 'Control adresi http:// veya https:// ile başlamalı');
         return;
@@ -73,6 +74,8 @@ class _JoinScreenState extends State<JoinScreen> {
           serverUri: gatewayUri,
           joinInfo: joinInfo,
           joinCode: code,
+          // Canlı paket yenileme (show_activated) için gerekli.
+          controlUri: controlUri,
         ),
       ),
     );

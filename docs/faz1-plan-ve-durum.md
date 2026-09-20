@@ -137,10 +137,15 @@ adım sırasını izler.
 
 ## Notlar
 
-- İyileştirme adayı (F2.2 saha gözlemi): panelde "etkinleştir" bağlı
-  telefonlara canlı yansımıyor — telefon paketi yalnızca katılırken indiriyor,
-  etkinleştirme sonrası yeniden katılmak gerekiyor. Gateway üzerinden odaya
-  "show_activated" bildirimi + uygulamada otomatik paket yenileme eklenebilir.
+- [x] "Etkinleştir" canlı bildirimi (2026-09-20): panel, etkinleştirme
+  başarılı olunca gateway'in POST /api/v0/show-activated ucunu çağırıyor;
+  gateway odaya v1 JSON telinde "show_activated" yayınlıyor (ikili kodlaması
+  yok — SendFrame v2 istemcileri atlar; proto zarfı sonraki yineleme).
+  Tarayıcı katılımcısı manifesti yeniden indiriyor; Flutter uygulaması
+  PackageStore.join'i yeniden koşup paket + varlıkları tazeliyor (süren
+  koreografi etkilenmez). Gateway testi: TestShowActivatedBroadcast.
+  **Telefonda devreye girmesi için APK yeniden derlenmeli** (yalnız git pull
+  + build; native kopyalama adımı değişmedi).
 - VM'de söz çıkarma (2026-09-20, KULLANICI DOĞRULADI): control-api'nin
   whisper.cpp + Demucs gömülü imaj varyantı (`Dockerfile.whisper` +
   `deploy/docker-compose.whisper.yml`, docs/dagitim.md §6) VM'de çalışıyor —

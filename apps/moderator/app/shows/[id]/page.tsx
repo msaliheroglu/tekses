@@ -4,6 +4,7 @@ import { use, useCallback, useEffect, useState } from "react";
 import {
   ApiError,
   control,
+  gatewayPost,
   getTranscription,
   startTranscription,
   uploadAsset,
@@ -193,10 +194,24 @@ export default function ShowDetailPage({ params }: { params: Promise<{ id: strin
     try {
       await control.post(`/api/v1/rooms/${selectedRoom}/activate`, { show_version_id: versionID });
       const room = rooms.find((r) => r.id === selectedRoom);
-      setNotice(
-        `Sürüm, "${room?.name ?? selectedRoom}" odasında etkinleştirildi. ` +
-          `Katılmış telefonların yeni paketi alması için odadan çıkıp yeniden katılmaları gerekir.`,
-      );
+      // Bağlı istemcilere "paketi tazele" sinyali: gateway odaya show_activated
+      // yayınlar (yetki: panel oturumu). Başarısızlık etkinleştirmeyi bozmaz —
+      // eski istemciler yeniden katılarak da güncellenir.
+      let liveNote = "";
+      try {
+        const r = await gatewayPost<{ clients: number }>(
+          "/api/v0/show-activated",
+          { room_id: selectedRoom, show_version_id: versionID },
+          "",
+        );
+        liveNote =
+          r.clients > 0
+            ? ` Bağlı ${r.clients} istemciye yenileme sinyali gönderildi.`
+            : " Odada şu an bağlı istemci yok.";
+      } catch {
+        liveNote = " (Canlı yenileme sinyali gönderilemedi; telefonlar yeniden katılarak güncellenir.)";
+      }
+      setNotice(`Sürüm, "${room?.name ?? selectedRoom}" odasında etkinleştirildi.${liveNote}`);
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "etkinleştirme hatası");

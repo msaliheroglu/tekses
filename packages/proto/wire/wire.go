@@ -21,6 +21,10 @@ const (
 	TypeClockSyncResponse = "clock_sync_response"
 	TypeCueStart          = "cue_start"
 	TypeIntervention      = "intervention"
+	// TypeShowActivated: odadaki gösteri değişti, istemci paketi tazelesin.
+	// Şimdilik yalnız v1 JSON telinde taşınır (proto zarfına eklenmesi sonraki
+	// yineleme); ikili kodlaması olmayan yayın çerçevesini v2 istemciler atlar.
+	TypeShowActivated = "show_activated"
 )
 
 // Envelope, tel üzerindeki tek çerçevedir: {"type": "...", "data": {...}}.
@@ -81,6 +85,13 @@ type Intervention struct {
 	IssuedAtServerMs int64  `json:"issued_at_server_ms"`
 }
 
+// ShowActivated — odada yeni gösteri sürümü etkinleştirildi; istemci
+// katılım bilgisini (manifest + varlıklar) yeniden indirmelidir.
+type ShowActivated struct {
+	RoomID        string `json:"room_id"`
+	ShowVersionID string `json:"show_version_id,omitempty"`
+}
+
 // Geçerli müdahale türleri.
 var InterventionKinds = map[string]bool{
 	"HOLD":     true,
@@ -138,6 +149,8 @@ func DecodeMessage(raw []byte) (msgType string, msg any, err error) {
 		return unmarshal(&CueStart{})
 	case TypeIntervention:
 		return unmarshal(&Intervention{})
+	case TypeShowActivated:
+		return unmarshal(&ShowActivated{})
 	default:
 		return "", nil, fmt.Errorf("wire: bilinmeyen mesaj türü %q", env.Type)
 	}
@@ -158,6 +171,8 @@ func deref(v any) any {
 	case *CueStart:
 		return *p
 	case *Intervention:
+		return *p
+	case *ShowActivated:
 		return *p
 	default:
 		return v

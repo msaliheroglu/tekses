@@ -142,6 +142,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /ws", s.handleWS)
 	mux.HandleFunc("POST /api/v0/cue", s.requireAdmin(s.handleCue))
 	mux.HandleFunc("POST /api/v0/intervention", s.requireAdmin(s.handleIntervention))
+	mux.HandleFunc("POST /api/v0/show-activated", s.requireAdmin(s.handleShowActivated))
 	mux.HandleFunc("GET /api/v0/runs", s.handleRuns)
 	return mux
 }
@@ -559,6 +560,42 @@ func (s *Server) handleIntervention(w http.ResponseWriter, r *http.Request) {
 		Clients:          s.hub.Count(),
 	})
 	writeJSON(w, http.StatusOK, map[string]any{"kind": req.Kind, "room_id": req.RoomID, "clients": s.hub.Count()})
+}
+
+type showActivatedRequest struct {
+	RoomID        string `json:"room_id"`
+	ShowVersionID string `json:"show_version_id"`
+}
+
+// handleShowActivated, odadaki istemcilere "gösteri değişti, paketi tazele"
+// sinyali yayınlar. Panel, control-api'de etkinleştirme başarılı olunca bunu
+// çağırır; böylece telefonların odadan çıkıp yeniden katılması gerekmez.
+// Mesaj şimdilik yalnız v1 JSON telinde taşınır: ikili kodlaması olmayan
+// çerçeveyi v2 istemciler (bugün yalnız loadgen) atlar — SendFrame böyle
+// tasarlandı; proto zarfına eklenmesi sonraki yineleme.
+func (s *Server) handleShowActivated(w http.ResponseWriter, r *http.Request) {
+	var req showActivatedRequest
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxMessageBytes)).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": fmt.Sprintf("gövde çözülemedi: %v", err)})
+		return
+	}
+	if req.RoomID == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "room_id gerekli"})
+		return
+	}
+	data, err := wire.Encode(wire.TypeShowActivated, wire.ShowActivated{
+		RoomID:        req.RoomID,
+		ShowVersionID: req.ShowVersionID,
+	})
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "mesaj kodlanamadı"})
+		return
+	}
+	s.hub.BroadcastRoom(req.RoomID, hub.Frame{JSON: data})
+	clients := s.hub.RoomCounts()[req.RoomID]
+	s.log.Info("gösteri etkinleştirme sinyali yayınlandı",
+		"oda", req.RoomID, "sürüm", req.ShowVersionID, "istemci", clients)
+	writeJSON(w, http.StatusOK, map[string]any{"room_id": req.RoomID, "clients": clients})
 }
 
 // --- yardımcılar ---
