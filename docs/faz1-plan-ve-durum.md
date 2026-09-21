@@ -158,7 +158,7 @@ adım sırasını izler.
   whisper.sh), bellek içi iş kuyruğu, panelde taslak üretimi. Şarkılarda
   ASR hatalıdır — çıktı taslak; kesin yol LRC/elle zamanlama. Kelime bazlı
   vurgulama (enhanced LRC) sonraki yineleme.
-- [~] **F2.6 Çok düğümlü gateway (ilk yarı TAMAM, 2026-09-20):** yayınlar
+- [x] **F2.6 Çok düğümlü gateway (2026-09-20/21, TAMAM):** yayınlar
   (kue/müdahale/show_activated) çekirdek NATS pub/sub ile tüm düğümlere
   dağıtılıyor — `internal/fanout` (yerel/NATS tek arayüz), TEKSES_NATS_URL,
   compose'a nats servisi + `--scale gateway=2` desteği (Caddy Docker DNS
@@ -181,8 +181,10 @@ adım sırasını izler.
   NATS baş-blokajı (sink kendi goroutine'inde; ping hatasında Unregister),
   konsol kayıt birleşimi (kalıcı + halka), presence/clockstats'a işletmen
   kilidi (kiracılar arası sızıntı). İkinci doğrulama turu düzeltilmiş koda
-  karşı temiz. **Kalan:** VM'de 2 kopyayla yük koşumu doğrulaması
-  (kullanıcıyla); ileride org-kapsamlı telemetri (control-api vekaletiyle).
+  karşı temiz. **VM doğrulaması TAMAM (2026-09-21):** 2 gateway kopyası +
+  NATS ile 40k ikili istemci — 40000/40000 başarılı, yayılım maks−min 2 ms /
+  p95−p5 2 ms / σ 0.6 ms: düğümler arası senkron yük altında kanıtlandı.
+  İleride: org-kapsamlı telemetri (control-api vekaletiyle).
 - [ ] **F2.7 Ultrasonik beacon + PA test kiti** (karar dokümanı §3).
 
 ## Notlar
