@@ -122,10 +122,12 @@ func runPATest(dir string, rate int) error {
 }
 
 func runDecode(path string) error {
-	samples, rate, err := readWAV(path)
+	chans, rate, err := readWAV(path)
 	if err != nil {
 		return err
 	}
+	samples, chNote := bestChannel(chans, rate)
+	fmt.Println("kanal:", chNote)
 	dets, err := beacon.DecodeAll(samples, rate, 16)
 	if err != nil {
 		return err
@@ -139,11 +141,25 @@ func runDecode(path string) error {
 	return nil
 }
 
+// bestChannel, stereo kayıtta 17,5 kHz üstü enerjisi yüksek kanalı seçer
+// (ortalama, faz iptaliyle beacon'ı söndürebilir — wav.go notu).
+func bestChannel(chans [][]float64, rate int) ([]float64, string) {
+	if len(chans) == 1 {
+		return chans[0], "mono"
+	}
+	if beacon.InBandEnergy(chans[1], rate) > beacon.InBandEnergy(chans[0], rate) {
+		return chans[1], "stereo → sağ kanal seçildi (bant enerjisi yüksek)"
+	}
+	return chans[0], "stereo → sol kanal seçildi (bant enerjisi yüksek)"
+}
+
 func runAnalyze(path string) error {
-	samples, rate, err := readWAV(path)
+	chans, rate, err := readWAV(path)
 	if err != nil {
 		return err
 	}
+	samples, chNote := bestChannel(chans, rate)
+	fmt.Println("kanal:", chNote)
 	rep, err := beacon.Analyze(samples, rate)
 	if err != nil {
 		return err
@@ -153,8 +169,13 @@ func runAnalyze(path string) error {
 	fmt.Printf("  bit taşıyıcıları (18,6/19,4 kHz)  : görüldü=%v\n", rep.CarrierSeen)
 	fmt.Printf("  en iyi chirp skoru                : %.2f (t=%.2f sn; çözüm eşiği 0,35)\n",
 		rep.BestChirpScore, rep.BestChirpAtSec)
+	fmt.Printf("  yük çözümü (CRC)                  : ok=%v\n", rep.DemodOK)
+	fmt.Printf("  sembol karar payı (P10)           : %.2f (temiz ~0,9+; <0,3 = bulanık)\n",
+		rep.SymbolMarginP10)
 	fmt.Println()
 	switch {
+	case rep.DemodOK:
+		fmt.Println("TEŞHİS: yük bu kayıtta çözülüyor — -decode ile tam sonucu alın.")
 	case rep.InBandRatio < 0.001:
 		fmt.Println("TEŞHİS: 17,5 kHz üstünde neredeyse HİÇ enerji yok — sinyal kayda hiç")
 		fmt.Println("girmemiş. Sıra: (1) m4a/AAC sıkıştırması bandı siler → WAV/kayıpsız")
@@ -165,9 +186,16 @@ func runAnalyze(path string) error {
 		fmt.Println("TEŞHİS: bantta enerji VAR ama beacon deseni seçilemiyor — sinyal yolda")
 		fmt.Println("bozulmuş. Sıra: kayıt uygulamasının gürültü bastırma/AGC ayarını kapatın,")
 		fmt.Println("48 kHz WAV seçin; hoparlöre yaklaşın; ortam gürültüsünü azaltın.")
+	case rep.SymbolMarginP10 < 0.3:
+		fmt.Println("TEŞHİS: chirp güçlü ama veri sembolleri BULANIK (karar payı düşük) —")
+		fmt.Println("tipik suçlu kayıplı kodek (m4a/AAC bu bandı kabaca kodlar) ya da ağır")
+		fmt.Println("yankı. Sıra: (1) telefonda WAV/KAYIPSIZ kaydedin (iPhone: Sesli Notlar →")
+		fmt.Println("Kayıpsız; Android: WAV kaydeden uygulama) ve tekrar deneyin; (2) yankısız")
+		fmt.Println("konumda, hoparlöre 1-2 m mesafede kaydedin.")
 	default:
-		fmt.Println("TEŞHİS: chirp güçlü görünüyor; -decode bu kayıtta çalışmalı. Çalışmıyorsa")
-		fmt.Println("kayıt beacon'ın yükünü (chirp sonrası ~0,7 sn) kesmiş olabilir — daha uzun kaydedin.")
+		fmt.Println("TEŞHİS: chirp ve semboller iyi görünüyor ama CRC tutmuyor — sınır durum.")
+		fmt.Println("Kaydı biraz daha yüksek seviye/yakın mesafeyle tekrarlayın; sürerse bu")
+		fmt.Println("analiz çıktısını paylaşın.")
 	}
 	return nil
 }

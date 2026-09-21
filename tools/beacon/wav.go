@@ -48,7 +48,10 @@ func writeWAV(path string, samples []float64, sampleRate int) error {
 	return err
 }
 
-func readWAV(path string) (samples []float64, sampleRate int, err error) {
+// readWAV, kanalları AYRI AYRI döndürür (mono: 1 kanal). Stereo kanallar
+// ortalamayla mono'ya İNDİRİLMEZ: iki mikrofonun ortalaması 19 kHz'te faz
+// iptaliyle beacon'ı söndürebilir; çağıran, bandı güçlü kanalı seçer.
+func readWAV(path string) (channels [][]float64, sampleRate int, err error) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		return nil, 0, err
@@ -57,7 +60,7 @@ func readWAV(path string) (samples []float64, sampleRate int, err error) {
 		return nil, 0, fmt.Errorf("%s: WAV değil", path)
 	}
 
-	var channels, bits int
+	var numCh, bits int
 	var data []byte
 	// Parça (chunk) gezintisi: fmt ve data dışındakiler (LIST vb.) atlanır.
 	for off := 12; off+8 <= len(raw); {
@@ -75,7 +78,7 @@ func readWAV(path string) (samples []float64, sampleRate int, err error) {
 			if format := binary.LittleEndian.Uint16(raw[body:]); format != 1 {
 				return nil, 0, fmt.Errorf("%s: yalnız 16-bit PCM desteklenir (format %d)", path, format)
 			}
-			channels = int(binary.LittleEndian.Uint16(raw[body+2:]))
+			numCh = int(binary.LittleEndian.Uint16(raw[body+2:]))
 			sampleRate = int(binary.LittleEndian.Uint32(raw[body+4:]))
 			bits = int(binary.LittleEndian.Uint16(raw[body+14:]))
 		case "data":
@@ -86,20 +89,21 @@ func readWAV(path string) (samples []float64, sampleRate int, err error) {
 	if sampleRate == 0 || data == nil {
 		return nil, 0, fmt.Errorf("%s: fmt/data parçası yok", path)
 	}
-	if bits != 16 || channels < 1 || channels > 2 {
-		return nil, 0, fmt.Errorf("%s: yalnız 16-bit mono/stereo desteklenir (%d bit, %d kanal)", path, bits, channels)
+	if bits != 16 || numCh < 1 || numCh > 2 {
+		return nil, 0, fmt.Errorf("%s: yalnız 16-bit mono/stereo desteklenir (%d bit, %d kanal)", path, bits, numCh)
 	}
 
-	frame := 2 * channels
+	frame := 2 * numCh
 	n := len(data) / frame
-	samples = make([]float64, n)
-	for i := 0; i < n; i++ {
-		var sum float64
-		for c := 0; c < channels; c++ {
-			v := int16(binary.LittleEndian.Uint16(data[i*frame+2*c:]))
-			sum += float64(v) / 32768
-		}
-		samples[i] = sum / float64(channels)
+	out := make([][]float64, numCh)
+	for c := range out {
+		out[c] = make([]float64, n)
 	}
-	return samples, sampleRate, nil
+	for i := 0; i < n; i++ {
+		for c := 0; c < numCh; c++ {
+			v := int16(binary.LittleEndian.Uint16(data[i*frame+2*c:]))
+			out[c][i] = float64(v) / 32768
+		}
+	}
+	return out, sampleRate, nil
 }

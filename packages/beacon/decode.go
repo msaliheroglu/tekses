@@ -72,7 +72,7 @@ func DecodeAll(samples []float64, sampleRate, max int) ([]Detection, error) {
 		// Patlamanın kuyruğunun sığıp sığmadığına burada bakılmaz: algılama
 		// birkaç örnek geç kilitlenebilir ve tam-uzunluk kayıtta son
 		// yinelemeyi elerdi; kesik yükü demodulate'in sınır denetimi eler.
-		p, err := demodulate(samples, sr, start+chirpN+gapN, symN)
+		p, err := demodulateWithRetry(samples, sr, start+chirpN+gapN, symN)
 		if err == nil {
 			out = append(out, Detection{Payload: p, StartSample: start, Score: score})
 			searchFrom = start + burstN
@@ -127,6 +127,29 @@ func corrScore(samples, tmpl []float64, tmplEnergy float64, at int) float64 {
 	return dot * dot / (energy * tmplEnergy)
 }
 
+// demodulateWithRetry, sembol saatini chirp kilidine göre birkaç küçük
+// ofsette dener (0, ±2, ±4, ±6 ms): gerçek kayıtlarda yankı chirp tepe
+// noktasını milisaniyelerce kaydırabilir; CRC hangi ofsette tutarsa o
+// çözümdür (yanlış ofsetin CRC'den geçme olasılığı 1/256'dır ve yük
+// doğrulaması da ayrıca eler).
+func demodulateWithRetry(samples []float64, sr float64, at, symN int) (Payload, error) {
+	var firstErr error
+	for _, offMs := range []float64{0, -2, 2, -4, 4, -6, 6} {
+		off := int(offMs * sr / 1000)
+		if at+off < 0 {
+			continue
+		}
+		p, err := demodulate(samples, sr, at+off, symN)
+		if err == nil {
+			return p, nil
+		}
+		if firstErr == nil {
+			firstErr = err
+		}
+	}
+	return Payload{}, firstErr
+}
+
 // demodulate, yük sembollerini Goertzel enerjileriyle bitlere çevirir ve
 // yükü çözer. Sembolün ortadaki %70'i okunur (kenar yumuşatmaları ve küçük
 // senkron kaymaları dışarıda kalsın).
@@ -175,6 +198,25 @@ type Report struct {
 	// Bit taşıyıcılarının, bant içi enerjiye oranla en güçlü 1 sn'lik
 	// penceredeki varlığı (kaba gösterge).
 	CarrierSeen bool
+	// DemodOK: en iyi chirp konumunda yük çözülebildi mi (CRC dahil).
+	DemodOK bool
+	// SymbolMarginP10: sembol karar paylarının (|e1−e0|/(e1+e0), 0..1)
+	// 10. yüzdeliği. Temiz kayıtta ~1'e yakındır; kayıplı kodek (AAC) ya da
+	// ağır yankı sembolleri bulanıklaştırınca 0'a yaklaşır — CRC'nin neden
+	// tutmadığının göstergesidir.
+	SymbolMarginP10 float64
+}
+
+// InBandEnergy, 17,5 kHz üstü enerji toplamını döndürür. Stereo kayıtta
+// kanal seçimi içindir: iki mikrofonun ortalaması 19 kHz'te faz iptaliyle
+// sinyali söndürebilir — bandı güçlü KANAL seçilmelidir, ortalama değil.
+func InBandEnergy(samples []float64, sampleRate int) float64 {
+	filtered := highpass(samples, float64(sampleRate), 17500)
+	var e float64
+	for _, v := range filtered {
+		e += v * v
+	}
+	return e
 }
 
 // Analyze, kaydı çözmeye ÇALIŞMADAN teşhis raporu üretir.
@@ -217,6 +259,36 @@ func Analyze(samples []float64, sampleRate int) (Report, error) {
 		if s := corrScore(filtered, tmpl, tmplEnergy, at); s > rep.BestChirpScore {
 			rep.BestChirpScore = s
 			rep.BestChirpAtSec = float64(at) / sr
+		}
+	}
+
+	// En iyi chirp konumunda yük denemesi + sembol karar payları.
+	if rep.BestChirpScore > 0 {
+		bestAt := int(rep.BestChirpAtSec * sr)
+		gapN := int(GapSec * sr)
+		symN := int(SymbolSec * sr)
+		payloadAt := bestAt + chirpN + gapN
+		if _, err := demodulateWithRetry(filtered, sr, payloadAt, symN); err == nil {
+			rep.DemodOK = true
+		}
+		margin := symN * 15 / 100
+		var margins []float64
+		for s := 0; s < PayloadBits; s++ {
+			lo := payloadAt + s*symN + margin
+			hi := payloadAt + (s+1)*symN - margin
+			if hi > len(filtered) {
+				break
+			}
+			win := filtered[lo:hi]
+			e0 := goertzel(win, sr, Bit0Hz)
+			e1 := goertzel(win, sr, Bit1Hz)
+			if e0+e1 > 0 {
+				margins = append(margins, math.Abs(e1-e0)/(e1+e0))
+			}
+		}
+		if len(margins) > 0 {
+			sortFloats(margins)
+			rep.SymbolMarginP10 = margins[len(margins)/10]
 		}
 	}
 
@@ -267,6 +339,16 @@ func highpass(in []float64, sr, fc float64) []float64 {
 		y2, y1 = y1, y
 	}
 	return out
+}
+
+// sortFloats, sort paketine bağımlılık eklememek için yeterli olan küçük
+// bir eklemeli sıralamadır (en çok 34 öğe).
+func sortFloats(xs []float64) {
+	for i := 1; i < len(xs); i++ {
+		for j := i; j > 0 && xs[j] < xs[j-1]; j-- {
+			xs[j], xs[j-1] = xs[j-1], xs[j]
+		}
+	}
 }
 
 func maxInt(a, b int) int {
