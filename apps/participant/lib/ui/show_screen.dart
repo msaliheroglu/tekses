@@ -14,6 +14,8 @@ import '../core/realtime_client.dart';
 import '../core/show_manifest.dart';
 import '../core/timeline_engine.dart';
 import '../core/torch_service.dart';
+import '../core/ultrasonic.dart';
+import '../core/ultrasonic_listener.dart';
 
 /// Gösteri ekranı: bağlanır, saatini eşitler, kue bekler; ateşleme anında
 /// koreografiyi oynatır. cue_id manifestteki bir sekansa denk geliyorsa
@@ -46,6 +48,12 @@ class _ShowScreenState extends State<ShowScreen> {
   late final CueArbiter _arbiter;
   final _torch = TorchService();
   final _audio = NativeAudio();
+  UltrasonicListener? _listener;
+
+  /// Ultrasonik yedek: mikrofon dinlemesi kullanıcı eliyle açılır (pil +
+  /// izin istemi gerekçesi); durum satırı ne olduğunu her an söyler.
+  bool _micOn = false;
+  String _beaconNote = '';
 
   /// Katılım bilgisi: show_activated sinyaliyle yerinde tazelenir (paket +
   /// varlıklar yeniden iner); ilk değer katılım ekranından gelir.
@@ -137,18 +145,99 @@ class _ShowScreenState extends State<ShowScreen> {
   void dispose() {
     _stopEffect(toBlack: false);
     _client.close();
+    _listener?.dispose();
     _torch.off();
     WakelockPlus.disable();
     super.dispose();
   }
 
+  // --- ultrasonik yedek ---
+
+  Future<void> _toggleMic() async {
+    if (_micOn) {
+      await _listener?.stop();
+      setState(() {
+        _micOn = false;
+        _beaconNote = '';
+      });
+      return;
+    }
+    final listener = _listener ??= UltrasonicListener(
+      onDetection: _onBeaconDetected,
+      onStatus: (note) {
+        if (mounted) setState(() => _beaconNote = 'beacon: $note');
+      },
+    );
+    final ok = await listener.start();
+    if (mounted) setState(() => _micOn = ok);
+  }
+
+  /// Beacon algısı → kue adayı. Geri sayım chirp'in duyulduğu MONOTON ana
+  /// eklenir; ateşleme anı zaten yerel olduğu için saat senkronu GEREKMEZ
+  /// (beacon tam da senkronsuz/WS'siz telefonlar için var).
+  void _onBeaconDetected(BeaconDetection det, int heardAtMonoMs) {
+    if (!mounted) return;
+    final fireLocalMs = heardAtMonoMs + det.payload.countdownMs;
+
+    // cue_index eşlemesi (sinyal sözleşmesi): 0 = otomatik program,
+    // i>0 = manifestteki sequences[i-1]. Eşleşmeyen indeks yok sayılır.
+    final manifest = _joinInfo?.manifest;
+    final String cueId;
+    if (det.payload.cueIndex == 0) {
+      cueId = programCueId;
+    } else if (manifest != null &&
+        det.payload.cueIndex <= manifest.sequences.length) {
+      cueId = manifest.sequences[det.payload.cueIndex - 1].id;
+    } else {
+      setState(() => _beaconNote =
+          'beacon: bilinmeyen sekans #${det.payload.cueIndex}; yok sayıldı');
+      return;
+    }
+
+    // WS kaynağı varken beacon yok sayılır (karar dokümanı §3): süren/kurulu
+    // koşunun ateşlemesi ±2 sn içindeyse bu, aynı kuenin sesli kopyasıdır.
+    if (_activeCue != null && (fireLocalMs - _fireLocalMs).abs() < 2000) {
+      setState(() => _beaconNote = 'beacon: duyuldu, WS kuesi zaten kurulu');
+      return;
+    }
+
+    // Yinelemeler (~1 sn arayla, geri sayım düşerek) aynı ateşleme SANİYESİNE
+    // çözülür; sentetik runId bu yüzden tekrarları arbiter'da tekilleştirir.
+    final runId =
+        'beacon:${det.payload.cueIndex}:${(fireLocalMs + 500) ~/ 1000}';
+    setState(() => _beaconNote =
+        'beacon: kue #${det.payload.cueIndex} duyuldu (${det.payload.countdownMs} ms)'
+        '${det.correctedBits > 0 ? ' · ${det.correctedBits} bit düzeltildi' : ''}');
+    _arbiter.offer(
+      CueStartMsg(
+        runId: runId,
+        cueId: cueId,
+        // Ultrasonik kaynakta bu alan YEREL monoton ateşleme anını taşır;
+        // _onCueAccepted ofset=0 ile okur (sunucu saati hiç işe karışmaz).
+        fireAtServerMs: fireLocalMs,
+        repeatSeq: det.payload.seq,
+        payload: const CuePayloadMsg(
+            color: '#FFFFFF', torch: false, flashHz: 0, durationMs: 3000),
+      ),
+      CueSource.ultrasonic,
+    );
+  }
+
   // --- kue akışı ---
 
   void _onCueAccepted(CueStartMsg cue, CueSource source) {
-    final estimate = _estimate;
-    if (estimate == null) {
-      setState(() => _status = 'kue geldi ama saat senkronu yok; atlandı');
-      return;
+    // Sözleşme: ultrasonik kaynakta fireAtServerMs yerel monoton andır →
+    // ofset 0; WS kaynağında sunucu anıdır → saat senkronu şarttır.
+    final int offsetMs;
+    if (source == CueSource.ultrasonic) {
+      offsetMs = 0;
+    } else {
+      final estimate = _estimate;
+      if (estimate == null) {
+        setState(() => _status = 'kue geldi ama saat senkronu yok; atlandı');
+        return;
+      }
+      offsetMs = estimate.offsetMs;
     }
     _pendingFire?.cancel();
     _stopEffect(toBlack: true);
@@ -178,10 +267,10 @@ class _ShowScreenState extends State<ShowScreen> {
       _activeCue = cue;
       _status = '$statusLabel; ateşleme bekleniyor';
     });
-    _fireLocalMs = cue.fireAtServerMs - estimate.offsetMs;
+    _fireLocalMs = cue.fireAtServerMs - offsetMs;
     _pendingFire = CueScheduler.schedule(
       fireAtServerMs: cue.fireAtServerMs,
-      offsetMs: estimate.offsetMs,
+      offsetMs: offsetMs,
       onFire: (lateByMs) => _startEffect(cue, lateByMs),
     );
   }
@@ -421,9 +510,31 @@ class _ShowScreenState extends State<ShowScreen> {
                         '${_torch.available ? '' : ' · fener yok'}',
                       ),
                     if (_audioNote.isNotEmpty) Text(_audioNote),
+                    if (_beaconNote.isNotEmpty) Text(_beaconNote),
                     if (_activeCue != null)
                       Text('run ${_activeCue!.runId.substring(0, 8)}'),
                   ],
+                ),
+              ),
+            ),
+            // Ultrasonik yedek anahtarı: WS'si kopabilecek telefonlarda
+            // seyirci gösteriden önce açar; açıkken mikrofon PA beacon'ını
+            // bekler. (Erişilebilirlik yedeği — hassasiyet kaynağı WS'dir.)
+            Positioned(
+              bottom: 8,
+              left: 12,
+              child: TextButton.icon(
+                onPressed: _toggleMic,
+                icon: Icon(
+                  _micOn ? Icons.hearing : Icons.hearing_disabled,
+                  size: 16,
+                  color: Colors.white.withValues(alpha: _micOn ? 0.8 : 0.4),
+                ),
+                label: Text(
+                  _micOn ? 'beacon açık' : 'beacon dinle',
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: _micOn ? 0.8 : 0.4),
+                  ),
                 ),
               ),
             ),

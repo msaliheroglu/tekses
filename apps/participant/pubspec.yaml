@@ -23,6 +23,9 @@ dependencies:
   torch_light: ^1.1.0
   # Gösteri boyunca ekranın açık kalması (yalnızca ön planda çalışma kararı).
   wakelock_plus: ^1.2.0
+  # Ultrasonik beacon dinleyicisi: mikrofon PCM akışı (F2.7).
+  # AndroidManifest'e RECORD_AUDIO, iOS'a NSMicrophoneUsageDescription gerekir.
+  record: ^5.1.2
 
 dev_dependencies:
   flutter_test:
