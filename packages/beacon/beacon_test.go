@@ -118,17 +118,30 @@ func TestBurstAtRecordingEnd(t *testing.T) {
 
 func TestCorruptPayloadRejected(t *testing.T) {
 	const sr = 48000
-	burst, _ := Encode(testPayload(), sr)
-	// Yükün ortasındaki DÖRT sembolü sustur: chase en çok 2 zayıf biti
-	// düzeltir; 4 bilinmeyen bit CRC'den geçmemeli, çözüm olmamalı.
+	p := testPayload()
+	burst, _ := Encode(p, sr)
+	// Dört sembol GÜÇLÜ ters taşıyıcıyla ezilir: bitler "emin ama yanlış"
+	// olur (karar payı yüksek → chase'in zayıf-bit listesine girmezler) ve
+	// 4 hata ≤2 çevirmeyle düzelmez — çözüm OLMAMALI. (Susturmak yetmez:
+	// susturulan bit "zayıf" olur ve chase onu meşru biçimde kurtarabilir.)
 	symN := int(SymbolSec * float64(sr))
 	chirpN := int(ChirpSec * float64(sr))
 	gapN := int(GapSec * float64(sr))
-	for i := 0; i < 4*symN; i++ {
-		burst[chirpN+gapN+10*symN+i] = 0
+	trueBits := p.bits()
+	for _, bitIdx := range []int{10, 12, 14, 16} {
+		freq := Bit1Hz // gerçek bit 0 ise ters = 1
+		if trueBits[bitIdx] != 0 {
+			freq = Bit0Hz
+		}
+		lo := chirpN + gapN + bitIdx*symN
+		phase := 0.0
+		for i := 0; i < symN; i++ {
+			phase += 2 * math.Pi * freq / float64(sr)
+			burst[lo+i] = amplitude * math.Sin(phase)
+		}
 	}
-	if _, err := Decode(embed(burst, sr/4, sr/4), sr); err == nil {
-		t.Fatal("bozuk yük çözülmemeliydi (CRC + chase sınırı)")
+	if det, err := Decode(embed(burst, sr/4, sr/4), sr); err == nil {
+		t.Fatalf("bozuk yük çözülmemeliydi (CRC + chase sınırı): %+v", det)
 	}
 }
 
