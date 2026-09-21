@@ -199,7 +199,22 @@ adım sırasını izler.
   kaydı → çözüm (2 bit chase düzeltmesiyle). Seansın kattığı sağlamlıklar:
   stereo kanal seçimi, ±20 ms kilit kurtarma, geç pencere profili, CRC
   kılavuzlu chase (≤2 bit), -analyze ham bit/ofset teşhisi — hepsi testli.
-  **Kalan:** Dart mikrofon dinleyicisi (sıradaki iş) ve mekân PA saha ölçümü.
+  **Dart dinleyicisi YAZILDI (2026-09-21, cihaz doğrulaması bekliyor):**
+  `apps/participant/lib/core/ultrasonic.dart` Go çözücünün akış-tabanlı
+  portu (aynı sabitler/CRC/chirp korelasyonu/Goertzel/pencere profilleri/
+  chase; ek olarak biquad durumu chunk'lar arası taşınır, bant-içi enerji
+  kapısı EMA×6 + mutlak 0.002, searchedUntil yalnız tam değerlendirilen
+  bölgeyi ilerletir, 3 sn tampon) + `test/ultrasonic_test.dart` (Go
+  beklentilerinin aynası, 960 örneklik parçalarla). `ultrasonic_listener.dart`
+  record paketiyle 48 kHz PCM akışı + MonoClock çıpası; show_screen'de
+  "beacon dinle" anahtarı, cue_index→cueId eşlemesi, sentetik runId
+  `beacon:<cue>:<sn>`, WS ±2 sn önceliği, ultrasonik kaynakta ofset=0.
+  **Kullanıcı doğrulaması:** `flutter pub get && flutter analyze && flutter
+  test` (apps/participant), sonra APK'yı yeniden derle (workflow RECORD_AUDIO
+  iznini ekliyor; elle iskelet kuranlar README'deki manifest satırını
+  eklemeli) ve `ornek_beacon.wav`/beacon WAV'ını PC hoparlöründen çalarak
+  uygulamanın yakaladığını gör.
+  **Kalan:** cihazda uçtan uca doğrulama (kullanıcı) ve mekân PA saha ölçümü.
 
 ## Notlar
 

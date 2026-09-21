@@ -82,7 +82,14 @@ sıkıştırma). Beacon'a güvenmeden önce mekânda şu test yapılır:
   stereo ortalaması 19 kHz'te faz iptali yapabilir (kanal seçimi eklendi),
   yansıma chirp kilidini tam sembol kaydırabilir, AAC zamansal maskelemesi
   '1-koşusu→0' sembollerini siler.
-- [ ] Dart dinleyicisi (mikrofon + aynı Goertzel/korelasyon; Cue Arbiter'a
-  `CueSource.ultrasonic` adayı) — cihazda mikrofon izni ve gerçek PA ile
-  test ister; sözleşme sabitlendiği için port mekaniktir.
+- [~] Dart dinleyicisi YAZILDI (2026-09-21): `apps/participant/lib/core/`
+  altında `ultrasonic.dart` (akış-tabanlı çözücü, Go portu + kapı/tampon
+  mantığı) ve `ultrasonic_listener.dart` (record ile 48 kHz PCM16 akışı,
+  MonoClock çıpası; OS yankı/gürültü bastırma ve autogain KAPALI). Gösteri
+  ekranında "beacon dinle" anahtarı; algı `CueSource.ultrasonic` olarak
+  Cue Arbiter'a girer (runId `beacon:<cue>:<ateşleme-saniyesi>`; kurulu WS
+  koşusunun ateşlemesi ±2 sn içindeyse beacon yok sayılır; ultrasonik
+  kaynakta ofset=0 — ateşleme anı zaten yereldir). **Cihaz doğrulaması
+  bekliyor:** flutter test + APK derleme (RECORD_AUDIO) + hoparlörden
+  beacon çalma.
 - [ ] Gerçek PA'da saha ölçümü (yukarıdaki prosedür) — kullanıcıyla.
