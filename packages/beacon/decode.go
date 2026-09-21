@@ -134,7 +134,7 @@ func corrScore(samples, tmpl []float64, tmplEnergy float64, at int) float64 {
 // doğrulaması da ayrıca eler).
 func demodulateWithRetry(samples []float64, sr float64, at, symN int) (Payload, error) {
 	var firstErr error
-	for _, offMs := range []float64{0, -2, 2, -4, 4, -6, 6} {
+	for _, offMs := range retryOffsetsMs {
 		off := int(offMs * sr / 1000)
 		if at+off < 0 {
 			continue
@@ -150,24 +150,49 @@ func demodulateWithRetry(samples []float64, sr float64, at, symN int) (Payload, 
 	return Payload{}, firstErr
 }
 
+// retryOffsetsMs: küçük kaymalar (yankı chirp tepe noktasını oynatır) ve
+// TAM SEMBOL kaymaları (±20 ms — güçlü yansıma kilidi bir sembol geç/erken
+// düşürebilir; pencereler komşu sembole temiz oturur, bitler "emin ama
+// yanlış" çıkar ve yalnız CRC yakalar). CRC 1/256 yanlış-pozitif verir;
+// yük doğrulaması ayrıca eler.
+var retryOffsetsMs = []float64{0, -2, 2, -4, 4, -6, 6, -10, 10, -20, 20}
+
 // demodulate, yük sembollerini Goertzel enerjileriyle bitlere çevirir ve
 // yükü çözer. Sembolün ortadaki %70'i okunur (kenar yumuşatmaları ve küçük
 // senkron kaymaları dışarıda kalsın).
 func demodulate(samples []float64, sr float64, at, symN int) (Payload, error) {
+	bits, _, err := demodBits(samples, sr, at, symN)
+	if err != nil {
+		return Payload{}, err
+	}
+	return parseBits(bits)
+}
+
+// demodBits, sembolleri bitlere çevirir ve her sembolün karar payını
+// (|e1−e0|/(e1+e0)) döndürür — teşhis (Analyze) aynı yolu kullanır.
+func demodBits(samples []float64, sr float64, at, symN int) (bits []byte, margins []float64, err error) {
 	margin := symN * 15 / 100
-	bits := make([]byte, PayloadBits)
+	bits = make([]byte, PayloadBits)
+	margins = make([]float64, 0, PayloadBits)
 	for s := 0; s < PayloadBits; s++ {
 		lo := at + s*symN + margin
 		hi := at + (s+1)*symN - margin
-		if hi > len(samples) {
-			return Payload{}, fmt.Errorf("beacon: kayıt yük ortasında bitiyor")
+		if lo < 0 || hi > len(samples) {
+			return nil, nil, fmt.Errorf("beacon: kayıt yük ortasında bitiyor")
 		}
 		win := samples[lo:hi]
-		if goertzel(win, sr, Bit1Hz) > goertzel(win, sr, Bit0Hz) {
+		e0 := goertzel(win, sr, Bit0Hz)
+		e1 := goertzel(win, sr, Bit1Hz)
+		if e1 > e0 {
 			bits[s] = 1
 		}
+		if e0+e1 > 0 {
+			margins = append(margins, math.Abs(e1-e0)/(e1+e0))
+		} else {
+			margins = append(margins, 0)
+		}
 	}
-	return parseBits(bits)
+	return bits, margins, nil
 }
 
 // goertzel, penceredeki hedef frekans enerjisini döndürür (FFT'siz tek bant
@@ -205,6 +230,19 @@ type Report struct {
 	// ağır yankı sembolleri bulanıklaştırınca 0'a yaklaşır — CRC'nin neden
 	// tutmadığının göstergesidir.
 	SymbolMarginP10 float64
+	// RawBits: en iyi chirp konumunda (ofset 0) çözülen 34 bit — alan
+	// sınırlarında '|' ile: version|cue|seq|countdown|crc. "Emin ama yanlış"
+	// vakalarında beklenen dizilimle karşılaştırma imkânı verir.
+	RawBits string
+	// Offsets: sembol saati ofsetleri için CRC/karar payı tablosu.
+	Offsets []OffsetProbe
+}
+
+// OffsetProbe, tek bir sembol saati ofsetinin teşhisidir.
+type OffsetProbe struct {
+	OffMs     float64
+	CRCOK     bool
+	MarginP10 float64
 }
 
 // InBandEnergy, 17,5 kHz üstü enerji toplamını döndürür. Stereo kayıtta
@@ -262,7 +300,8 @@ func Analyze(samples []float64, sampleRate int) (Report, error) {
 		}
 	}
 
-	// En iyi chirp konumunda yük denemesi + sembol karar payları.
+	// En iyi chirp konumunda yük denemesi + sembol karar payları + ofset
+	// tablosu (sembol saati kaç ms kaymış, hangi ofsette CRC tutuyor).
 	if rep.BestChirpScore > 0 {
 		bestAt := int(rep.BestChirpAtSec * sr)
 		gapN := int(GapSec * sr)
@@ -271,24 +310,20 @@ func Analyze(samples []float64, sampleRate int) (Report, error) {
 		if _, err := demodulateWithRetry(filtered, sr, payloadAt, symN); err == nil {
 			rep.DemodOK = true
 		}
-		margin := symN * 15 / 100
-		var margins []float64
-		for s := 0; s < PayloadBits; s++ {
-			lo := payloadAt + s*symN + margin
-			hi := payloadAt + (s+1)*symN - margin
-			if hi > len(filtered) {
-				break
+		for _, offMs := range retryOffsetsMs {
+			at := payloadAt + int(offMs*sr/1000)
+			bits, margins, err := demodBits(filtered, sr, at, symN)
+			if err != nil {
+				continue
 			}
-			win := filtered[lo:hi]
-			e0 := goertzel(win, sr, Bit0Hz)
-			e1 := goertzel(win, sr, Bit1Hz)
-			if e0+e1 > 0 {
-				margins = append(margins, math.Abs(e1-e0)/(e1+e0))
-			}
-		}
-		if len(margins) > 0 {
 			sortFloats(margins)
-			rep.SymbolMarginP10 = margins[len(margins)/10]
+			p10 := margins[len(margins)/10]
+			_, crcErr := parseBits(bits)
+			rep.Offsets = append(rep.Offsets, OffsetProbe{OffMs: offMs, CRCOK: crcErr == nil, MarginP10: p10})
+			if offMs == 0 {
+				rep.SymbolMarginP10 = p10
+				rep.RawBits = formatBits(bits)
+			}
 		}
 	}
 
@@ -339,6 +374,19 @@ func highpass(in []float64, sr, fc float64) []float64 {
 		y2, y1 = y1, y
 	}
 	return out
+}
+
+// formatBits, 34 biti alan sınırlarıyla yazar: version|cue|seq|countdown|crc.
+func formatBits(bits []byte) string {
+	var out []byte
+	for i, b := range bits {
+		switch i {
+		case 4, 12, 16, 26:
+			out = append(out, '|')
+		}
+		out = append(out, '0'+b)
+	}
+	return string(out)
 }
 
 // sortFloats, sort paketine bağımlılık eklememek için yeterli olan küçük

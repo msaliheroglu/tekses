@@ -137,6 +137,25 @@ func TestSilenceRejected(t *testing.T) {
 	}
 }
 
+// Güçlü yansıma chirp kilidini TAM BİR SEMBOL (20 ms) kaydırabilir: bitler
+// "emin ama yanlış" çıkar, yalnız CRC yakalar. ±20 ms yeniden denemesi bunu
+// kurtarmalı (saha vakası: skor 0.81, karar payı 0.97, CRC sürekli ✗).
+func TestWholeSymbolLockError(t *testing.T) {
+	const sr = 48000
+	burst, _ := Encode(testPayload(), sr)
+	symN := int(SymbolSec * sr)
+	// Kilit hatası taklidi: demodülasyona kasıtlı +1 sembol kaymış konum ver.
+	chirpN := int(ChirpSec * float64(sr))
+	gapN := int(GapSec * float64(sr))
+	rec := embed(burst, sr/4, sr/2)
+	if _, err := demodulateWithRetry(rec, sr, sr/4+chirpN+gapN+symN, symN); err != nil {
+		t.Fatalf("+1 sembol kilit hatası kurtarılamadı: %v", err)
+	}
+	if _, err := demodulateWithRetry(rec, sr, sr/4+chirpN+gapN-symN, symN); err != nil {
+		t.Fatalf("-1 sembol kilit hatası kurtarılamadı: %v", err)
+	}
+}
+
 func TestAnalyze(t *testing.T) {
 	const sr = 48000
 	burst, _ := Encode(testPayload(), sr)

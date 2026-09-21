@@ -172,6 +172,21 @@ func runAnalyze(path string) error {
 	fmt.Printf("  yük çözümü (CRC)                  : ok=%v\n", rep.DemodOK)
 	fmt.Printf("  sembol karar payı (P10)           : %.2f (temiz ~0,9+; <0,3 = bulanık)\n",
 		rep.SymbolMarginP10)
+	if rep.RawBits != "" {
+		fmt.Printf("  ham bitler (ofset 0)              : %s\n", rep.RawBits)
+		fmt.Println("                                      (version|cue|seq|countdown|crc)")
+	}
+	if len(rep.Offsets) > 0 {
+		fmt.Print("  ofset taraması (ms→CRC/pay)       :")
+		for _, o := range rep.Offsets {
+			mark := "✗"
+			if o.CRCOK {
+				mark = "✓"
+			}
+			fmt.Printf(" %+.0f:%s%.2f", o.OffMs, mark, o.MarginP10)
+		}
+		fmt.Println()
+	}
 	fmt.Println()
 	switch {
 	case rep.DemodOK:
