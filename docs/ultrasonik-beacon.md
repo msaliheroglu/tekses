@@ -71,8 +71,17 @@ sıkıştırma). Beacon'a güvenmeden önce mekânda şu test yapılır:
 ## Durum ve kalanlar
 
 - [x] Sinyal sözleşmesi + Go kodlayıcı/çözücü (`packages/beacon`; gürültü,
-  zayıflama, 44,1 kHz kayıt, çoklu patlama, CRC testli).
-- [x] Araç: beacon WAV, PA test kiti, kayıt çözümü (`tools/beacon`).
+  zayıflama, 44,1 kHz kayıt, çoklu patlama, CRC testli; yankı için geç
+  pencere profili, kilit hatası için ±20 ms; kayıplı kodeğin sildiği tek tük
+  sembol için CRC kılavuzlu chase düzeltmesi ≤2 bit).
+- [x] Araç: beacon WAV, PA test kiti, kayıt çözümü + `-analyze` teşhisi
+  (`tools/beacon`).
+- [x] **Hava testi (2026-09-21, KULLANICI DOĞRULADI):** PC hoparlöründen
+  çalınan beacon, telefonla (m4a→AAC!) kaydedilip çözüldü — 2 zayıf bit
+  chase ile düzeltilerek. Seans boyunca yakalanan gerçek dünya dersleri:
+  stereo ortalaması 19 kHz'te faz iptali yapabilir (kanal seçimi eklendi),
+  yansıma chirp kilidini tam sembol kaydırabilir, AAC zamansal maskelemesi
+  '1-koşusu→0' sembollerini siler.
 - [ ] Dart dinleyicisi (mikrofon + aynı Goertzel/korelasyon; Cue Arbiter'a
   `CueSource.ultrasonic` adayı) — cihazda mikrofon izni ve gerçek PA ile
   test ister; sözleşme sabitlendiği için port mekaniktir.

@@ -195,8 +195,11 @@ adım sırasını izler.
   `tools/beacon` (beacon WAV üretimi, PA test kiti, kayıt çözümü; WAV G/Ç).
   Saha kılavuzu **docs/ultrasonik-beacon.md** (PA test prosedürü + etkinlik
   günü akışı). cue_index eşlemesi: 0=program, i=manifest sırası.
-  **Kalan:** Dart mikrofon dinleyicisi (sözleşme sabit, port mekanik;
-  cihaz + gerçek PA ister) ve mekân PA saha ölçümü (kullanıcıyla).
+  **HAVA TESTİ BAŞARILI (2026-09-21):** PC hoparlörü → oda → telefon m4a
+  kaydı → çözüm (2 bit chase düzeltmesiyle). Seansın kattığı sağlamlıklar:
+  stereo kanal seçimi, ±20 ms kilit kurtarma, geç pencere profili, CRC
+  kılavuzlu chase (≤2 bit), -analyze ham bit/ofset teşhisi — hepsi testli.
+  **Kalan:** Dart mikrofon dinleyicisi (sıradaki iş) ve mekân PA saha ölçümü.
 
 ## Notlar
 
