@@ -132,19 +132,35 @@ func corrScore(samples, tmpl []float64, tmplEnergy float64, at int) float64 {
 // noktasını milisaniyelerce kaydırabilir; CRC hangi ofsette tutarsa o
 // çözümdür (yanlış ofsetin CRC'den geçme olasılığı 1/256'dır ve yük
 // doğrulaması da ayrıca eler).
+// windowProfiles: sembol içinde okunan aralıklar (başlangıç/bitiş, sembol
+// oranı). "normal" ortayı okur; "geç" profil, ODA YANKISI için vardır: aynı
+// taşıyıcıda peş peşe sembollerden sonra gelen zıt sembolün başı, önceki
+// sembolün yankı kuyruğuyla maskelenir (saha imzası: yalnız "111→0"
+// geçişlerinde 0→1 hataları). Yankı ilk milisaniyelerde söndüğünden geç
+// pencere bu bitleri kurtarır; CRC hangi profilde tutarsa o geçerlidir.
+var windowProfiles = [][2]int{
+	{15, 85}, // normal (orta %70)
+	{45, 95}, // geç (yankı kuyruğunu atla)
+}
+
 func demodulateWithRetry(samples []float64, sr float64, at, symN int) (Payload, error) {
 	var firstErr error
-	for _, offMs := range retryOffsetsMs {
-		off := int(offMs * sr / 1000)
-		if at+off < 0 {
-			continue
-		}
-		p, err := demodulate(samples, sr, at+off, symN)
-		if err == nil {
-			return p, nil
-		}
-		if firstErr == nil {
-			firstErr = err
+	for _, prof := range windowProfiles {
+		for _, offMs := range retryOffsetsMs {
+			off := int(offMs * sr / 1000)
+			if at+off < 0 {
+				continue
+			}
+			bits, _, err := demodBitsWindow(samples, sr, at+off, symN, prof)
+			if err == nil {
+				var p Payload
+				if p, err = parseBits(bits); err == nil {
+					return p, nil
+				}
+			}
+			if firstErr == nil {
+				firstErr = err
+			}
 		}
 	}
 	return Payload{}, firstErr
@@ -171,12 +187,17 @@ func demodulate(samples []float64, sr float64, at, symN int) (Payload, error) {
 // demodBits, sembolleri bitlere çevirir ve her sembolün karar payını
 // (|e1−e0|/(e1+e0)) döndürür — teşhis (Analyze) aynı yolu kullanır.
 func demodBits(samples []float64, sr float64, at, symN int) (bits []byte, margins []float64, err error) {
-	margin := symN * 15 / 100
+	return demodBitsWindow(samples, sr, at, symN, windowProfiles[0])
+}
+
+// demodBitsWindow, demodBits'in pencere profili seçilebilen halidir
+// (prof: sembol içi başlangıç/bitiş yüzdeleri).
+func demodBitsWindow(samples []float64, sr float64, at, symN int, prof [2]int) (bits []byte, margins []float64, err error) {
 	bits = make([]byte, PayloadBits)
 	margins = make([]float64, 0, PayloadBits)
 	for s := 0; s < PayloadBits; s++ {
-		lo := at + s*symN + margin
-		hi := at + (s+1)*symN - margin
+		lo := at + s*symN + symN*prof[0]/100
+		hi := at + s*symN + symN*prof[1]/100
 		if lo < 0 || hi > len(samples) {
 			return nil, nil, fmt.Errorf("beacon: kayıt yük ortasında bitiyor")
 		}

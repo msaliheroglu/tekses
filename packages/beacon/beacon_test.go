@@ -137,6 +137,34 @@ func TestSilenceRejected(t *testing.T) {
 	}
 }
 
+// Oda yankısı: aynı taşıyıcıda peş peşe sembollerin kuyruğu, ardından gelen
+// zıt sembolün başını maskeler (saha imzası: yalnız "111→0" geçişlerinde
+// 0→1 hataları). Geç pencere profili bunu kurtarmalı. Yankı, çok vuruşlu
+// gecikmeli kopyalarla taklit edilir.
+func TestReverberantRecording(t *testing.T) {
+	const sr = 48000
+	// CRC'si "…1110 1110" gibi 1-koşusu→0 geçişleri içeren saha yükü.
+	p := Payload{Version: Version, CueIndex: 0, Seq: 1, CountdownMs: 3000}
+	burst, _ := Encode(p, sr)
+	rec := embed(burst, sr/2, sr/2)
+	for _, tap := range []struct {
+		delayMs float64
+		gain    float64
+	}{{3, 0.5}, {7, 0.35}, {12, 0.25}, {18, 0.15}} {
+		d := int(tap.delayMs * sr / 1000)
+		for i := len(rec) - 1; i >= d; i-- {
+			rec[i] += tap.gain * rec[i-d]
+		}
+	}
+	det, err := Decode(rec, sr)
+	if err != nil {
+		t.Fatalf("yankılı kayıt çözülemedi: %v", err)
+	}
+	if det.Payload != p {
+		t.Fatalf("yankılı yük = %+v", det.Payload)
+	}
+}
+
 // Güçlü yansıma chirp kilidini TAM BİR SEMBOL (20 ms) kaydırabilir: bitler
 // "emin ama yanlış" çıkar, yalnız CRC yakalar. ±20 ms yeniden denemesi bunu
 // kurtarmalı (saha vakası: skor 0.81, karar payı 0.97, CRC sürekli ✗).
