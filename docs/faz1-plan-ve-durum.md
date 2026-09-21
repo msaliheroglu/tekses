@@ -176,8 +176,13 @@ adım sırasını izler.
   ısı haritası: keepalive ping'ine sunucu saati damgası → pong RTT'si
   istemci başına atomik; GET /api/v0/clockstats oda bazlı p50/p95 + kovalar
   (<10/<30/<100/≥100 ms), konsolda renkli ısı çubuğu. RTT senkron kalite
-  VEKİLİDİR (ofset değil) — panel öyle etiketler. **Kalan:** VM'de 2 kopyayla
-  yük koşumu doğrulaması (kullanıcıyla).
+  VEKİLİDİR (ofset değil) — panel öyle etiketler. Düşmanca inceleme
+  (5 boyut × 3 çürütücü, 35 ajan) 4 bulgu onayladı, dördü düzeltildi:
+  NATS baş-blokajı (sink kendi goroutine'inde; ping hatasında Unregister),
+  konsol kayıt birleşimi (kalıcı + halka), presence/clockstats'a işletmen
+  kilidi (kiracılar arası sızıntı). İkinci doğrulama turu düzeltilmiş koda
+  karşı temiz. **Kalan:** VM'de 2 kopyayla yük koşumu doğrulaması
+  (kullanıcıyla); ileride org-kapsamlı telemetri (control-api vekaletiyle).
 - [ ] **F2.7 Ultrasonik beacon + PA test kiti** (karar dokümanı §3).
 
 ## Notlar
