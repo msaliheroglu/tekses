@@ -80,8 +80,9 @@ adım sırasını izler.
 
 - [x] **F2.0 PR:** Faz 1 main'e PR #2 ile merge edildi (2026-09-19). Faz 2
   işleri (dağıtım, çift kodek, ses+karaoke, görsel editör, VM söz çıkarma)
-  **PR #3 ile main'e merge edildi (2026-09-20)**; çalışma dalı yeni main'in
-  üzerine alındı.
+  **PR #3 ile (2026-09-20)**, yük testi + canlı etkinleştirme + NATS çok
+  düğüm + telemetri **PR #4 ile (2026-09-21)** main'e merge edildi; çalışma
+  dalı her merge sonrası yeni main'in üzerine alındı.
 - [x] **F2.1 Dağıtım paketi:** Dockerfile'lar (gateway, control-api, panel
   standalone), `deploy/docker-compose.yml` (postgres + üç servis + Caddy
   otomatik TLS, tek alan adında yol bazlı dağıtım), `.env.example`,
