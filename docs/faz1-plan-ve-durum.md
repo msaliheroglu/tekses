@@ -186,7 +186,17 @@ adım sırasını izler.
   NATS ile 40k ikili istemci — 40000/40000 başarılı, yayılım maks−min 2 ms /
   p95−p5 2 ms / σ 0.6 ms: düğümler arası senkron yük altında kanıtlandı.
   İleride: org-kapsamlı telemetri (control-api vekaletiyle).
-- [ ] **F2.7 Ultrasonik beacon + PA test kiti** (karar dokümanı §3).
+- [~] **F2.7 Ultrasonik beacon + PA test kiti (sunucu tarafı TAMAM,
+  2026-09-21):** sinyal sözleşmesi v1 (18,5–20 kHz; 120 ms chirp + 34 bit
+  FSK: version/cue_index/seq/geri sayım/CRC-8; geri sayım chirp başına
+  göre) + Go kodlayıcı/çözücü `packages/beacon` (chirp korelasyonu +
+  Goertzel; 17,5 kHz yüksek-geçirenle gürültü bağışıklığı; negatif SNR,
+  44,1 kHz kayıt, çoklu patlama, kayıt-sonu regresyonu testli) +
+  `tools/beacon` (beacon WAV üretimi, PA test kiti, kayıt çözümü; WAV G/Ç).
+  Saha kılavuzu **docs/ultrasonik-beacon.md** (PA test prosedürü + etkinlik
+  günü akışı). cue_index eşlemesi: 0=program, i=manifest sırası.
+  **Kalan:** Dart mikrofon dinleyicisi (sözleşme sabit, port mekanik;
+  cihaz + gerçek PA ister) ve mekân PA saha ölçümü (kullanıcıyla).
 
 ## Notlar
 
