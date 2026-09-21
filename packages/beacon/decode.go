@@ -12,6 +12,10 @@ import (
 // Detection, kayıtta bulunan tek bir beacon çözümüdür.
 type Detection struct {
 	Payload Payload
+	// Corrected: CRC'ye ulaşmak için çevrilen zayıf bit sayısı (0 = temiz
+	// çözüm; 1-2 = chase düzeltmesi — kayıplı kodek/yankı tek tük sembolü
+	// silebiliyor, CRC + güven payları onları geri kazandırır).
+	Corrected int
 	// StartSample, önekin (chirp) kayıttaki başlangıç örneğidir. Ateşleme
 	// anı = kayıtta bu örneğin duyulduğu yerel an + Payload.CountdownMs.
 	// (Geri sayım, ÖNEKİN BAŞINA göre tanımlıdır; kodlayıcı ve saha kılavuzu
@@ -72,9 +76,9 @@ func DecodeAll(samples []float64, sampleRate, max int) ([]Detection, error) {
 		// Patlamanın kuyruğunun sığıp sığmadığına burada bakılmaz: algılama
 		// birkaç örnek geç kilitlenebilir ve tam-uzunluk kayıtta son
 		// yinelemeyi elerdi; kesik yükü demodulate'in sınır denetimi eler.
-		p, err := demodulateWithRetry(samples, sr, start+chirpN+gapN, symN)
+		p, corrected, err := demodulateWithRetry(samples, sr, start+chirpN+gapN, symN)
 		if err == nil {
-			out = append(out, Detection{Payload: p, StartSample: start, Score: score})
+			out = append(out, Detection{Payload: p, Corrected: corrected, StartSample: start, Score: score})
 			searchFrom = start + burstN
 		} else {
 			// Yanlış tepe (yankı vb.): chirp'in yarısı kadar ilerleyip
@@ -143,7 +147,8 @@ var windowProfiles = [][2]int{
 	{45, 95}, // geç (yankı kuyruğunu atla)
 }
 
-func demodulateWithRetry(samples []float64, sr float64, at, symN int) (Payload, error) {
+func demodulateWithRetry(samples []float64, sr float64, at, symN int) (Payload, int, error) {
+	// 1. geçiş: SIFIR düzeltmeyle tüm profil+ofsetler — temiz yol daima önce.
 	var firstErr error
 	for _, prof := range windowProfiles {
 		for _, offMs := range retryOffsetsMs {
@@ -155,7 +160,7 @@ func demodulateWithRetry(samples []float64, sr float64, at, symN int) (Payload, 
 			if err == nil {
 				var p Payload
 				if p, err = parseBits(bits); err == nil {
-					return p, nil
+					return p, 0, nil
 				}
 			}
 			if firstErr == nil {
@@ -163,7 +168,69 @@ func demodulateWithRetry(samples []float64, sr float64, at, symN int) (Payload, 
 			}
 		}
 	}
-	return Payload{}, firstErr
+
+	// 2. geçiş (chase): kayıplı kodek (AAC zamansal maskelemesi tek tük
+	// sembolü tamamen silebilir) ve ağır yankı için, EN ZAYIF bitlerden en
+	// çok ikisi çevrilerek denenir. Yanlış-kabul sıkı sınırlanır: yalnız
+	// chirp kilidine yakın ofsetler, ≤2 çevirme × en zayıf 4 bit, CRC +
+	// version/alan doğrulaması. (Beacon zaten ±300 ms toleranslı YEDEKTİR;
+	// kalan risk, yinelemeler ve Cue Arbiter'la örtülüdür.)
+	for _, prof := range windowProfiles {
+		for _, offMs := range []float64{0, -2, 2, -4, 4} {
+			off := int(offMs * sr / 1000)
+			if at+off < 0 {
+				continue
+			}
+			bits, margins, err := demodBitsWindow(samples, sr, at+off, symN, prof)
+			if err != nil {
+				continue
+			}
+			weakest := weakestIndices(margins, 4)
+			// Tek çevirmeler, sonra ikili kombinasyonlar.
+			for i := 0; i < len(weakest); i++ {
+				if p, ok := tryFlips(bits, weakest[i:i+1]); ok {
+					return p, 1, nil
+				}
+			}
+			for i := 0; i < len(weakest); i++ {
+				for j := i + 1; j < len(weakest); j++ {
+					if p, ok := tryFlips(bits, []int{weakest[i], weakest[j]}); ok {
+						return p, 2, nil
+					}
+				}
+			}
+		}
+	}
+	return Payload{}, 0, firstErr
+}
+
+// weakestIndices, en düşük karar paylı en çok n bit konumunu döndürür.
+func weakestIndices(margins []float64, n int) []int {
+	idx := make([]int, len(margins))
+	for i := range idx {
+		idx[i] = i
+	}
+	// küçük dizi: eklemeli sıralama yeterli
+	for i := 1; i < len(idx); i++ {
+		for j := i; j > 0 && margins[idx[j]] < margins[idx[j-1]]; j-- {
+			idx[j], idx[j-1] = idx[j-1], idx[j]
+		}
+	}
+	if len(idx) > n {
+		idx = idx[:n]
+	}
+	return idx
+}
+
+// tryFlips, verilen konumlar çevrilmiş kopyayı çözmeyi dener.
+func tryFlips(bits []byte, flips []int) (Payload, bool) {
+	c := make([]byte, len(bits))
+	copy(c, bits)
+	for _, f := range flips {
+		c[f] ^= 1
+	}
+	p, err := parseBits(c)
+	return p, err == nil
 }
 
 // retryOffsetsMs: küçük kaymalar (yankı chirp tepe noktasını oynatır) ve
@@ -328,7 +395,7 @@ func Analyze(samples []float64, sampleRate int) (Report, error) {
 		gapN := int(GapSec * sr)
 		symN := int(SymbolSec * sr)
 		payloadAt := bestAt + chirpN + gapN
-		if _, err := demodulateWithRetry(filtered, sr, payloadAt, symN); err == nil {
+		if _, _, err := demodulateWithRetry(filtered, sr, payloadAt, symN); err == nil {
 			rep.DemodOK = true
 		}
 		for _, offMs := range retryOffsetsMs {

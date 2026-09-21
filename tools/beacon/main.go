@@ -135,8 +135,12 @@ func runDecode(path string) error {
 	fmt.Printf("%s: %d Hz, %.1f sn — %d beacon çözüldü\n", path, rate, float64(len(samples))/float64(rate), len(dets))
 	for _, d := range dets {
 		at := float64(d.StartSample) / float64(rate)
-		fmt.Printf("  t=%6.2f sn  cue_index=%d  seq=%d  geri sayım=%d ms  skor=%.2f\n",
-			at, d.Payload.CueIndex, d.Payload.Seq, d.Payload.CountdownMs, d.Score)
+		note := ""
+		if d.Corrected > 0 {
+			note = fmt.Sprintf("  (%d zayıf bit düzeltildi)", d.Corrected)
+		}
+		fmt.Printf("  t=%6.2f sn  cue_index=%d  seq=%d  geri sayım=%d ms  skor=%.2f%s\n",
+			at, d.Payload.CueIndex, d.Payload.Seq, d.Payload.CountdownMs, d.Score, note)
 	}
 	return nil
 }

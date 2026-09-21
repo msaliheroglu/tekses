@@ -119,15 +119,16 @@ func TestBurstAtRecordingEnd(t *testing.T) {
 func TestCorruptPayloadRejected(t *testing.T) {
 	const sr = 48000
 	burst, _ := Encode(testPayload(), sr)
-	// Yükün ortasındaki iki sembolü sustur: CRC tutmamalı, çözüm olmamalı.
+	// Yükün ortasındaki DÖRT sembolü sustur: chase en çok 2 zayıf biti
+	// düzeltir; 4 bilinmeyen bit CRC'den geçmemeli, çözüm olmamalı.
 	symN := int(SymbolSec * float64(sr))
 	chirpN := int(ChirpSec * float64(sr))
 	gapN := int(GapSec * float64(sr))
-	for i := 0; i < 2*symN; i++ {
+	for i := 0; i < 4*symN; i++ {
 		burst[chirpN+gapN+10*symN+i] = 0
 	}
 	if _, err := Decode(embed(burst, sr/4, sr/4), sr); err == nil {
-		t.Fatal("bozuk yük çözülmemeliydi (CRC)")
+		t.Fatal("bozuk yük çözülmemeliydi (CRC + chase sınırı)")
 	}
 }
 
@@ -165,6 +166,44 @@ func TestReverberantRecording(t *testing.T) {
 	}
 }
 
+// AAC zamansal maskelemesi: güçlü 19,4 kHz koşusunun ardından gelen kısa
+// 18,6 kHz sembolünü kodek "duyulmaz" sayıp tamamen silebilir; yerinde
+// önceki taşıyıcının zayıf kuyruğu kalır → bit emin şekilde YANLIŞ okunur
+// ve hiçbir pencere/ofset kurtaramaz. Chase düzeltmesi (en zayıf ≤2 biti
+// CRC kılavuzluğunda çevirme) bunu geri kazanmalı (saha vakası: 34 bitin
+// 2'si hatalı, ikisi de '111→0' geçişinde).
+func TestAACMaskedSymbolsRecovered(t *testing.T) {
+	const sr = 48000
+	p := Payload{Version: Version, CueIndex: 0, Seq: 1, CountdownMs: 3000}
+	burst, _ := Encode(p, sr)
+	chirpN := int(ChirpSec * float64(sr))
+	gapN := int(GapSec * float64(sr))
+	symN := int(SymbolSec * sr)
+
+	// Saha vakasındaki iki konum: CRC alanındaki '0' bitleri (idx 29 ve 33;
+	// bu yük için CRC=11101110). Sembol tamamen silinir, yerine önceki
+	// taşıyıcının (bit1) zayıf kuyruğu konur.
+	for _, bitIdx := range []int{29, 33} {
+		lo := chirpN + gapN + bitIdx*symN
+		phase := 0.0
+		for i := 0; i < symN; i++ {
+			phase += 2 * math.Pi * Bit1Hz / float64(sr)
+			burst[lo+i] = 0.1 * math.Sin(phase)
+		}
+	}
+
+	det, err := Decode(embed(burst, sr/4, sr/4), sr)
+	if err != nil {
+		t.Fatalf("maskelenen semboller kurtarılamadı: %v", err)
+	}
+	if det.Payload != p {
+		t.Fatalf("yük = %+v", det.Payload)
+	}
+	if det.Corrected != 2 {
+		t.Fatalf("düzeltilen bit = %d, beklenen 2", det.Corrected)
+	}
+}
+
 // Güçlü yansıma chirp kilidini TAM BİR SEMBOL (20 ms) kaydırabilir: bitler
 // "emin ama yanlış" çıkar, yalnız CRC yakalar. ±20 ms yeniden denemesi bunu
 // kurtarmalı (saha vakası: skor 0.81, karar payı 0.97, CRC sürekli ✗).
@@ -176,10 +215,10 @@ func TestWholeSymbolLockError(t *testing.T) {
 	chirpN := int(ChirpSec * float64(sr))
 	gapN := int(GapSec * float64(sr))
 	rec := embed(burst, sr/4, sr/2)
-	if _, err := demodulateWithRetry(rec, sr, sr/4+chirpN+gapN+symN, symN); err != nil {
+	if _, _, err := demodulateWithRetry(rec, sr, sr/4+chirpN+gapN+symN, symN); err != nil {
 		t.Fatalf("+1 sembol kilit hatası kurtarılamadı: %v", err)
 	}
-	if _, err := demodulateWithRetry(rec, sr, sr/4+chirpN+gapN-symN, symN); err != nil {
+	if _, _, err := demodulateWithRetry(rec, sr, sr/4+chirpN+gapN-symN, symN); err != nil {
 		t.Fatalf("-1 sembol kilit hatası kurtarılamadı: %v", err)
 	}
 }
