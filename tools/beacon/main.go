@@ -38,10 +38,13 @@ func main() {
 	rate := flag.Int("rate", 48000, "örnekleme hızı (Hz)")
 	patest := flag.String("patest", "", "PA test kitini bu dizine üret")
 	decode := flag.String("decode", "", "verilen WAV kaydında beacon çöz")
+	analyze := flag.String("analyze", "", "verilen WAV kaydını teşhis et (çözmeden: bant/chirp var mı)")
 	flag.Parse()
 
 	var err error
 	switch {
+	case *analyze != "":
+		err = runAnalyze(*analyze)
 	case *decode != "":
 		err = runDecode(*decode)
 	case *patest != "":
@@ -132,6 +135,39 @@ func runDecode(path string) error {
 		at := float64(d.StartSample) / float64(rate)
 		fmt.Printf("  t=%6.2f sn  cue_index=%d  seq=%d  geri sayım=%d ms  skor=%.2f\n",
 			at, d.Payload.CueIndex, d.Payload.Seq, d.Payload.CountdownMs, d.Score)
+	}
+	return nil
+}
+
+func runAnalyze(path string) error {
+	samples, rate, err := readWAV(path)
+	if err != nil {
+		return err
+	}
+	rep, err := beacon.Analyze(samples, rate)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("%s: %d Hz, %.1f sn\n", path, rate, rep.DurationSec)
+	fmt.Printf("  bant içi enerji oranı (>17,5 kHz) : %.4f\n", rep.InBandRatio)
+	fmt.Printf("  bit taşıyıcıları (18,6/19,4 kHz)  : görüldü=%v\n", rep.CarrierSeen)
+	fmt.Printf("  en iyi chirp skoru                : %.2f (t=%.2f sn; çözüm eşiği 0,35)\n",
+		rep.BestChirpScore, rep.BestChirpAtSec)
+	fmt.Println()
+	switch {
+	case rep.InBandRatio < 0.001:
+		fmt.Println("TEŞHİS: 17,5 kHz üstünde neredeyse HİÇ enerji yok — sinyal kayda hiç")
+		fmt.Println("girmemiş. Sıra: (1) m4a/AAC sıkıştırması bandı siler → WAV/kayıpsız")
+		fmt.Println("kaydedin; (2) hoparlör 19 kHz basamıyor olabilir (laptop hoparlörleri")
+		fmt.Println("sıklıkla basamaz — harici hoparlör deneyin); (3) Bluetooth zinciri bandı")
+		fmt.Println("öldürür (kablolu çalın); (4) ses seviyesini yükseltin, 1-2 m'den kaydedin.")
+	case !rep.CarrierSeen || rep.BestChirpScore < 0.35:
+		fmt.Println("TEŞHİS: bantta enerji VAR ama beacon deseni seçilemiyor — sinyal yolda")
+		fmt.Println("bozulmuş. Sıra: kayıt uygulamasının gürültü bastırma/AGC ayarını kapatın,")
+		fmt.Println("48 kHz WAV seçin; hoparlöre yaklaşın; ortam gürültüsünü azaltın.")
+	default:
+		fmt.Println("TEŞHİS: chirp güçlü görünüyor; -decode bu kayıtta çalışmalı. Çalışmıyorsa")
+		fmt.Println("kayıt beacon'ın yükünü (chirp sonrası ~0,7 sn) kesmiş olabilir — daha uzun kaydedin.")
 	}
 	return nil
 }

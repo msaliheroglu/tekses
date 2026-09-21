@@ -137,6 +137,31 @@ func TestSilenceRejected(t *testing.T) {
 	}
 }
 
+func TestAnalyze(t *testing.T) {
+	const sr = 48000
+	burst, _ := Encode(testPayload(), sr)
+	rep, err := Analyze(embed(burst, sr/2, sr/2), sr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep.InBandRatio < 0.2 || !rep.CarrierSeen || rep.BestChirpScore < 0.35 {
+		t.Fatalf("temiz beacon raporu zayıf: %+v", rep)
+	}
+
+	// Bant dışı içerik (1 kHz ton): bant oranı ~0, taşıyıcı yok.
+	low := make([]float64, 2*sr)
+	for i := range low {
+		low[i] = 0.5 * math.Sin(2*math.Pi*1000*float64(i)/sr)
+	}
+	rep2, err := Analyze(low, sr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep2.InBandRatio > 0.001 || rep2.CarrierSeen || rep2.BestChirpScore >= 0.35 {
+		t.Fatalf("bant dışı kayıt raporu yanlış: %+v", rep2)
+	}
+}
+
 func TestPayloadValidation(t *testing.T) {
 	bad := []Payload{
 		{Version: 2, CueIndex: 0, Seq: 0, CountdownMs: 0},

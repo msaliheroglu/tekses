@@ -160,6 +160,89 @@ func goertzel(win []float64, sr, freq float64) float64 {
 	return s1*s1 + s2*s2 - coeff*s1*s2
 }
 
+// Report, bir kaydın beacon açısından teşhisidir (Analyze). Çözüm
+// başarısızken "sinyal kayda hiç girmemiş" ile "girmiş ama bozulmuş"
+// ayrımını yapar — PA saha testinin asıl sorusu budur.
+type Report struct {
+	DurationSec float64
+	// InBandRatio: 17,5 kHz üstü enerjinin toplam enerjiye oranı (0..1).
+	// Sessiz/bantsız kayıtta ~0; sağlıklı beacon kaydında belirgin > 0.
+	InBandRatio float64
+	// BestChirpScore: kayıttaki en iyi chirp korelasyonu (0..1) ve konumu.
+	// Çözücünün kabul eşiği 0,35'tir.
+	BestChirpScore float64
+	BestChirpAtSec float64
+	// Bit taşıyıcılarının, bant içi enerjiye oranla en güçlü 1 sn'lik
+	// penceredeki varlığı (kaba gösterge).
+	CarrierSeen bool
+}
+
+// Analyze, kaydı çözmeye ÇALIŞMADAN teşhis raporu üretir.
+func Analyze(samples []float64, sampleRate int) (Report, error) {
+	if sampleRate < 40000 {
+		return Report{}, fmt.Errorf("beacon: örnekleme hızı en az 40 kHz olmalı (%d verildi)", sampleRate)
+	}
+	sr := float64(sampleRate)
+	rep := Report{DurationSec: float64(len(samples)) / sr}
+
+	var total float64
+	for _, v := range samples {
+		total += v * v
+	}
+	filtered := highpass(samples, sr, 17500)
+	var inband float64
+	for _, v := range filtered {
+		inband += v * v
+	}
+	if total > 0 {
+		rep.InBandRatio = inband / total
+	}
+
+	// En iyi chirp konumu (çözücüyle aynı şablon ve skor).
+	chirpN := int(ChirpSec * sr)
+	tmpl := make([]float64, chirpN)
+	phase := 0.0
+	for i := 0; i < chirpN; i++ {
+		t := float64(i) / float64(chirpN)
+		freq := ChirpLowHz + (ChirpHighHz-ChirpLowHz)*t
+		phase += 2 * math.Pi * freq / sr
+		tmpl[i] = envelope(i, chirpN) * math.Sin(phase)
+	}
+	var tmplEnergy float64
+	for _, v := range tmpl {
+		tmplEnergy += v * v
+	}
+	const step = 4
+	for at := 0; at <= len(filtered)-chirpN; at += step {
+		if s := corrScore(filtered, tmpl, tmplEnergy, at); s > rep.BestChirpScore {
+			rep.BestChirpScore = s
+			rep.BestChirpAtSec = float64(at) / sr
+		}
+	}
+
+	// Taşıyıcı var mı: 1 sn'lik pencerelerde bit frekans enerjisi, pencere
+	// enerjisinin anlamlı payı mı?
+	win := sampleRate
+	for at := 0; at+win <= len(filtered); at += win / 2 {
+		w := filtered[at : at+win]
+		var e float64
+		for _, v := range w {
+			e += v * v
+		}
+		if e == 0 {
+			continue
+		}
+		carrier := goertzel(w, sr, Bit0Hz) + goertzel(w, sr, Bit1Hz)
+		// Goertzel enerjisi ~ (genlik²·N²/4); pencere enerjisiyle kaba
+		// normalize edilir. Eşik deneyseldir; testler pinler.
+		if carrier/(e*float64(win)) > 0.02 {
+			rep.CarrierSeen = true
+			break
+		}
+	}
+	return rep, nil
+}
+
 // highpass, RBJ biquad yüksek-geçiren süzgeçtir (Q = 0,707, Butterworth).
 // Amaç keskinlik değil bant dışı enerjiyi bastırmaktır; katsayılar her
 // çağrıda hesaplanır (çözüm sıklığı düşük).
