@@ -288,6 +288,24 @@ func (s *Server) checkAdmin(w http.ResponseWriter, r *http.Request) bool {
 	return false
 }
 
+// checkOperator, yalnız STATİK işletmen token'ını kabul eder (panel oturumu
+// YETMEZ). Küme geneli telemetri uçları (presence, clockstats) bunun
+// arkasındadır: kayıt herkese açıkken herhangi bir org'un oturumu diğer
+// kiracıların oda/doluluk/RTT verisini görememeli. adminToken boşsa uç,
+// checkAdmin ile aynı Faz 0 açık modundadır.
+func (s *Server) checkOperator(w http.ResponseWriter, r *http.Request) bool {
+	if s.adminToken == "" {
+		return true // kilit kapalı (Faz 0 yerel denemesi)
+	}
+	if token, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer "); ok &&
+		subtle.ConstantTimeCompare([]byte(token), []byte(s.adminToken)) == 1 {
+		return true
+	}
+	writeJSON(w, http.StatusUnauthorized, map[string]any{
+		"error": "bu uç işletmen token'ı ister (kiracılar arası telemetri; panel oturumu yetmez)"})
+	return false
+}
+
 // validPanelSession, token'ı control-api'ye doğrulatır; sonucu kısa süre
 // önbellekler. Geçici control-api arızası "geçersiz" sayılır (yönetici ucu
 // açık kalmaz) ama günlüğe geçersiz oturumdan farklı yazılır.
@@ -391,6 +409,10 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 				return
 			case <-t.C:
 				if err := client.Ping(s.clock.NowMs); err != nil {
+					// Yazamadığımız istemci ölü/tıkalı demektir: hemen
+					// düşür ki sonraki yayınlar onun yazma zaman aşımını
+					// beklemesin (okuma zaman aşımı 5 dk sonra gelirdi).
+					s.hub.Unregister(client)
 					return
 				}
 			}

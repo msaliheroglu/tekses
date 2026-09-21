@@ -46,8 +46,9 @@ type roomClockStats struct {
 }
 
 // handleClockStats — GET /api/v0/clockstats: oda bazlı RTT dağılımı.
+// İşletmen token'ı ister (kiracılar arası veri — checkOperator gerekçesi).
 func (s *Server) handleClockStats(w http.ResponseWriter, r *http.Request) {
-	if !s.checkAdmin(w, r) {
+	if !s.checkOperator(w, r) {
 		return
 	}
 	now := s.clock.NowMs()

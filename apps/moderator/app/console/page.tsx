@@ -108,27 +108,37 @@ export default function ConsolePage() {
       } catch {
         // sessiz
       }
-      // Çalıştırma kaydı: önce kalıcı (org kapsamlı; --scale gateway=2'de
-      // düğümden düğüme "titremez"), oturum/eski sunucu durumunda düğüm halkası.
+      // Çalıştırma kaydı: kalıcı liste (org kapsamlı, --scale'de titremez)
+      // ile düğüm halkası BİRLEŞTİRİLİR. Yalnız kalıcıya güvenmek iki şeyi
+      // kaybettirir: org'suz kayıtlar ("tüm odalar"/Faz 0 — org kapsamlı
+      // listede bilinçle yok) ve TEKSES_INTERNAL_TOKEN'sız kurulumlar
+      // (kalıcı liste başarılı ama hep boş döner).
+      let persisted: RunRecord[] | null = null;
       try {
         const resp = await listPersistedRuns(50);
-        if (!cancelled) {
-          setRuns(resp.runs ?? []);
-          setRunsSource("kalıcı");
-        }
-        return;
+        persisted = resp.runs ?? [];
       } catch {
-        // oturum yok ya da eski control-api → gateway halkasına düş
+        persisted = null; // oturum yok ya da eski control-api
       }
+      let ring: RunRecord[] = [];
       try {
         const resp = await gatewayGet<{ runs: RunRecord[] }>("/api/v0/runs", adminToken);
-        if (!cancelled) {
-          setRuns(resp.runs ?? []);
-          setRunsSource("düğüm");
-        }
+        ring = resp.runs ?? [];
       } catch {
         // gateway kapalıyken sessiz kal
       }
+      if (cancelled) return;
+      if (persisted === null) {
+        setRuns(ring);
+        setRunsSource("düğüm");
+        return;
+      }
+      const seen = new Set(persisted.map((r) => r.id).filter(Boolean));
+      const merged = [...persisted, ...ring.filter((r) => !r.id || !seen.has(r.id))]
+        .sort((a, b) => b.issued_at_server_ms - a.issued_at_server_ms)
+        .slice(0, 50);
+      setRuns(merged);
+      setRunsSource("kalıcı");
     };
     void tick();
     const timer = setInterval(tick, 4000);
@@ -279,7 +289,11 @@ export default function ConsolePage() {
       <div className="card">
         <h2>Katılımcılar</h2>
         {presence === null ? (
-          <p className="muted">Gateway'e erişilemiyor.</p>
+          <p className="muted">
+            Erişilemiyor — bu kart işletmen token'ı ister (yukarıdaki alana
+            TEKSES_ADMIN_TOKEN girin; kiracılar arası veri içerdiğinden panel
+            oturumu yetmez).
+          </p>
         ) : (
           <>
             <p style={{ fontSize: 32, fontWeight: 800, margin: "4px 0" }}>
@@ -300,9 +314,11 @@ export default function ConsolePage() {
       </div>
       <div className="card">
         <h2>Saat kalitesi (RTT — senkron kalite vekili)</h2>
-        {clockStats === null || Object.keys(clockStats.rooms).length === 0 ? (
+        {clockStats === null ? (
+          <p className="muted">Erişilemiyor — bu kart da işletmen token'ı ister.</p>
+        ) : Object.keys(clockStats.rooms).length === 0 ? (
           <p className="muted">
-            Henüz örnek yok — ilk ölçüm bağlantıdan ~{Math.round((clockStats?.ping_interval_ms ?? 50000) / 1000)} sn
+            Henüz örnek yok — ilk ölçüm bağlantıdan ~{Math.round(clockStats.ping_interval_ms / 1000)} sn
             sonra gelir (bu düğümün istemcileri).
           </p>
         ) : (
@@ -323,7 +339,7 @@ export default function ConsolePage() {
         )}
       </div>
       <div className="card">
-        <h2>Çalıştırma kaydı {runsSource === "kalıcı" ? "(kalıcı, organizasyon geneli)" : "(bu düğümün halkası)"}</h2>
+        <h2>Çalıştırma kaydı {runsSource === "kalıcı" ? "(kalıcı + bu düğümün halkası)" : "(bu düğümün halkası)"}</h2>
         {runs.length === 0 ? (
           <p className="muted">Henüz çalıştırma yok.</p>
         ) : (

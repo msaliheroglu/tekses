@@ -90,9 +90,10 @@ func (s *Server) prunePeers() {
 
 // handlePresence — GET /api/v0/presence: küme geneli yaklaşık sayım.
 // NATS'siz tek düğümde de aynı şemayla (node_count=1, yalnız yerel sayım)
-// döner; panel tek/çok düğümü aynı tiple okur.
+// döner; panel tek/çok düğümü aynı tiple okur. İşletmen token'ı ister
+// (kiracılar arası veri — checkOperator gerekçesi).
 func (s *Server) handlePresence(w http.ResponseWriter, r *http.Request) {
-	if !s.checkAdmin(w, r) {
+	if !s.checkOperator(w, r) {
 		return
 	}
 	type nodeInfo struct {

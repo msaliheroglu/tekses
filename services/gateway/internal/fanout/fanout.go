@@ -89,7 +89,15 @@ func NewNATS(url string, sink Sink) (Bus, error) {
 		if err := json.Unmarshal(m.Data, &cf); err != nil {
 			return // bozuk çerçeve; kue yinelemeleri telafi eder
 		}
-		sink(cf.Room, hub.Frame{JSON: cf.JSON, Binary: cf.Bin})
+		// Sink kendi goroutine'inde koşar: nats.go bir aboneliğin geri
+		// çağrılarını TEK dağıtım goroutine'inde sıralı işler; hub yayını
+		// tıkalı bir istemcinin yazma zaman aşımını (5 sn) bekleyebilir ve
+		// senkron çağrı, düğüme gelen SONRAKİ tüm çerçeveleri (kue
+		// yinelemeleri, başka odalar, HOLD/STOP) baş-blokaja sokar.
+		// Çerçeveler arası sıra garantisi kalkar; tel bunu zaten tolere
+		// eder (run_id tekilleştirme, mutlak fire_at, müdahaleler saniyeler
+		// arayla).
+		go sink(cf.Room, hub.Frame{JSON: cf.JSON, Binary: cf.Bin})
 	})
 	if err != nil {
 		conn.Close()

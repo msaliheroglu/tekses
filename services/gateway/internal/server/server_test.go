@@ -507,6 +507,39 @@ func TestAdminAcceptsPanelSession(t *testing.T) {
 	}
 }
 
+// Telemetri uçları işletmen token'ı İSTER: panel oturumu (checkAdmin'in
+// kabul ettiği) yetmez — kiracılar arası veri sızmasın.
+func TestTelemetryRequiresOperatorToken(t *testing.T) {
+	sessions := &fakeSessions{valid: map[string]bool{"panel-oturumu": true}}
+	ts, _ := newTestServerFull(t, "gizli", nil, sessions)
+
+	get := func(path, token string) int {
+		t.Helper()
+		req, _ := http.NewRequest(http.MethodGet, ts.URL+path, nil)
+		if token != "" {
+			req.Header.Set("Authorization", "Bearer "+token)
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		return resp.StatusCode
+	}
+
+	for _, path := range []string{"/api/v0/presence", "/api/v0/clockstats"} {
+		if got := get(path, "gizli"); got != http.StatusOK {
+			t.Fatalf("%s işletmen token'ı ile durum = %d, beklenen 200", path, got)
+		}
+		if got := get(path, "panel-oturumu"); got != http.StatusUnauthorized {
+			t.Fatalf("%s panel oturumu ile durum = %d, beklenen 401 (kiracı sızıntısı)", path, got)
+		}
+		if got := get(path, ""); got != http.StatusUnauthorized {
+			t.Fatalf("%s token'sız durum = %d, beklenen 401", path, got)
+		}
+	}
+}
+
 func TestRunsRecorded(t *testing.T) {
 	ts, _ := newTestServer(t, "")
 
