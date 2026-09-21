@@ -44,7 +44,8 @@ curl https://ALAN/api/v1/join/XXXXXX      # control-api: 404 "katılım kodu ge�
 | Yol | Servis |
 |---|---|
 | `/ws` | gateway (WebSocket) |
-| `/api/v0/*` | gateway (kue/müdahale/runs — `TEKSES_ADMIN_TOKEN` YA DA geçerli panel oturumu ister) |
+| `/api/v0/*` | gateway (kue/müdahale/runs/presence/clockstats — `TEKSES_ADMIN_TOKEN` YA DA geçerli panel oturumu ister) |
+| `/control/internal/*` | 404 (iç uçlar internete kapalı; gateway iç ağdan `TEKSES_INTERNAL_TOKEN` ile erişir) |
 | `/join` | gateway (tarayıcı katılımcısı: gösteri koreografisi ekran+söz olarak oynar; https olduğu için Wake Lock da çalışır) |
 | `/api/v1/*`, `/packages/*`, `/assets/*` | control-api |
 | `/control/*` (önek soyulur) | control-api (panelin API çağrıları) |

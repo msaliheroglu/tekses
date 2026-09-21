@@ -149,13 +149,56 @@ export function getTranscription(id: string): Promise<TranscriptionResult> {
   return control.get(`/api/v1/transcriptions/${id}`);
 }
 
-// Gateway çalıştırma kaydı (asgari telemetri).
+// Gateway çalıştırma kaydı (düğüm-yerel halka; Faz 0 konsolu).
 export type RunRecord = {
+  id?: string;
   run_id?: string;
   kind: string;
   cue_id?: string;
   room_id?: string;
   fire_at_server_ms?: number;
   issued_at_server_ms: number;
+  clients: number; // kaydeden DÜĞÜMÜN istemci sayısı (küme toplamı değil)
+  node?: string;
+};
+
+// control-api'deki KALICI run izi (org kapsamlı; F2.6 telemetri).
+export type PersistedRun = RunRecord & {
+  id: string;
+  org_id?: string;
+  created_at: string;
+};
+
+export function listPersistedRuns(limit = 50): Promise<{ runs: PersistedRun[] | null }> {
+  return control.get(`/api/v1/runs?limit=${limit}`);
+}
+
+// Küme geneli katılımcı sayacı (gateway /api/v0/presence; yaklaşık, ≤15 sn
+// gecikmeli — kue kararları buna bağlanmaz).
+export type PresenceResponse = {
+  node_id: string;
+  node_count: number;
+  total: number;
+  rooms: Record<string, number>;
+  approx: boolean;
+};
+
+// Saat kalitesi (gateway /api/v0/clockstats): oda bazlı ping-RTT dağılımı.
+// RTT, senkron kalitesinin VEKİLİDİR (ofset belirsizliği ≤ RTT/2).
+export type RoomClockStats = {
   clients: number;
+  sampled: number;
+  no_sample: number;
+  stale: number;
+  p50_ms: number;
+  p95_ms: number;
+  lt10: number;
+  lt30: number;
+  lt100: number;
+  gte100: number;
+};
+export type ClockStatsResponse = {
+  node_id: string;
+  ping_interval_ms: number;
+  rooms: Record<string, RoomClockStats>;
 };

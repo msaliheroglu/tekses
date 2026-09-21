@@ -20,6 +20,7 @@ import (
 	"log/slog"
 	"net/http"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -28,8 +29,10 @@ import (
 
 	"github.com/msaliheroglu/tekses/packages/proto/wire"
 	"github.com/msaliheroglu/tekses/services/gateway/internal/clock"
+	"github.com/msaliheroglu/tekses/services/gateway/internal/fanout"
 	"github.com/msaliheroglu/tekses/services/gateway/internal/hub"
 	"github.com/msaliheroglu/tekses/services/gateway/internal/rooms"
+	"github.com/msaliheroglu/tekses/services/gateway/internal/runsink"
 )
 
 const (
@@ -75,39 +78,97 @@ type Server struct {
 	sessions   rooms.SessionValidator
 	upgrader   websocket.Upgrader
 
+	// bus, yayın çerçevelerinin dağıtım yoludur: tek düğümde yerel hub,
+	// çok düğümde NATS (fanout paketi). New yerelle kurar; main, NATS
+	// yapılandırıldıysa SetBus ile değiştirir.
+	bus fanout.Bus
+
+	// nodeID, bu sürecin kimliğidir (crypto/rand hex; her başlatmada
+	// yenilenir). Run kayıtları, presence raporları ve clockstats aynı
+	// kimliği taşır ki panelde ilişkilendirilebilsinler.
+	nodeID string
+
+	// runSink, kue/müdahale izlerini control-api'ye kalıcılaştırır
+	// (nil = kapalı; Faz 0 yerel modu ya da TEKSES_INTERNAL_TOKEN yok).
+	runSink *runsink.Client
+
+	// peers, diğer düğümlerin son presence raporlarıdır (presence.go).
+	presMu sync.Mutex
+	peers  map[string]presenceEntry
+
 	// Doğrulanmış panel oturumlarının kısa süreli önbelleği: konsolun 4 sn'de
 	// bir attığı runs sorgusu her seferinde control-api'ye gitmesin.
 	// token → önbellek son kullanma anı.
 	sessMu    sync.Mutex
 	sessCache map[string]time.Time
 
-	// Son çalıştırmaların halka kaydı (asgari telemetri; en yenisi başta).
-	// Kalıcı Run kaydı ve panolar Faz 2 telemetri işine devredildi.
+	// Son çalıştırmaların halka kaydı (Faz 0 konsolu; en yenisi başta).
+	// Kalıcı kayıt runSink üzerinden control-api'ye yazılır (recordRun).
 	runsMu sync.Mutex
 	runs   []runRecord
 }
 
 // runRecord, tek bir kue yayını ya da müdahalenin izidir.
 type runRecord struct {
+	ID               string `json:"id,omitempty"` // kayıt kimliği (rec_…)
 	RunID            string `json:"run_id,omitempty"`
 	Kind             string `json:"kind"` // "cue" | HOLD | STOP | SKIP | BLACKOUT
 	CueID            string `json:"cue_id,omitempty"`
 	RoomID           string `json:"room_id,omitempty"`
 	FireAtServerMs   int64  `json:"fire_at_server_ms,omitempty"`
 	IssuedAtServerMs int64  `json:"issued_at_server_ms"`
-	Clients          int    `json:"clients"`
+	// Clients bu DÜĞÜMÜN istemci sayısıdır (küme toplamı /api/v0/presence'ta).
+	Clients int    `json:"clients"`
+	Node    string `json:"node,omitempty"`
 }
 
 const maxRunRecords = 50
 
+// recordRun, izi yerel halkaya yazar (Faz 0 konsolu) ve yapılandırıldıysa
+// arka planda control-api'ye kalıcılaştırır. Kalıcılaştırma kue yolunu asla
+// engellemez: handler bağlamı değil arka plan bağlamı kullanılır, hata
+// yalnız loglanır.
 func (s *Server) recordRun(rec runRecord) {
+	if rec.ID == "" {
+		if id, err := newRunID(); err == nil {
+			rec.ID = "rec_" + id
+		}
+	}
+	rec.Node = s.nodeID
+
 	s.runsMu.Lock()
-	defer s.runsMu.Unlock()
 	s.runs = append([]runRecord{rec}, s.runs...)
 	if len(s.runs) > maxRunRecords {
 		s.runs = s.runs[:maxRunRecords]
 	}
+	s.runsMu.Unlock()
+
+	if s.runSink == nil || rec.ID == "" {
+		return
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		err := s.runSink.Persist(ctx, runsink.Record{
+			ID:               rec.ID,
+			RoomID:           rec.RoomID,
+			Kind:             rec.Kind,
+			RunID:            rec.RunID,
+			CueID:            rec.CueID,
+			FireAtServerMs:   rec.FireAtServerMs,
+			IssuedAtServerMs: rec.IssuedAtServerMs,
+			Clients:          rec.Clients,
+			Node:             rec.Node,
+		})
+		if err != nil {
+			s.log.Warn("run kaydı kalıcılaştırılamadı", "id", rec.ID, "hata", err)
+		}
+	}()
 }
+
+// SetRunSink, kalıcı Run kaydını etkinleştirir (main, TEKSES_CONTROL_URL +
+// TEKSES_INTERNAL_TOKEN ayarlıysa çağırır). Sunucu başlamadan çağrılmalıdır.
+func (s *Server) SetRunSink(c *runsink.Client) { s.runSink = c }
 
 // New, bir gateway sunucusu kurar. adminToken boş değilse /api/* uçları
 // "Authorization: Bearer <token>" başlığı ister; sessions verilmişse geçerli
@@ -115,7 +176,7 @@ func (s *Server) recordRun(rec runRecord) {
 // anahtarı bilmesi gerekmez). resolver nil ise katılım kodu doğrulanmaz ve
 // herkes varsayılan odaya düşer (Faz 0 yerel denemesi).
 func New(log *slog.Logger, adminToken string, resolver rooms.Resolver, sessions rooms.SessionValidator) *Server {
-	return &Server{
+	s := &Server{
 		log:        log,
 		clock:      clock.New(),
 		hub:        hub.New(log),
@@ -123,6 +184,7 @@ func New(log *slog.Logger, adminToken string, resolver rooms.Resolver, sessions 
 		resolver:   resolver,
 		sessions:   sessions,
 		sessCache:  map[string]time.Time{},
+		peers:      map[string]presenceEntry{},
 		upgrader: websocket.Upgrader{
 			ReadBufferSize:  1024,
 			WriteBufferSize: 1024,
@@ -130,6 +192,36 @@ func New(log *slog.Logger, adminToken string, resolver rooms.Resolver, sessions 
 			// katılım kodu doğrulaması ve origin listesi eklenecek.
 			CheckOrigin: func(*http.Request) bool { return true },
 		},
+	}
+	if id, err := newRunID(); err == nil {
+		s.nodeID = "node_" + id
+	}
+	s.bus = fanout.NewLocal(s.BroadcastSink())
+	return s
+}
+
+// BroadcastSink, çerçeveyi yerel hub'a veren dağıtım ucudur; NATS yolu da
+// gelen çerçeveleri buraya boşaltır.
+func (s *Server) BroadcastSink() fanout.Sink {
+	return func(room string, f hub.Frame) {
+		if room == "" {
+			s.hub.Broadcast(f)
+			return
+		}
+		s.hub.BroadcastRoom(room, f)
+	}
+}
+
+// SetBus, dağıtım yolunu değiştirir (main, TEKSES_NATS_URL ayarlıysa NATS
+// yolunu takar). Sunucu başlamadan çağrılmalıdır.
+func (s *Server) SetBus(b fanout.Bus) { s.bus = b }
+
+// cast, yayın çerçevesini dağıtım yoluna verir; hata yayını durdurmaz
+// (kue yinelemeleri ve istemci yeniden bağlanması telafi eder), yalnızca
+// günlüklenir.
+func (s *Server) cast(room string, f hub.Frame) {
+	if err := s.bus.Cast(room, f); err != nil {
+		s.log.Error("yayın dağıtılamadı", "oda", room, "hata", err)
 	}
 }
 
@@ -142,7 +234,12 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /ws", s.handleWS)
 	mux.HandleFunc("POST /api/v0/cue", s.requireAdmin(s.handleCue))
 	mux.HandleFunc("POST /api/v0/intervention", s.requireAdmin(s.handleIntervention))
+	mux.HandleFunc("POST /api/v0/show-activated", s.requireAdmin(s.handleShowActivated))
 	mux.HandleFunc("GET /api/v0/runs", s.handleRuns)
+	// GET uçları requireAdmin'e giremez (Content-Type zorunluluğu); yetki
+	// denetimi handler içinde checkAdmin ile yapılır (handleRuns kalıbı).
+	mux.HandleFunc("GET /api/v0/presence", s.handlePresence)
+	mux.HandleFunc("GET /api/v0/clockstats", s.handleClockStats)
 	return mux
 }
 
@@ -188,6 +285,24 @@ func (s *Server) checkAdmin(w http.ResponseWriter, r *http.Request) bool {
 	}
 	writeJSON(w, http.StatusUnauthorized, map[string]any{
 		"error": "geçersiz veya eksik yönetici token'ı (panelde oturum açmak da yeterlidir)"})
+	return false
+}
+
+// checkOperator, yalnız STATİK işletmen token'ını kabul eder (panel oturumu
+// YETMEZ). Küme geneli telemetri uçları (presence, clockstats) bunun
+// arkasındadır: kayıt herkese açıkken herhangi bir org'un oturumu diğer
+// kiracıların oda/doluluk/RTT verisini görememeli. adminToken boşsa uç,
+// checkAdmin ile aynı Faz 0 açık modundadır.
+func (s *Server) checkOperator(w http.ResponseWriter, r *http.Request) bool {
+	if s.adminToken == "" {
+		return true // kilit kapalı (Faz 0 yerel denemesi)
+	}
+	if token, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer "); ok &&
+		subtle.ConstantTimeCompare([]byte(token), []byte(s.adminToken)) == 1 {
+		return true
+	}
+	writeJSON(w, http.StatusUnauthorized, map[string]any{
+		"error": "bu uç işletmen token'ı ister (kiracılar arası telemetri; panel oturumu yetmez)"})
 	return false
 }
 
@@ -268,7 +383,19 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 	conn.SetReadLimit(maxMessageBytes)
 	resetDeadline := func() { _ = conn.SetReadDeadline(time.Now().Add(readTimeout)) }
 	resetDeadline()
-	conn.SetPongHandler(func(string) error { resetDeadline(); return nil })
+	// Pong, ping'e koyduğumuz gönderim damgasını (sunucu saati, ondalık ms)
+	// yankılar → istemci başına RTT örneği. Damga çözülemezse (eski/aykırı
+	// istemci gövdesiz pong dönebilir) örnek ATLANIR ama keepalive bozulmaz:
+	// resetDeadline her pongda çağrılır.
+	conn.SetPongHandler(func(appData string) error {
+		resetDeadline()
+		if t0, err := strconv.ParseInt(appData, 10, 64); err == nil {
+			if rtt := s.clock.NowMs() - t0; rtt >= 0 && rtt < 10*60*1000 {
+				client.SetRTT(rtt, s.clock.NowMs())
+			}
+		}
+		return nil
+	})
 
 	// Keepalive ping döngüsü; okuma döngüsü bitince kapanır.
 	done := make(chan struct{})
@@ -281,7 +408,11 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 			case <-done:
 				return
 			case <-t.C:
-				if err := client.Ping(); err != nil {
+				if err := client.Ping(s.clock.NowMs); err != nil {
+					// Yazamadığımız istemci ölü/tıkalı demektir: hemen
+					// düşür ki sonraki yayınlar onun yazma zaman aşımını
+					// beklemesin (okuma zaman aşımı 5 dk sonra gelirdi).
+					s.hub.Unregister(client)
 					return
 				}
 			}
@@ -468,6 +599,8 @@ func (s *Server) handleCue(w http.ResponseWriter, r *http.Request) {
 	}
 	s.broadcastCueWithRepeats(cue, req.RoomID)
 
+	// Çok düğümde bu sayaç yalnız BU düğümün istemcileridir; küme geneli
+	// sayım kalıcı telemetriye (F2.6 ikinci yarı) bırakıldı.
 	targetCount := s.hub.Count()
 	if req.RoomID != "" {
 		targetCount = s.hub.RoomCounts()[req.RoomID]
@@ -508,13 +641,7 @@ func (s *Server) broadcastCueWithRepeats(cue wire.CueStart, room string) {
 			return
 		}
 		delay := time.Duration(i-1) * cueRepeatInterval
-		time.AfterFunc(delay, func() {
-			if room == "" {
-				s.hub.Broadcast(frame)
-			} else {
-				s.hub.BroadcastRoom(room, frame)
-			}
-		})
+		time.AfterFunc(delay, func() { s.cast(room, frame) })
 	}
 }
 
@@ -545,11 +672,7 @@ func (s *Server) handleIntervention(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "mesaj kodlanamadı"})
 		return
 	}
-	if req.RoomID == "" {
-		s.hub.Broadcast(frame)
-	} else {
-		s.hub.BroadcastRoom(req.RoomID, frame)
-	}
+	s.cast(req.RoomID, frame)
 	s.log.Info("müdahale yayınlandı", "kind", req.Kind, "run_id", req.RunID, "oda", req.RoomID)
 	s.recordRun(runRecord{
 		RunID:            req.RunID,
@@ -559,6 +682,42 @@ func (s *Server) handleIntervention(w http.ResponseWriter, r *http.Request) {
 		Clients:          s.hub.Count(),
 	})
 	writeJSON(w, http.StatusOK, map[string]any{"kind": req.Kind, "room_id": req.RoomID, "clients": s.hub.Count()})
+}
+
+type showActivatedRequest struct {
+	RoomID        string `json:"room_id"`
+	ShowVersionID string `json:"show_version_id"`
+}
+
+// handleShowActivated, odadaki istemcilere "gösteri değişti, paketi tazele"
+// sinyali yayınlar. Panel, control-api'de etkinleştirme başarılı olunca bunu
+// çağırır; böylece telefonların odadan çıkıp yeniden katılması gerekmez.
+// Mesaj şimdilik yalnız v1 JSON telinde taşınır: ikili kodlaması olmayan
+// çerçeveyi v2 istemciler (bugün yalnız loadgen) atlar — SendFrame böyle
+// tasarlandı; proto zarfına eklenmesi sonraki yineleme.
+func (s *Server) handleShowActivated(w http.ResponseWriter, r *http.Request) {
+	var req showActivatedRequest
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxMessageBytes)).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": fmt.Sprintf("gövde çözülemedi: %v", err)})
+		return
+	}
+	if req.RoomID == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "room_id gerekli"})
+		return
+	}
+	data, err := wire.Encode(wire.TypeShowActivated, wire.ShowActivated{
+		RoomID:        req.RoomID,
+		ShowVersionID: req.ShowVersionID,
+	})
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "mesaj kodlanamadı"})
+		return
+	}
+	s.cast(req.RoomID, hub.Frame{JSON: data})
+	clients := s.hub.RoomCounts()[req.RoomID]
+	s.log.Info("gösteri etkinleştirme sinyali yayınlandı",
+		"oda", req.RoomID, "sürüm", req.ShowVersionID, "istemci", clients)
+	writeJSON(w, http.StatusOK, map[string]any{"room_id": req.RoomID, "clients": clients})
 }
 
 // --- yardımcılar ---

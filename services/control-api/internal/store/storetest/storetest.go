@@ -20,6 +20,7 @@ func Run(t *testing.T, factory func(t *testing.T) store.Store) {
 	t.Run("EventRoom", func(t *testing.T) { testEventRoom(t, factory(t)) })
 	t.Run("ShowVersions", func(t *testing.T) { testShowVersions(t, factory(t)) })
 	t.Run("TenantScoping", func(t *testing.T) { testTenantScoping(t, factory(t)) })
+	t.Run("RunPersistence", func(t *testing.T) { testRunPersistence(t, factory(t)) })
 }
 
 func now() time.Time { return time.Now().UTC().Truncate(time.Millisecond) }
@@ -198,5 +199,69 @@ func testTenantScoping(t *testing.T, s store.Store) {
 		ManifestJSON: []byte(`{}`), SHA256: "hh", CreatedAt: now(),
 	}); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("çapraz sürüm yazımı = %v", err)
+	}
+}
+
+func testRunPersistence(t *testing.T, s store.Store) {
+	mustOrg(t, s, "org_a", "r@ornek.com")
+	mustOrg(t, s, "org_b", "r2@ornek.com")
+	if err := s.CreateEvent(model.Event{ID: "ev_r", OrgID: "org_a", Name: "E", CreatedAt: now()}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CreateRoom(model.Room{ID: "room_r", OrgID: "org_a", EventID: "ev_r", Name: "R", JoinCode: "RRR111", CreatedAt: now()}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Oda→org çözümü.
+	orgID, err := s.OrgIDByRoom("room_r")
+	if err != nil || orgID != "org_a" {
+		t.Fatalf("OrgIDByRoom = %q, %v", orgID, err)
+	}
+	if _, err := s.OrgIDByRoom("yok"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("olmayan oda hatası = %v", err)
+	}
+
+	// Kayıtlar: aynı created_at ile iki kayıt (ikincil sıra id azalan),
+	// daha yeni bir üçüncü, org'suz bir dördüncü ve başka org'a bir beşinci.
+	t0 := now()
+	t1 := t0.Add(time.Second)
+	base := model.Run{OrgID: "org_a", RoomID: "room_r", Kind: "cue", RunID: "run1",
+		CueID: "program", FireAtServerMs: 100, IssuedAtServerMs: 50, Clients: 3,
+		Node: "node1", CreatedAt: t0}
+	recA, recB, recC := base, base, base
+	recA.ID = "rec_a"
+	recB.ID = "rec_b"
+	recC.ID = "rec_c"
+	recC.Kind = "STOP"
+	recC.CreatedAt = t1
+	orgless := model.Run{ID: "rec_faz0", Kind: "cue", IssuedAtServerMs: 60, Clients: 1, CreatedAt: t1}
+	other := model.Run{ID: "rec_other", OrgID: "org_b", Kind: "cue", IssuedAtServerMs: 70, Clients: 2, CreatedAt: t1}
+	for _, r := range []model.Run{recA, recB, recC, orgless, other} {
+		if err := s.CreateRun(r); err != nil {
+			t.Fatalf("CreateRun(%s): %v", r.ID, err)
+		}
+	}
+	// İdempotens: aynı kimlik ikinci kez hatasız ve çoğaltmasız.
+	if err := s.CreateRun(recA); err != nil {
+		t.Fatalf("CreateRun tekrar: %v", err)
+	}
+
+	runs, err := s.ListRuns("org_a", 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Beklenen: rec_c (en yeni), sonra aynı created_at'te id azalan: rec_b, rec_a.
+	// Org'suz ve başka org'un kayıtları görünmez; idempotent tekrar çoğaltmaz.
+	if len(runs) != 3 || runs[0].ID != "rec_c" || runs[1].ID != "rec_b" || runs[2].ID != "rec_a" {
+		t.Fatalf("ListRuns sırası/kapsamı beklenmedik: %+v", runs)
+	}
+	if runs[0].Kind != "STOP" || runs[2].CueID != "program" || runs[2].Node != "node1" {
+		t.Fatalf("alanlar korunmadı: %+v", runs)
+	}
+
+	// limit uygulanır.
+	limited, err := s.ListRuns("org_a", 2)
+	if err != nil || len(limited) != 2 || limited[0].ID != "rec_c" {
+		t.Fatalf("ListRuns limit = %+v, %v", limited, err)
 	}
 }

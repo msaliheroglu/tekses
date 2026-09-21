@@ -13,6 +13,7 @@ const String typeClockSyncRequest = 'clock_sync_request';
 const String typeClockSyncResponse = 'clock_sync_response';
 const String typeCueStart = 'cue_start';
 const String typeIntervention = 'intervention';
+const String typeShowActivated = 'show_activated';
 
 /// Zarf: {"type": "...", "data": {...}}.
 String encodeEnvelope(String type, Map<String, dynamic> data) =>
@@ -117,6 +118,20 @@ class CueStartMsg {
           (j['payload'] as Map<String, dynamic>?) ?? const {}),
     );
   }
+}
+
+/// Odada yeni gösteri sürümü etkinleştirildi; istemci katılım bilgisini
+/// (manifest + varlıklar) yeniden indirmelidir.
+class ShowActivatedMsg {
+  const ShowActivatedMsg({required this.roomId, required this.showVersionId});
+
+  final String roomId;
+  final String showVersionId;
+
+  static ShowActivatedMsg fromJson(Map<String, dynamic> j) => ShowActivatedMsg(
+        roomId: j['room_id'] as String? ?? '',
+        showVersionId: j['show_version_id'] as String? ?? '',
+      );
 }
 
 class InterventionMsg {

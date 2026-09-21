@@ -26,11 +26,16 @@ class ShowScreen extends StatefulWidget {
     required this.serverUri,
     this.joinInfo,
     this.joinCode = '',
+    this.controlUri,
   });
 
   final Uri serverUri;
   final JoinInfo? joinInfo;
   final String joinCode;
+
+  /// Kodla katılımda control-api adresi: show_activated sinyali gelince
+  /// paket buradan yeniden indirilir (null = canlı yenileme yok, Faz 0).
+  final Uri? controlUri;
 
   @override
   State<ShowScreen> createState() => _ShowScreenState();
@@ -41,6 +46,11 @@ class _ShowScreenState extends State<ShowScreen> {
   late final CueArbiter _arbiter;
   final _torch = TorchService();
   final _audio = NativeAudio();
+
+  /// Katılım bilgisi: show_activated sinyaliyle yerinde tazelenir (paket +
+  /// varlıklar yeniden iner); ilk değer katılım ekranından gelir.
+  JoinInfo? _joinInfo;
+  bool _refreshingJoin = false;
 
   /// Aktif kuenin ses planı: ateşleme anına göre (atMs, hazırlanmış çalar id).
   List<({String playerId, int atMs})> _audioPlan = const [];
@@ -68,6 +78,7 @@ class _ShowScreenState extends State<ShowScreen> {
   void initState() {
     super.initState();
     WakelockPlus.enable();
+    _joinInfo = widget.joinInfo;
     _torch.init();
     _audio.init().then((_) {
       if (mounted && !_audio.available) {
@@ -90,9 +101,36 @@ class _ShowScreenState extends State<ShowScreen> {
         _arbiter.offer(cue, CueSource.websocket);
       },
       onIntervention: _onIntervention,
+      onShowActivated: (_) => _refreshJoinInfo(),
       onStatus: (s) => setState(() => _status = s),
     );
     _client.connect();
+  }
+
+  /// show_activated sinyali: paket + varlıklar yeniden indirilir; süren
+  /// koreografi etkilenmez (motor kendi manifest kopyasını tutar), yeni
+  /// gösteri bir SONRAKİ kueyle çalınır.
+  Future<void> _refreshJoinInfo() async {
+    final controlUri = widget.controlUri;
+    if (controlUri == null || widget.joinCode.isEmpty || _refreshingJoin) return;
+    _refreshingJoin = true;
+    if (mounted) setState(() => _status = 'gösteri güncellendi; paket yenileniyor…');
+    try {
+      final info = await PackageStore().join(controlUri, widget.joinCode);
+      if (!mounted) return;
+      setState(() {
+        _joinInfo = info;
+        _status = info.manifest == null
+            ? 'oda güncellendi (aktif gösteri yok)'
+            : 'gösteri hazır: ${info.manifest!.title}';
+      });
+    } catch (err) {
+      // Yenileme başarısızsa eldeki paket geçerli kalır; sonraki sinyal ya da
+      // yeniden katılım telafi eder.
+      if (mounted) setState(() => _status = 'paket yenilenemedi: $err');
+    } finally {
+      _refreshingJoin = false;
+    }
   }
 
   @override
@@ -117,7 +155,7 @@ class _ShowScreenState extends State<ShowScreen> {
     _held = false;
     // cue_id "program" ise gömülü otomatik program, bir sekansı işaret
     // ediyorsa tek sekans; ikisi de değilse Faz 0 yükü oynar.
-    final manifest = widget.joinInfo?.manifest;
+    final manifest = _joinInfo?.manifest;
     String statusLabel;
     List<({String sequenceId, int baseMs})> played = const [];
     if (cue.cueId == programCueId && manifest != null && manifest.program.isNotEmpty) {
@@ -154,7 +192,7 @@ class _ShowScreenState extends State<ShowScreen> {
       List<({String sequenceId, int baseMs})> played) {
     _audio.stopAll();
     final plan = <({String playerId, int atMs})>[];
-    final paths = widget.joinInfo?.assetPaths ?? const {};
+    final paths = _joinInfo?.assetPaths ?? const {};
     var audioCues = 0, missing = 0;
     for (final entry in played) {
       final seq = manifest?.sequenceById(entry.sequenceId);

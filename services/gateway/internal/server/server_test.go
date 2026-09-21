@@ -264,6 +264,55 @@ func TestRoomScopedJoinAndCue(t *testing.T) {
 	}
 }
 
+func TestShowActivatedBroadcast(t *testing.T) {
+	resolver := fakeResolver{codes: map[string]string{"ABC234": "room_a"}}
+	ts, wsURL := newTestServerWithResolver(t, "", resolver)
+
+	// A odada (v1 JSON), B varsayılan odada — sinyal yalnızca A'ya gitmeli.
+	connA := dial(t, wsURL)
+	sendMsg(t, connA, wire.TypeHello, wire.Hello{ProtocolVersion: wire.ProtocolVersion, JoinCode: "ABC234"})
+	_ = readEnvelope(t, connA)
+	connB := dial(t, wsURL)
+	sendMsg(t, connB, wire.TypeHello, wire.Hello{ProtocolVersion: wire.ProtocolVersion})
+	_ = readEnvelope(t, connB)
+
+	body, _ := json.Marshal(map[string]any{"room_id": "room_a", "show_version_id": "sv_1"})
+	resp, err := http.Post(ts.URL+"/api/v0/show-activated", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("durum = %d, beklenen 200", resp.StatusCode)
+	}
+
+	env := readEnvelope(t, connA)
+	if env.Type != wire.TypeShowActivated {
+		t.Fatalf("A'ya gelen tür = %s, beklenen show_activated", env.Type)
+	}
+	var msg wire.ShowActivated
+	if err := json.Unmarshal(env.Data, &msg); err != nil {
+		t.Fatal(err)
+	}
+	if msg.RoomID != "room_a" || msg.ShowVersionID != "sv_1" {
+		t.Fatalf("beklenmeyen gövde: %+v", msg)
+	}
+	_ = connB.SetReadDeadline(time.Now().Add(300 * time.Millisecond))
+	if _, _, err := connB.ReadMessage(); err == nil {
+		t.Fatal("B başka odanın sinyalini aldı")
+	}
+
+	// room_id olmadan istek reddedilir.
+	respBad, err := http.Post(ts.URL+"/api/v0/show-activated", "application/json", strings.NewReader(`{}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	respBad.Body.Close()
+	if respBad.StatusCode != http.StatusBadRequest {
+		t.Fatalf("room_id'siz durum = %d, beklenen 400", respBad.StatusCode)
+	}
+}
+
 func TestClockSyncExchange(t *testing.T) {
 	_, wsURL := newTestServer(t, "")
 	conn := dial(t, wsURL)
@@ -455,6 +504,39 @@ func TestAdminAcceptsPanelSession(t *testing.T) {
 	}
 	if sessions.calls != before {
 		t.Fatalf("önbelleğe rağmen doğrulayıcı yeniden çağrıldı (%d → %d)", before, sessions.calls)
+	}
+}
+
+// Telemetri uçları işletmen token'ı İSTER: panel oturumu (checkAdmin'in
+// kabul ettiği) yetmez — kiracılar arası veri sızmasın.
+func TestTelemetryRequiresOperatorToken(t *testing.T) {
+	sessions := &fakeSessions{valid: map[string]bool{"panel-oturumu": true}}
+	ts, _ := newTestServerFull(t, "gizli", nil, sessions)
+
+	get := func(path, token string) int {
+		t.Helper()
+		req, _ := http.NewRequest(http.MethodGet, ts.URL+path, nil)
+		if token != "" {
+			req.Header.Set("Authorization", "Bearer "+token)
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		return resp.StatusCode
+	}
+
+	for _, path := range []string{"/api/v0/presence", "/api/v0/clockstats"} {
+		if got := get(path, "gizli"); got != http.StatusOK {
+			t.Fatalf("%s işletmen token'ı ile durum = %d, beklenen 200", path, got)
+		}
+		if got := get(path, "panel-oturumu"); got != http.StatusUnauthorized {
+			t.Fatalf("%s panel oturumu ile durum = %d, beklenen 401 (kiracı sızıntısı)", path, got)
+		}
+		if got := get(path, ""); got != http.StatusUnauthorized {
+			t.Fatalf("%s token'sız durum = %d, beklenen 401", path, got)
+		}
 	}
 }
 

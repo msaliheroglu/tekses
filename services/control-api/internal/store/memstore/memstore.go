@@ -26,6 +26,7 @@ type Memstore struct {
 	shows        map[string]model.Show
 	showVersions map[string]model.ShowVersion
 	nextVersion  map[string]int // showID → sıradaki sürüm numarası
+	runs         map[string]model.Run
 }
 
 func New() *Memstore {
@@ -39,6 +40,7 @@ func New() *Memstore {
 		shows:        map[string]model.Show{},
 		showVersions: map[string]model.ShowVersion{},
 		nextVersion:  map[string]int{},
+		runs:         map[string]model.Run{},
 	}
 }
 
@@ -242,6 +244,53 @@ func (m *Memstore) ShowVersionByID(orgID, id string) (model.ShowVersion, error) 
 		return model.ShowVersion{}, store.ErrNotFound
 	}
 	return sv, nil
+}
+
+// --- telemetri: kalıcı Run izleri ---
+
+func (m *Memstore) CreateRun(r model.Run) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	// İdempotent: aynı kayıt kimliği ikinci kez gelirse yok sayılır.
+	if _, exists := m.runs[r.ID]; exists {
+		return nil
+	}
+	m.runs[r.ID] = r
+	return nil
+}
+
+func (m *Memstore) ListRuns(orgID string, limit int) ([]model.Run, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	out := make([]model.Run, 0)
+	for _, r := range m.runs {
+		// Org'suz kayıtlar (Faz 0 odası, bilinmeyen oda) hiçbir org
+		// listesinde görünmez.
+		if r.OrgID != "" && r.OrgID == orgID {
+			out = append(out, r)
+		}
+	}
+	// En yenisi başta; eşit zaman damgasında id azalan (pg ile aynı sıra).
+	sort.Slice(out, func(i, j int) bool {
+		if !out[i].CreatedAt.Equal(out[j].CreatedAt) {
+			return out[i].CreatedAt.After(out[j].CreatedAt)
+		}
+		return out[i].ID > out[j].ID
+	})
+	if limit > 0 && len(out) > limit {
+		out = out[:limit]
+	}
+	return out, nil
+}
+
+func (m *Memstore) OrgIDByRoom(roomID string) (string, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	room, ok := m.rooms[roomID]
+	if !ok {
+		return "", store.ErrNotFound
+	}
+	return room.OrgID, nil
 }
 
 // sortByCreated, oluşturulma zamanına (eşitse kimliğe) göre kararlı sıralar;

@@ -73,7 +73,14 @@ func main() {
 		log.Info("söz çıkarma etkin", "komut", transcriber)
 	}
 
-	srv := api.New(log, st, packages, transcriber)
+	// Servisler arası iç uçların (gateway → /internal/runs) paylaşımlı
+	// sırrı; boşsa iç uçlar kapalı (kalıcı Run kaydı devre dışı).
+	internalToken := os.Getenv("TEKSES_INTERNAL_TOKEN")
+	if internalToken == "" {
+		log.Warn("TEKSES_INTERNAL_TOKEN ayarsız — kalıcı Run kaydı (iç uç) kapalı")
+	}
+
+	srv := api.New(log, st, packages, transcriber, internalToken)
 
 	httpSrv := &http.Server{
 		Addr:              *addr,

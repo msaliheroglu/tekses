@@ -251,6 +251,12 @@ function onFrame(raw) {
     case "clock_sync_response": onClockResponse(d); break;
     case "cue_start": onCue(d); break;
     case "intervention": onIntervention(d); break;
+    case "show_activated":
+      // Panelde yeni gösteri etkinleştirildi: paket yeniden indirilir;
+      // süren koreografi etkilenmez (motor kendi manifest kopyasını tutar).
+      if (!active) setStatus("gösteri güncellendi; paket yenileniyor");
+      loadManifest();
+      break;
   }
 }
 

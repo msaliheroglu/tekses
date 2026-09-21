@@ -30,6 +30,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -63,6 +64,7 @@ func main() {
 	adminToken := flag.String("adminToken", "", "-cue için yönetici token'ı (varsa)")
 	waitCue := flag.Duration("waitCue", 60*time.Second, "kue bekleme süresi")
 	wireKind := flag.String("wire", "json", "tel kodlaması: json (v1) | proto (v2, ikili)")
+	ramp := flag.Int("ramp", 1000, "saniyede açılan yeni bağlantı (0 = hepsi birden; büyük N'de fırtına yaratır)")
 	flag.Parse()
 
 	binary := *wireKind == "proto"
@@ -75,17 +77,48 @@ func main() {
 	var synced sync.WaitGroup
 	var done sync.WaitGroup
 
+	// İlerleme: büyük N'de bağlanma/senkron dakikalar sürer; sayaç akmalı.
+	var syncedCount atomic.Int64
+	progressDone := make(chan struct{})
+	go func() {
+		t := time.NewTicker(5 * time.Second)
+		defer t.Stop()
+		for {
+			select {
+			case <-progressDone:
+				return
+			case <-t.C:
+				fmt.Printf("... %d/%d istemci hazır (senkron ya da hata)\n", syncedCount.Load(), *n)
+			}
+		}
+	}()
+
+	// Rampa: bağlantılar saniyede -ramp adet açılır; binlerce eşzamanlı TCP
+	// el sıkışması hem üreteci hem gateway'i yapay biçimde boğar.
+	var gate <-chan time.Time
+	if *ramp > 0 {
+		ticker := time.NewTicker(time.Second / time.Duration(*ramp))
+		defer ticker.Stop()
+		gate = ticker.C
+	}
 	for i := 0; i < *n; i++ {
+		if gate != nil {
+			<-gate
+		}
 		synced.Add(1)
 		done.Add(1)
 		go func(id int) {
 			defer done.Done()
-			results[id] = runClient(id, *server, binary, *samples, *sampleInterval, *jitter, *waitCue, synced.Done)
+			results[id] = runClient(id, *server, binary, *samples, *sampleInterval, *jitter, *waitCue, func() {
+				syncedCount.Add(1)
+				synced.Done()
+			})
 		}(i)
 	}
 
 	synced.Wait()
-	fmt.Printf("%d istemci bağlandı ve saat senkronu tamamlandı.\n", *n)
+	close(progressDone)
+	fmt.Printf("bağlanma ve senkron aşaması bitti (%d istemci).\n", *n)
 
 	if *cue {
 		if err := triggerCue(*server, *cueDelay, *adminToken); err != nil {
@@ -108,7 +141,14 @@ func runClient(id int, server string, binary bool, samples int, sampleInterval t
 	defer syncedOnce()
 	res := clientResult{id: id}
 
-	conn, _, err := websocket.DefaultDialer.Dial(server, nil)
+	// Küçük tamponlar: 50k istemcide varsayılan 4 KiB tamponlar tek başına
+	// yüzlerce MB tutar; teldeki en büyük çerçeve birkaç yüz bayttır.
+	dialer := &websocket.Dialer{
+		ReadBufferSize:   1024,
+		WriteBufferSize:  1024,
+		HandshakeTimeout: 20 * time.Second,
+	}
+	conn, _, err := dialer.Dial(server, nil)
 	if err != nil {
 		res.err = fmt.Errorf("bağlantı: %w", err)
 		return res
@@ -270,13 +310,21 @@ func triggerCue(server string, delayMs int64, adminToken string) error {
 }
 
 func report(results []clientResult) {
+	// Hatalar özetlenir: 50k istemcide satır satır dökmek raporu boğar.
 	var ok []clientResult
+	errCounts := map[string]int{}
 	for _, r := range results {
 		if r.err != nil {
-			fmt.Fprintf(os.Stderr, "istemci %d hata: %v\n", r.id, r.err)
+			errCounts[errKey(r.err)]++
 			continue
 		}
 		ok = append(ok, r)
+	}
+	if len(errCounts) > 0 {
+		fmt.Fprintf(os.Stderr, "%d istemci hata aldı:\n", len(results)-len(ok))
+		for msg, n := range errCounts {
+			fmt.Fprintf(os.Stderr, "  %6d × %s\n", n, msg)
+		}
 	}
 	if len(ok) == 0 {
 		fmt.Println("hiçbir istemci kue alamadı.")
@@ -309,6 +357,18 @@ func report(results []clientResult) {
 	} else {
 		fmt.Println("sonuç: ≤30 ms hedefi bu koşulda TUTMUYOR ✗ (jitter/örnek sayısını inceleyin)")
 	}
+}
+
+// errKey, hataları gruplamak için değişken kısımları (port, adres) kırpılmış
+// kaba bir anahtar üretir.
+func errKey(err error) string {
+	msg := err.Error()
+	if i := strings.Index(msg, "dial tcp"); i >= 0 {
+		if j := strings.LastIndex(msg, ":"); j > i {
+			return msg[:i] + "dial tcp …" + msg[j:]
+		}
+	}
+	return msg
 }
 
 func percentile(sorted []float64, p float64) float64 {

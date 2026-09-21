@@ -6,9 +6,13 @@ import {
   fetchManifestSummary,
   gatewayGet,
   gatewayPost,
+  listPersistedRuns,
+  type ClockStatsResponse,
   type Event,
   type ManifestSummary,
+  type PresenceResponse,
   type Room,
+  type RoomClockStats,
   type RunRecord,
 } from "@/lib/api";
 
@@ -28,6 +32,11 @@ export default function ConsolePage() {
   const [cueTarget, setCueTarget] = useState(FLASH_TARGET);
   const [manifest, setManifest] = useState<ManifestSummary | null>(null);
   const [runs, setRuns] = useState<RunRecord[]>([]);
+  // Kayıt kaynağı: "kalıcı" (control-api, org kapsamlı, çok düğümde titremez)
+  // ya da "düğüm" (gateway halkası; oturumsuz Faz 0 yedeği).
+  const [runsSource, setRunsSource] = useState<"kalıcı" | "düğüm">("düğüm");
+  const [presence, setPresence] = useState<PresenceResponse | null>(null);
+  const [clockStats, setClockStats] = useState<ClockStatsResponse | null>(null);
   const [color, setColor] = useState("#FF2A2A");
   const [delayMs, setDelayMs] = useState(3000);
   const [durationMs, setDurationMs] = useState(4000);
@@ -83,16 +92,53 @@ export default function ConsolePage() {
     };
   }, [roomID, rooms]);
 
-  // Çalıştırma kaydı: sayfa açıkken 4 sn'de bir tazelenir.
+  // Telemetri: sayfa açıkken 4 sn'de bir tazelenir (tek zamanlayıcı).
   useEffect(() => {
     let cancelled = false;
     const tick = async () => {
       try {
+        const p = await gatewayGet<PresenceResponse>("/api/v0/presence", adminToken);
+        if (!cancelled) setPresence(p);
+      } catch {
+        // gateway kapalı ya da eski sürüm — sessiz
+      }
+      try {
+        const c = await gatewayGet<ClockStatsResponse>("/api/v0/clockstats", adminToken);
+        if (!cancelled) setClockStats(c);
+      } catch {
+        // sessiz
+      }
+      // Çalıştırma kaydı: kalıcı liste (org kapsamlı, --scale'de titremez)
+      // ile düğüm halkası BİRLEŞTİRİLİR. Yalnız kalıcıya güvenmek iki şeyi
+      // kaybettirir: org'suz kayıtlar ("tüm odalar"/Faz 0 — org kapsamlı
+      // listede bilinçle yok) ve TEKSES_INTERNAL_TOKEN'sız kurulumlar
+      // (kalıcı liste başarılı ama hep boş döner).
+      let persisted: RunRecord[] | null = null;
+      try {
+        const resp = await listPersistedRuns(50);
+        persisted = resp.runs ?? [];
+      } catch {
+        persisted = null; // oturum yok ya da eski control-api
+      }
+      let ring: RunRecord[] = [];
+      try {
         const resp = await gatewayGet<{ runs: RunRecord[] }>("/api/v0/runs", adminToken);
-        if (!cancelled) setRuns(resp.runs);
+        ring = resp.runs ?? [];
       } catch {
         // gateway kapalıyken sessiz kal
       }
+      if (cancelled) return;
+      if (persisted === null) {
+        setRuns(ring);
+        setRunsSource("düğüm");
+        return;
+      }
+      const seen = new Set(persisted.map((r) => r.id).filter(Boolean));
+      const merged = [...persisted, ...ring.filter((r) => !r.id || !seen.has(r.id))]
+        .sort((a, b) => b.issued_at_server_ms - a.issued_at_server_ms)
+        .slice(0, 50);
+      setRuns(merged);
+      setRunsSource("kalıcı");
     };
     void tick();
     const timer = setInterval(tick, 4000);
@@ -241,17 +287,69 @@ export default function ConsolePage() {
         )}
       </div>
       <div className="card">
-        <h2>Çalıştırma kaydı (gateway)</h2>
+        <h2>Katılımcılar</h2>
+        {presence === null ? (
+          <p className="muted">
+            Erişilemiyor — bu kart işletmen token'ı ister (yukarıdaki alana
+            TEKSES_ADMIN_TOKEN girin; kiracılar arası veri içerdiğinden panel
+            oturumu yetmez).
+          </p>
+        ) : (
+          <>
+            <p style={{ fontSize: 32, fontWeight: 800, margin: "4px 0" }}>
+              {presence.total}
+              <span className="muted" style={{ fontSize: 13, fontWeight: 400 }}>
+                {" "}bağlı telefon · {presence.node_count} düğüm · yaklaşık (≤15 sn gecikmeli)
+              </span>
+            </p>
+            {Object.keys(presence.rooms).length > 0 && (
+              <p className="muted">
+                {Object.entries(presence.rooms)
+                  .map(([room, n]) => `${room}: ${n}`)
+                  .join(" · ")}
+              </p>
+            )}
+          </>
+        )}
+      </div>
+      <div className="card">
+        <h2>Saat kalitesi (RTT — senkron kalite vekili)</h2>
+        {clockStats === null ? (
+          <p className="muted">Erişilemiyor — bu kart da işletmen token'ı ister.</p>
+        ) : Object.keys(clockStats.rooms).length === 0 ? (
+          <p className="muted">
+            Henüz örnek yok — ilk ölçüm bağlantıdan ~{Math.round(clockStats.ping_interval_ms / 1000)} sn
+            sonra gelir (bu düğümün istemcileri).
+          </p>
+        ) : (
+          Object.entries(clockStats.rooms).map(([room, st]) => (
+            <div key={room} style={{ margin: "10px 0" }}>
+              <p style={{ margin: "0 0 4px" }}>
+                {room}{" "}
+                <span className="muted">
+                  {st.sampled > 0 ? `p50 ${st.p50_ms} ms · p95 ${st.p95_ms} ms · ` : ""}
+                  {st.clients} istemci
+                  {st.no_sample > 0 ? ` · ${st.no_sample} örneksiz` : ""}
+                  {st.stale > 0 ? ` · ${st.stale} bayat` : ""}
+                </span>
+              </p>
+              <HeatBar st={st} />
+            </div>
+          ))
+        )}
+      </div>
+      <div className="card">
+        <h2>Çalıştırma kaydı {runsSource === "kalıcı" ? "(kalıcı + bu düğümün halkası)" : "(bu düğümün halkası)"}</h2>
         {runs.length === 0 ? (
           <p className="muted">Henüz çalıştırma yok.</p>
         ) : (
           <table>
             <thead>
-              <tr><th>Tür</th><th>Kue</th><th>Oda</th><th>Telefon</th><th>Zaman</th></tr>
+              <tr><th>Tür</th><th>Kue</th><th>Oda</th><th>Telefon (düğüm)</th><th>Zaman</th></tr>
             </thead>
             <tbody>
               {runs.map((r, i) => (
-                <tr key={`${r.run_id ?? "iv"}-${r.kind}-${i}`}>
+                <tr key={r.id ?? `${r.run_id ?? "iv"}-${r.kind}-${i}`}>
                   <td>{r.kind === "cue" ? "kue" : r.kind}</td>
                   <td>{r.cue_id || "—"}</td>
                   <td>{r.room_id || "tümü"}</td>
@@ -266,5 +364,29 @@ export default function ConsolePage() {
         )}
       </div>
     </>
+  );
+}
+
+// Isı çubuğu: kovalar sunucuda sabit (<10 yeşil, <30 sarı — ≤30 ms ürün
+// hedefiyle hizalı, <100 turuncu, ≥100 kırmızı; örneksiz/bayat gri).
+function HeatBar({ st }: { st: RoomClockStats }) {
+  const parts = [
+    { n: st.lt10, color: "#2e9e4f", label: "<10 ms" },
+    { n: st.lt30, color: "#b7a11a", label: "10-30 ms" },
+    { n: st.lt100, color: "#c26a1d", label: "30-100 ms" },
+    { n: st.gte100, color: "#c22222", label: "≥100 ms" },
+    { n: st.no_sample + st.stale, color: "#555", label: "örnek yok/bayat" },
+  ].filter((p) => p.n > 0);
+  const total = parts.reduce((a, p) => a + p.n, 0) || 1;
+  return (
+    <div style={{ display: "flex", height: 14, borderRadius: 7, overflow: "hidden", background: "#222" }}>
+      {parts.map((p, i) => (
+        <div
+          key={i}
+          title={`${p.label}: ${p.n}`}
+          style={{ width: `${(p.n / total) * 100}%`, background: p.color }}
+        />
+      ))}
+    </div>
   );
 }

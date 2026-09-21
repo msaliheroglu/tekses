@@ -78,8 +78,10 @@ adım sırasını izler.
 
 ## Faz 2 — Ölçek ve ses
 
-- [x] **F2.0 PR:** Faz 1 main'e PR #2 ile açıldı (2026-09-19); merge kararı
-  kullanıcıda. CI'ı bu oturum gözetliyor.
+- [x] **F2.0 PR:** Faz 1 main'e PR #2 ile merge edildi (2026-09-19). Faz 2
+  işleri (dağıtım, çift kodek, ses+karaoke, görsel editör, VM söz çıkarma)
+  **PR #3 ile main'e merge edildi (2026-09-20)**; çalışma dalı yeni main'in
+  üzerine alındı.
 - [x] **F2.1 Dağıtım paketi:** Dockerfile'lar (gateway, control-api, panel
   standalone), `deploy/docker-compose.yml` (postgres + üç servis + Caddy
   otomatik TLS, tek alan adında yol bazlı dağıtım), `.env.example`,
@@ -105,11 +107,38 @@ adım sırasını izler.
   **58 bayt** (JSON 207), senkron yayılımı değişmedi. **Kalan:** Dart
   stub'ları Flutter'lı ortamda üretilecek (`buf.gen.dart.yaml` hazır) ve
   uygulama v2'ye geçecek; o güne dek Flutter v1 JSON'da (gateway destekliyor).
-- [ ] **F2.4 Yük testi:** loadgen'i 100k istemciye ölçekleme (çok bağlantılı
-  koşum, bellek/CPU profili), yeniden bağlanma fırtınası senaryosu.
+- [x] **F2.4 Yük testi (2026-09-20, VM ölçümleri tamam):** kalanlar nota
+  düşüldü (yeniden bağlanma fırtınası senaryosu; 100k tam koşumu ayrı yük
+  makinesiyle — ikisi de F2.6 sonrası anlamlı).
   *Ön yoklama (2026-09-19, geliştirme konteyneri, 4 çekirdek):* 2.000 ikili
   istemci tek gateway'de sorunsuz — yayılım 3 ms. Gerçek 100k koşumu fd/port
   sınırları gereği F2.2 VM'inde (ya da ayrı yük makinesinde) yapılacak.
+  *Araçlar hazır (2026-09-20):* loadgen'e rampa (-ramp), ilerleme sayacı,
+  hata özetleme, küçük tamponlar; `tools/loadgen/Dockerfile`; gateway
+  compose'una nofile 1M; kademeli VM koşum kılavuzu **docs/yuk-testi.md**
+  (2k→10k→20k→40k; conntrack + port aralığı ayarlarıyla). Yerel duman
+  testi: 2.000 ikili istemci, yayılım 1 ms. **VM koşum sonuçları
+  (Oracle A1.Flex, gateway+loadgen aynı VM):**
+  - 10k ikili istemci (2026-09-20): 10000/10000 başarılı, yayılım
+    maks−min 15 ms / p95−p5 5 ms / σ 1.6 ms, en iyi RTT medyan 2 ms —
+    ≤30 ms hedefi TUTUYOR.
+  - 20k ikili istemci (2026-09-20): 20000/20000 başarılı (kopma yok);
+    yayılım maks−min 45 ms / p95−p5 25 ms / σ 7.6 ms, RTT medyan 6 ms /
+    p95 50 ms. Gateway RSS ~520 MiB (%9), CPU %43. NOT: VM 6 GB'lık
+    küçük kurulum çıktı (free: 5.8 Gi) — bozulma CPU sıkışması imzalı
+    (üreteç+gateway aynı çekirdekleri paylaşıyor); istemcilerin %90'ı
+    hâlâ 25 ms bandında. Ders: tek KÜÇÜK düğümün konforlu sınırı ~10-15k;
+    80k için düğüm başına ~10k hedefiyle çoklu gateway (F2.6 NATS) ve/veya
+    daha büyük makine. 4 OCPU/24 GB'a büyütüp yeniden ölçüm planlandı.
+  - VM 4 OCPU / 24 GB'a büyütüldü (Always Free sınırı) → 20k ikili istemci
+    TEKRARI: 20000/20000 başarılı, yayılım maks−min **1 ms**, RTT medyan
+    0 ms — 1 OCPU'daki 45 ms'lik bozulmanın tamamı CPU sıkışmasıymış;
+    protokol 20k'da kusursuz.
+  - **40k ikili istemci (4 OCPU): 40000/40000 başarılı, yayılım maks−min
+    2 ms / p95−p5 1 ms / σ 0.2 ms.** Gateway RSS 1.45 GiB, CPU %148/400,
+    VM boş RAM 19 Gi. SONUÇ: tek 4-OCPU düğümün kanıtlı kapasitesi ≥40k
+    (üreteçle CPU paylaşarak!); 80k hedefi = 2 böyle düğüm + oda dağıtımı
+    (F2.6 NATS) ya da daha büyük tek makine. Bellek istemci başına ~36 KB.
 - [x] **F2.5 Native zamanlanmış ses (2026-09-19):** (a) varlık boru hattı —
   POST /api/v1/assets (içerik adresli, <sha256>.<uzantı>), herkese açık
   /assets/{id}, yayında varlık doğrulaması; telefon varlıkları katılırken
@@ -129,16 +158,46 @@ adım sırasını izler.
   whisper.sh), bellek içi iş kuyruğu, panelde taslak üretimi. Şarkılarda
   ASR hatalıdır — çıktı taslak; kesin yol LRC/elle zamanlama. Kelime bazlı
   vurgulama (enhanced LRC) sonraki yineleme.
-- [ ] **F2.6 NATS JetStream oda dağıtımı** (çok düğümlü gateway) ve
-  telemetri panoları (kalıcı Run tablosu, saat kalitesi ısı haritası).
+- [x] **F2.6 Çok düğümlü gateway (2026-09-20/21, TAMAM):** yayınlar
+  (kue/müdahale/show_activated) çekirdek NATS pub/sub ile tüm düğümlere
+  dağıtılıyor — `internal/fanout` (yerel/NATS tek arayüz), TEKSES_NATS_URL,
+  compose'a nats servisi + `--scale gateway=2` desteği (Caddy Docker DNS
+  ile dağıtır), gömülü NATS'li çok düğüm testleri (aynı fire_at iki düğümde,
+  oda kapsamı, show_activated çapraz düğüm). Go 1.26'ya geçildi (nats.go
+  gereksinimi; Dockerfile'lar + CI go.mod'dan okuyor). JetStream bilinçli
+  KULLANILMADI (karar dokümanına satır eklendi). **İkinci yarı — telemetri
+  (2026-09-20) TAMAM:** (a) kalıcı Run izleri: gateway (rec_… kimlik + node
+  damgası) → control-api iç ucu (/internal/runs, TEKSES_INTERNAL_TOKEN;
+  Caddy /control/internal'ı 404'ler) → Postgres (migration 0002, storetest'li);
+  panel konsolu org kapsamlı GET /api/v1/runs'tan okur, oturumsuz/eskide
+  düğüm halkasına düşer. (b) küme geneli katılımcı sayacı: NATS
+  tekses.presence (5 sn rapor / 15 sn bayatlama), GET /api/v0/presence —
+  hangi kopyaya sorulsa küme geneli; konsolda büyük sayaç. (c) saat kalitesi
+  ısı haritası: keepalive ping'ine sunucu saati damgası → pong RTT'si
+  istemci başına atomik; GET /api/v0/clockstats oda bazlı p50/p95 + kovalar
+  (<10/<30/<100/≥100 ms), konsolda renkli ısı çubuğu. RTT senkron kalite
+  VEKİLİDİR (ofset değil) — panel öyle etiketler. Düşmanca inceleme
+  (5 boyut × 3 çürütücü, 35 ajan) 4 bulgu onayladı, dördü düzeltildi:
+  NATS baş-blokajı (sink kendi goroutine'inde; ping hatasında Unregister),
+  konsol kayıt birleşimi (kalıcı + halka), presence/clockstats'a işletmen
+  kilidi (kiracılar arası sızıntı). İkinci doğrulama turu düzeltilmiş koda
+  karşı temiz. **VM doğrulaması TAMAM (2026-09-21):** 2 gateway kopyası +
+  NATS ile 40k ikili istemci — 40000/40000 başarılı, yayılım maks−min 2 ms /
+  p95−p5 2 ms / σ 0.6 ms: düğümler arası senkron yük altında kanıtlandı.
+  İleride: org-kapsamlı telemetri (control-api vekaletiyle).
 - [ ] **F2.7 Ultrasonik beacon + PA test kiti** (karar dokümanı §3).
 
 ## Notlar
 
-- İyileştirme adayı (F2.2 saha gözlemi): panelde "etkinleştir" bağlı
-  telefonlara canlı yansımıyor — telefon paketi yalnızca katılırken indiriyor,
-  etkinleştirme sonrası yeniden katılmak gerekiyor. Gateway üzerinden odaya
-  "show_activated" bildirimi + uygulamada otomatik paket yenileme eklenebilir.
+- [x] "Etkinleştir" canlı bildirimi (2026-09-20): panel, etkinleştirme
+  başarılı olunca gateway'in POST /api/v0/show-activated ucunu çağırıyor;
+  gateway odaya v1 JSON telinde "show_activated" yayınlıyor (ikili kodlaması
+  yok — SendFrame v2 istemcileri atlar; proto zarfı sonraki yineleme).
+  Tarayıcı katılımcısı manifesti yeniden indiriyor; Flutter uygulaması
+  PackageStore.join'i yeniden koşup paket + varlıkları tazeliyor (süren
+  koreografi etkilenmez). Gateway testi: TestShowActivatedBroadcast.
+  **Telefonda devreye girmesi için APK yeniden derlenmeli** (yalnız git pull
+  + build; native kopyalama adımı değişmedi).
 - VM'de söz çıkarma (2026-09-20, KULLANICI DOĞRULADI): control-api'nin
   whisper.cpp + Demucs gömülü imaj varyantı (`Dockerfile.whisper` +
   `deploy/docker-compose.whisper.yml`, docs/dagitim.md §6) VM'de çalışıyor —

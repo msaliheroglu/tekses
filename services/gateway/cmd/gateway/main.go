@@ -11,6 +11,9 @@
 //	TEKSES_CONTROL_URL  boş değilse hello'daki join_code bu control-api
 //	                    üzerinden odaya çözülür; boşsa herkes "faz0" odasına
 //	                    düşer (Faz 0 yerel denemesi)
+//	TEKSES_NATS_URL     boş değilse yayınlar NATS üzerinden TÜM gateway
+//	                    düğümlerine dağıtılır (çok düğümlü kurulum, F2.6);
+//	                    boşsa tek düğüm — yayınlar yerel hub'a gider
 package main
 
 import (
@@ -24,7 +27,9 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/msaliheroglu/tekses/services/gateway/internal/fanout"
 	"github.com/msaliheroglu/tekses/services/gateway/internal/rooms"
+	"github.com/msaliheroglu/tekses/services/gateway/internal/runsink"
 	"github.com/msaliheroglu/tekses/services/gateway/internal/server"
 )
 
@@ -48,6 +53,29 @@ func main() {
 		log.Info("katılım kodları ve panel oturumları control-api'den doğrulanacak", "url", controlURL)
 	}
 	srv := server.New(log, os.Getenv("TEKSES_ADMIN_TOKEN"), resolver, sessions)
+
+	// Kalıcı Run kaydı: control-api adresi ve iç uç sırrı birlikte
+	// ayarlıysa açılır; yoksa izler yalnız yerel halkada yaşar.
+	if controlURL, internalToken := os.Getenv("TEKSES_CONTROL_URL"), os.Getenv("TEKSES_INTERNAL_TOKEN"); controlURL != "" && internalToken != "" {
+		srv.SetRunSink(runsink.New(controlURL, internalToken))
+		log.Info("run kayıtları control-api'ye kalıcılaştırılacak")
+	}
+
+	if natsURL := os.Getenv("TEKSES_NATS_URL"); natsURL != "" {
+		bus, err := fanout.NewNATS(natsURL, srv.BroadcastSink())
+		if err != nil {
+			log.Error("nats dağıtımı kurulamadı", "hata", err)
+			os.Exit(1)
+		}
+		defer bus.Close()
+		srv.SetBus(bus)
+		// Varlık yayını: defer LIFO olduğundan stop, bus.Close'tan önce koşar.
+		if p, ok := bus.(fanout.Presence); ok {
+			stop := srv.StartPresence(p)
+			defer stop()
+		}
+		log.Info("yayın dağıtımı NATS üzerinden (çok düğüm)", "url", natsURL)
+	}
 
 	httpSrv := &http.Server{
 		Addr:              *addr,
