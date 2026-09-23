@@ -209,12 +209,22 @@ adım sırasını izler.
   record paketiyle 48 kHz PCM akışı + MonoClock çıpası; show_screen'de
   "beacon dinle" anahtarı, cue_index→cueId eşlemesi, sentetik runId
   `beacon:<cue>:<sn>`, WS ±2 sn önceliği, ultrasonik kaynakta ofset=0.
-  **Kullanıcı doğrulaması:** `flutter pub get && flutter analyze && flutter
-  test` (apps/participant), sonra APK'yı yeniden derle (workflow RECORD_AUDIO
+  **Dart tarafı TESTLİ (2026-09-23):** `flutter analyze` temiz, 18 test
+  geçiyor. Test turu iki gerçek hata çıkardı, ikisi de düzeltildi: (1) tip
+  hatası `num`→`int` (analyze'ı kırıyordu), (2) **beacon kaçırma:** akış
+  penceresinin sonu kapının kurulduğu ana göre hesaplanıyordu; kapıyı chirp
+  değil sürekli mekân gürültüsü kurduğunda — sahanın tipik durumu — chirp
+  bulunuyor ama yükü pencereye sığmıyor, bölge "arandı" sayılıp beacon
+  büsbütün kaçırılıyordu. Pencere sonu artık pencere BAŞINA göre (bölge + bir
+  tam patlama), arama yalnız bant içi ses görülen bölgeye kadar ilerliyor ve
+  taranmamış bölge kaldıkça sürüyor. Hata, Dart'ın ürettiği kaydı WAV'a yazıp
+  Go referansına çözdürerek yakalandı (Go skor 0.51 ile çözüyordu) — yöntem
+  docs/ultrasonik-beacon.md'de. Regresyon testleri eklendi.
+  **Kullanıcı doğrulaması (kalan):** APK'yı indir (workflow RECORD_AUDIO
   iznini ekliyor; elle iskelet kuranlar README'deki manifest satırını
-  eklemeli) ve `ornek_beacon.wav`/beacon WAV'ını PC hoparlöründen çalarak
-  uygulamanın yakaladığını gör.
-  **Kalan:** cihazda uçtan uca doğrulama (kullanıcı) ve mekân PA saha ölçümü.
+  eklemeli), `ornek_beacon.wav`/beacon WAV'ını PC hoparlöründen çalarak
+  "beacon dinle" düğmesiyle uygulamanın yakaladığını gör; sonra mekân PA
+  saha ölçümü (docs/ultrasonik-beacon.md prosedürü).
 
 ## Notlar
 

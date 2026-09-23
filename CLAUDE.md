@@ -28,4 +28,19 @@
   `gen/go` altına commit'lidir; yenileme: `buf generate` (packages/proto
   README'sindeki kurulum notu).
 - Doğrulama: `go build ./... && go vet ./... && go test ./...`
-- Flutter bu geliştirme ortamında yok; Dart kodu telefonda/CI'da doğrulanır.
+- Flutter bu ortamda kurulu DEĞİL ama **indirilebilir** (~3 dk): SDK'yı
+  scratchpad'e açıp `flutter analyze` + `flutter test` burada koşulur. Dart
+  değişikliklerini CI'ya (Katılımcı APK iş akışı) göndermeden önce yerelde
+  doğrula — CI turu ~10 dk, yerel tur ~1 dk:
+
+  ```bash
+  cd "$SCRATCH" && curl -sSfL "https://storage.googleapis.com/flutter_infra_release/releases/$(
+    curl -sSf https://storage.googleapis.com/flutter_infra_release/releases/releases_linux.json |
+    python3 -c 'import json,sys;d=json.load(sys.stdin);h=d["current_release"]["stable"];print([r["archive"] for r in d["releases"] if r["hash"]==h][0])'
+  )" | tar -xJ && git config --global --add safe.directory '*'
+  export PATH="$SCRATCH/flutter/bin:$PATH"
+  cd apps/participant && flutter pub get && flutter analyze && flutter test
+  ```
+
+  (Cihaz gerektiren şeyler — mikrofon, fener, gerçek zamanlama — yine
+  telefonda doğrulanır; `flutter test` yalnızca saf Dart mantığını kapsar.)

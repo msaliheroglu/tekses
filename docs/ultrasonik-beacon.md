@@ -82,6 +82,18 @@ sıkıştırma). Beacon'a güvenmeden önce mekânda şu test yapılır:
   stereo ortalaması 19 kHz'te faz iptali yapabilir (kanal seçimi eklendi),
   yansıma chirp kilidini tam sembol kaydırabilir, AAC zamansal maskelemesi
   '1-koşusu→0' sembollerini siler.
+- [x] **Dart çözücüsü testli (2026-09-23):** `flutter test` ile 18 test
+  geçiyor (gidiş-dönüş 48k/44,1k, negatif SNR, AAC maskesi + chase,
+  yinelemeler, sessizlik, kapı beacon'dan 2 sn önce kurulduğunda yakalama,
+  parça boyutundan bağımsızlık). Yerel doğrulama yöntemi CLAUDE.md'de.
+  - **Çapraz doğrulama tekniği (port sapmasını bulmanın yolu):** Dart'ın
+    ürettiği kaydı WAV'a yazıp `go run ./tools/beacon -decode` ile çözmek.
+    İki gerçekleme aynı örneklerde ayrışıyorsa hata DSP'de değil, akış
+    mantığındadır — bir kez tam böyle yakalandı: akış penceresinin sonu
+    kapının kurulduğu ana göre hesaplanıyordu; kapıyı chirp değil sürekli
+    mekân gürültüsü kurduğunda (sahanın TİPİK durumu) chirp bulunuyor ama
+    yükü pencereye sığmıyor ve bölge "arandı" sayılıp beacon büsbütün
+    kaçırılıyordu. Pencere sonu artık pencere BAŞINA göre.
 - [~] Dart dinleyicisi YAZILDI (2026-09-21): `apps/participant/lib/core/`
   altında `ultrasonic.dart` (akış-tabanlı çözücü, Go portu + kapı/tampon
   mantığı) ve `ultrasonic_listener.dart` (record ile 48 kHz PCM16 akışı,
