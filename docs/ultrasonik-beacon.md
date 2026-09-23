@@ -94,6 +94,18 @@ sıkıştırma). Beacon'a güvenmeden önce mekânda şu test yapılır:
     mekân gürültüsü kurduğunda (sahanın TİPİK durumu) chirp bulunuyor ama
     yükü pencereye sığmıyor ve bölge "arandı" sayılıp beacon büsbütün
     kaçırılıyordu. Pencere sonu artık pencere BAŞINA göre.
+  - **Çözücü AYRI ISOLATE'te koşar (zorunlu):** bir arama penceresi ~80 milyon
+    çarpma demek. Ölçüm (masaüstü AOT, sürekli gürültülü akış = kapının hep
+    kurulu olduğu en kötü durum): tek bir 20 ms'lik parçanın işlenmesi 185 ms,
+    toplam yük gerçek zamanın ~%30'u. Ana isolate'te koşarsa bu donma tam
+    beacon yakalandığı anda — ateşleme anı hesaplanırken — oluşur.
+    `ultrasonic_worker.dart`: ana isolate yalnızca ham PCM'i MonoClock
+    damgasıyla aktarır; `heardAtMono` damgadan geriye sayılarak çözücü
+    tarafında hesaplanır. Telefon CPU'su masaüstünden 3-5 kat yavaş olduğundan
+    en kötü durumda yetişmeyebilir; gerçek mekânda 18,5 kHz üstü gürültü
+    neredeyse yok olduğu için kapı nadiren kurulur (tipik yük ~sıfır). Kalan
+    iyileştirme fikri: korelasyonda kayan enerji toplamı (~%30 kazanç, sonucu
+    değiştirmez).
 - [~] Dart dinleyicisi YAZILDI (2026-09-21): `apps/participant/lib/core/`
   altında `ultrasonic.dart` (akış-tabanlı çözücü, Go portu + kapı/tampon
   mantığı) ve `ultrasonic_listener.dart` (record ile 48 kHz PCM16 akışı,

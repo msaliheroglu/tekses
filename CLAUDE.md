@@ -44,3 +44,8 @@
 
   (Cihaz gerektiren şeyler — mikrofon, fener, gerçek zamanlama — yine
   telefonda doğrulanır; `flutter test` yalnızca saf Dart mantığını kapsar.)
+- **analyze + test YETMEZ:** eklentilerin platform gerçeklemeleri (record_linux
+  vb.) yalnızca `flutter build apk` Dart derlemesinde ele alınır; uyumsuz bir
+  alt paket sürümü analyze/test'ten temiz geçip APK'yı kırar. Eklenti
+  ekledikten/sürüm değiştirdikten sonra "Katılımcı APK" iş akışını koştur
+  (~3 dk) — yerelde Android SDK yok.

@@ -44,26 +44,36 @@ class UltrasonicListener {
       onStatus?.call('mikrofon izni verilmedi');
       return false;
     }
-    final worker = UltrasonicWorker(
-      sampleRate: _sampleRate,
-      onDetection: onDetection,
-    );
-    await worker.start();
-    _worker = worker;
-    final stream = await _recorder.startStream(const RecordConfig(
-      encoder: AudioEncoder.pcm16bits,
-      sampleRate: _sampleRate,
-      numChannels: 1,
-      // Ultrasonik bant için işletim sisteminin ses "iyileştirmeleri"
-      // zehirdir: yankı/gürültü bastırma 18-20 kHz'i tıraşlayabilir.
-      echoCancel: false,
-      noiseSuppress: false,
-      autoGain: false,
-    ));
-    _sub = stream.listen(_onChunk, onError: (Object err) {
-      onStatus?.call('mikrofon akışı koptu: $err');
-      stop();
-    });
+    // Çözücü ve mikrofon başlatması cihazda çeşitli biçimlerde düşebilir
+    // (isolate doğmaz, kayıt aygıtı meşgul, biçim desteklenmez). Hiçbiri
+    // gösteriyi düşürmemeli: beacon yalnızca YEDEK — durum satırında söyle,
+    // false dön, koreografi programdan/WS'ten akmaya devam etsin.
+    try {
+      final worker = UltrasonicWorker(
+        sampleRate: _sampleRate,
+        onDetection: onDetection,
+      );
+      await worker.start();
+      _worker = worker;
+      final stream = await _recorder.startStream(const RecordConfig(
+        encoder: AudioEncoder.pcm16bits,
+        sampleRate: _sampleRate,
+        numChannels: 1,
+        // Ultrasonik bant için işletim sisteminin ses "iyileştirmeleri"
+        // zehirdir: yankı/gürültü bastırma 18-20 kHz'i tıraşlayabilir.
+        echoCancel: false,
+        noiseSuppress: false,
+        autoGain: false,
+      ));
+      _sub = stream.listen(_onChunk, onError: (Object err) {
+        onStatus?.call('mikrofon akışı koptu: $err');
+        stop();
+      });
+    } catch (err) {
+      onStatus?.call('beacon başlatılamadı: $err');
+      await stop();
+      return false;
+    }
     onStatus?.call('beacon dinleniyor');
     return true;
   }

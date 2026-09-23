@@ -219,7 +219,12 @@ adım sırasını izler.
   tam patlama), arama yalnız bant içi ses görülen bölgeye kadar ilerliyor ve
   taranmamış bölge kaldıkça sürüyor. Hata, Dart'ın ürettiği kaydı WAV'a yazıp
   Go referansına çözdürerek yakalandı (Go skor 0.51 ile çözüyordu) — yöntem
-  docs/ultrasonik-beacon.md'de. Regresyon testleri eklendi.
+  docs/ultrasonik-beacon.md'de. Regresyon testleri eklendi. Ayrıca çözücü
+  AYRI ISOLATE'e taşındı (`ultrasonic_worker.dart`): ölçümde tek bir 20 ms'lik
+  parça 185 ms sürüyordu, yani ana isolate'te tam beacon yakalandığı anda
+  koreografi donacaktı. APK derlemesi de kırıktı: record 5.x arayüzle uyumsuz
+  bir record_linux çekiyor — ^7.1.1'e yükseltildi (analyze/test bu sınıf
+  hatayı görmez, yalnızca `flutter build apk` görür).
   **Kullanıcı doğrulaması (kalan):** APK'yı indir (workflow RECORD_AUDIO
   iznini ekliyor; elle iskelet kuranlar README'deki manifest satırını
   eklemeli), `ornek_beacon.wav`/beacon WAV'ını PC hoparlöründen çalarak
