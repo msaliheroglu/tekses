@@ -5,6 +5,9 @@
 coverage.*
 
 # Flutter / Dart (apps/participant)
+# pubspec.lock tutulmaz: depoda yalnızca Dart kaynakları var (platform
+# iskeleti ve kilit dosyası CI'da/geliştiricide üretilir).
+apps/participant/pubspec.lock
 **/.dart_tool/
 **/.flutter-plugins
 **/.flutter-plugins-dependencies

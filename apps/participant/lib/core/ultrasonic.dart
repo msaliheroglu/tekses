@@ -219,6 +219,7 @@ class UltrasonicDecoder {
     _gapN = (gapSec * _sr).toInt();
     _symN = (symbolSec * _sr).toInt();
     _burstN = _chirpN + _gapN + payloadBits * _symN;
+    _searchSpan = (_searchSpanSec * _sr).toInt();
 
     _tmpl = Float64List(_chirpN);
     var phase = 0.0;
@@ -247,7 +248,7 @@ class UltrasonicDecoder {
 
   final int sampleRate;
   final double _sr;
-  late final int _chirpN, _gapN, _symN, _burstN;
+  late final int _chirpN, _gapN, _symN, _burstN, _searchSpan;
   late final Float64List _tmpl;
   double _tmplEnergy = 0;
 
@@ -258,16 +259,20 @@ class UltrasonicDecoder {
   final List<double> _buf = <double>[];
   int _bufStartAbs = 0;
 
-  /// Kapı durumu: gürültü tabanı (üstel ortalama) ve kurulu arama işi.
+  /// Kapı durumu: gürültü tabanı (üstel ortalama) ve arama ilerlemesi.
   double _noiseFloor = 1e-6;
-  int? _armedAtAbs; // kapı tetiklendiğinde akış konumu
   int _searchedUntilAbs = 0; // bu mutlak konuma dek arandı (çift raporu önler)
+  int _loudUntilAbs = 0; // bant içi ses görülen son parçanın sonu
 
   static const double _gateFactor = 6.0; // taban × katsayı → tetik
   // Mutlak alt eşik: bant dışı sesin süzgeç kaçağı (ör. 1 kHz müzik) kapıyı
   // sürekli kurup boşuna korelasyon koşturmasın.
   static const double _gateAbsMin = 0.002;
   static const int _keepSec = 3;
+  // Bir pencerede taranan bölgenin boyu. Pencere bunun ÜSTÜNE bir tam patlama
+  // taşır (bölgede başlayan chirp'in yükü de pencerede olmalı), yani gecikme
+  // ve iş yükü bu sayıyla ölçeklenir.
+  static const double _searchSpanSec = 0.4;
 
   /// Yeni örnekleri işler; tamamlanan çözümleri döndürür (çoğunlukla boş).
   List<BeaconDetection> feed(Float64List samples) {
@@ -286,27 +291,39 @@ class UltrasonicDecoder {
       final rms = math.sqrt(chunkEnergy / samples.length);
       final endAbs = _bufStartAbs + _buf.length;
       if (rms > _gateAbsMin && rms > _noiseFloor * _gateFactor) {
-        _armedAtAbs ??= endAbs - samples.length;
+        _loudUntilAbs = endAbs;
       } else {
         // Taban yalnızca sessiz parçalarla güncellenir (sinyal tabanı şişirmesin).
         _noiseFloor = 0.95 * _noiseFloor + 0.05 * math.max(rms, 1e-7);
+        // Bekleyen tüm pencerelerin kurulmuş olacağı kadar sessizlik geçtiyse
+        // aramayı ileri sar: uzun sessizlikten sonra gelen ses, tamponun
+        // tamamını boşuna taratmasın. Son bir chirp boyu yeniden aranabilir
+        // kalır — chirp bu parçanın sonunda başlamış ve parça RMS'ini henüz
+        // kapı eşiğine taşımamış olabilir.
+        if (endAbs > _loudUntilAbs + _searchSpan + _burstN) {
+          _searchedUntilAbs = math.max(_searchedUntilAbs, endAbs - _chirpN);
+        }
       }
     }
 
     final out = <BeaconDetection>[];
-    // Kurulu iş: kapı anından itibaren tam bir patlama + pay tamponda mı?
-    while (_armedAtAbs != null) {
-      final armed = _armedAtAbs!;
+    // Bant içi ses görülmüş ama aranmamış bölge kaldıkça pencere pencere
+    // ilerle (tek bir uzun feed çağrısı da birden çok pencere işleyebilir).
+    while (_searchedUntilAbs < _loudUntilAbs) {
       // Pencere, taranmamış İLK noktadan başlar: kapının geç kurulması
       // (sürekli gürültüde her parça yeniden tetikler) aradaki bölgeyi
       // atlatamaz; taranan bölge de yinelenmez.
       final windowStartAbs = math.max(_bufStartAbs, _searchedUntilAbs);
-      final needEndAbs = armed + (0.4 * _sr).toInt() + _burstN;
+      // Pencere sonu, pencere BAŞINA göredir: taranacak bölge + bir tam
+      // patlama. Kapının kurulduğu ana göre hesaplanırsa (eski hata), kapıyı
+      // chirp değil sürekli gürültü kurduğunda chirp bulunur ama yükü
+      // pencereye sığmaz — ve bölge "arandı" sayılıp beacon kaçırılır.
+      final needEndAbs = windowStartAbs + _searchSpan + _burstN;
       if (_bufStartAbs + _buf.length < needEndAbs) break; // daha örnek gerek
 
       final lo = windowStartAbs - _bufStartAbs;
-      final hi = math.min(_buf.length, needEndAbs - _bufStartAbs);
-      final win = Float64List.fromList(_buf.sublist(lo, hi));
+      final win = Float64List.fromList(
+          _buf.sublist(lo, needEndAbs - _bufStartAbs));
       final dets = _decodeWindow(win);
       var lastBurstEndAbs = 0;
       for (final d in dets) {
@@ -320,12 +337,11 @@ class UltrasonicDecoder {
       }
       // "Arandı" işareti yalnızca YÜKÜ TAM değerlendirilebilmiş bölgeye
       // konur: pencerenin son _burstN'lik kuyruğunda başlayan bir chirp'in
-      // yükü henüz tamponda olmayabilir — o bölge bir SONRAKİ kurulumda
-      // yeniden aranmalı (sürekli gürültülü kayıtta beacon kaçırma hatası).
-      final evaluatedAbs = windowStartAbs + math.max(0, win.length - _burstN);
-      _searchedUntilAbs = math.max(
-          _searchedUntilAbs, math.max(evaluatedAbs, lastBurstEndAbs - _chirpN ~/ 2));
-      _armedAtAbs = null; // sonraki patlama kapıyı yeniden kurar
+      // yükü pencereye sığmaz — o bölge bir SONRAKİ pencerede yeniden
+      // aranmalı. Çözülmüş bir patlamanın ötesine atlamak ise aynı patlamayı
+      // ikinci kez raporlamayı önler (chirp payı ile).
+      _searchedUntilAbs = math.max<int>(windowStartAbs + _searchSpan,
+          lastBurstEndAbs - _chirpN ~/ 2);
     }
 
     // Tamponu son _keepSec saniyeye kırp.

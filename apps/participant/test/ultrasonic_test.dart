@@ -54,6 +54,46 @@ void main() {
     expect(dets.first.payload, payload);
   });
 
+  // Regresyon: beacon, kapıyı kuran sesten ÇOK sonra gelebilir. Akış
+  // penceresinin sonu kapının kurulduğu ana göre hesaplanırsa (eski hata)
+  // chirp bulunur ama yükü pencereye sığmaz, bölge "arandı" sayılır ve
+  // beacon büsbütün kaçırılır. Mekân gürültüsü sürekli olduğu için bu
+  // saha koşullarının TİPİK durumudur.
+  test('sürekli gürültü: kapı beacon\'dan 2 sn önce kurulsa da yakalanır', () {
+    const sr = 48000;
+    final burst = encodeBeacon(payload, sr);
+    final rng = math.Random(7);
+    final rec = embed(burst, 2 * sr, sr ~/ 2);
+    for (var i = 0; i < rec.length; i++) {
+      rec[i] = rec[i] / 8 + 0.2 * (2 * rng.nextDouble() - 1);
+    }
+    final dets = feedChunked(UltrasonicDecoder(sr), rec);
+    expect(dets, hasLength(1));
+    expect(dets.first.payload, payload);
+    expect((dets.first.chirpStartSample - 2 * sr).abs(),
+        lessThan((sr * 0.003).toInt()));
+  });
+
+  // Regresyon: sonuç besleme parça boyutundan bağımsız olmalı (aynı kayıt
+  // tek çağrıda da, 20 ms'lik parçalarla da aynı beacon'ı vermeli).
+  test('parça boyutu sonucu değiştirmez', () {
+    const sr = 48000;
+    final rec = embed(encodeBeacon(payload, sr), sr ~/ 3, sr);
+    for (final chunk in [rec.length, 4800, 960, 128]) {
+      final dec = UltrasonicDecoder(sr);
+      final dets = <BeaconDetection>[];
+      for (var i = 0; i < rec.length; i += chunk) {
+        final end = math.min(i + chunk, rec.length);
+        dets.addAll(dec.feed(Float64List.sublistView(rec, i, end)));
+      }
+      expect(dets, hasLength(1), reason: 'parça=$chunk');
+      expect(dets.first.payload, payload, reason: 'parça=$chunk');
+      expect((dets.first.chirpStartSample - sr ~/ 3).abs(),
+          lessThan((sr * 0.003).toInt()),
+          reason: 'parça=$chunk');
+    }
+  });
+
   test('AAC maskesi: silinen 2 sembol chase ile kurtarılır', () {
     const sr = 48000;
     const p = BeaconPayload(cueIndex: 0, seq: 1, countdownMs: 3000);
