@@ -103,9 +103,14 @@ sıkıştırma). Beacon'a güvenmeden önce mekânda şu test yapılır:
     damgasıyla aktarır; `heardAtMono` damgadan geriye sayılarak çözücü
     tarafında hesaplanır. Telefon CPU'su masaüstünden 3-5 kat yavaş olduğundan
     en kötü durumda yetişmeyebilir; gerçek mekânda 18,5 kHz üstü gürültü
-    neredeyse yok olduğu için kapı nadiren kurulur (tipik yük ~sıfır). Kalan
-    iyileştirme fikri: korelasyonda kayan enerji toplamı (~%30 kazanç, sonucu
-    değiştirmez).
+    neredeyse yok olduğu için kapı nadiren kurulur (tipik yük ~sıfır).
+  - **Denendi, İŞE YARAMADI (tekrar denemeyin):** korelasyonda pencere
+    enerjisini kayan toplamla taşımak. İç döngüdeki çarpmayı yarıya indirir
+    ama ölçümde toplam yük değişmedi (%29,6 → %30,6; en kötü parça yalnızca
+    185 → 162 ms) — arama bellek-bağımlı, baskın olan aynı iki diziyi okumak,
+    çarpma sayısı değil. Gerçek kazanç ancak arama alanını daraltmaktan ya da
+    taban bandına indirip desimasyon/FFT'den gelir; ikincisi skorları
+    kaydıracağı için Go referansıyla BİRLİKTE değiştirilmeli.
 - [~] Dart dinleyicisi YAZILDI (2026-09-21): `apps/participant/lib/core/`
   altında `ultrasonic.dart` (akış-tabanlı çözücü, Go portu + kapı/tampon
   mantığı) ve `ultrasonic_listener.dart` (record ile 48 kHz PCM16 akışı,
