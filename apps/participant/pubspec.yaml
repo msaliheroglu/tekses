@@ -25,7 +25,10 @@ dependencies:
   wakelock_plus: ^1.2.0
   # Ultrasonik beacon dinleyicisi: mikrofon PCM akışı (F2.7).
   # AndroidManifest'e RECORD_AUDIO, iOS'a NSMicrophoneUsageDescription gerekir.
-  record: ^5.1.2
+  # 5.x KULLANILMAZ: o hat, arayüzle uyumsuz bir record_linux çekiyor ve
+  # `flutter build apk` Dart derlemesinde patlıyor (analyze/test görmez —
+  # platform gerçeklemeleri yalnızca derlemede ele alınır).
+  record: ^7.1.1
 
 dev_dependencies:
   flutter_test:
