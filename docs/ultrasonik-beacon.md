@@ -35,6 +35,35 @@ go run ./tools/beacon -patest pa-kiti
 go run ./tools/beacon -decode kayit.wav
 ```
 
+## Cihaz denemesi (uygulamayla, PA'ya gitmeden)
+
+Amaç: telefondaki dinleyicinin gerçekten çözdüğünü görmek. Masa hoparlörü
+yeter; PA ölçümü ayrı ve sonraki adımdır.
+
+1. APK'yı al: GitHub → Actions → "Katılımcı APK" → son yeşil koşum →
+   Artifacts → `tekses-participant-apk`. (Telefonun tarayıcısından da
+   indirilir; GitHub girişi gerekir.)
+2. Beacon dosyasını üret ve **kablolu/USB** hoparlörden çal — Bluetooth ya da
+   MP3/AAC'ye çevirmek ultrasonik bandı öldürür:
+
+   ```bash
+   go run ./tools/beacon -out beacon.wav -cue 0 -countdown 5000 -repeats 3
+   ```
+
+   (`-countdown 5000`: ateşleme, dosya başlangıcından 5 sn sonra — düğmeye
+   basıp telefonu hoparlöre tutmaya vakit kalsın.)
+3. Uygulamada gösteri ekranını aç, sol alttaki **"beacon dinle"** düğmesine
+   bas (mikrofon izni ilk seferde sorulur) ve dosyayı çal.
+4. Beklenen: köşedeki beacon satırı `kue #0 duyuldu (5000 ms)` gibi bir şey
+   yazar, geri sayım dolunca koreografi başlar. Bir-iki bit düzeltildiyse
+   satırda `· N bit düzeltildi` de görünür — bu normaldir (hava/kodek).
+5. Görünmüyorsa sırayla: telefonu hoparlöre yaklaştırın; hoparlör sesini
+   açın; başka uygulama mikrofonu tutuyor olabilir (kapatın); bilgisayarın
+   ses çıkışında "ses iyileştirme/equalizer" varsa kapatın. Hâlâ yoksa aynı
+   çalmayı telefonla kaydedip `go run ./tools/beacon -decode kayit.wav` ile
+   çözün: çözülüyorsa sorun uygulamada, çözülmüyorsa zincir ultrasonik
+   bandı geçirmiyor.
+
 ## PA saha testi (etkinlikten önce ŞART)
 
 Çoğu PA zinciri 16 kHz üstünü keser (hoparlör sürücüsü, DSP/limiter, MP3

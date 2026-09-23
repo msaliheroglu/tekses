@@ -225,11 +225,12 @@ adım sırasını izler.
   koreografi donacaktı. APK derlemesi de kırıktı: record 5.x arayüzle uyumsuz
   bir record_linux çekiyor — ^7.1.1'e yükseltildi (analyze/test bu sınıf
   hatayı görmez, yalnızca `flutter build apk` görür).
-  **Kullanıcı doğrulaması (kalan):** APK'yı indir (workflow RECORD_AUDIO
-  iznini ekliyor; elle iskelet kuranlar README'deki manifest satırını
-  eklemeli), `ornek_beacon.wav`/beacon WAV'ını PC hoparlöründen çalarak
-  "beacon dinle" düğmesiyle uygulamanın yakaladığını gör; sonra mekân PA
-  saha ölçümü (docs/ultrasonik-beacon.md prosedürü).
+  **APK derlemesi YEŞİL (2026-09-23):** analyze + 20 test + release APK,
+  "Katılımcı APK" iş akışında geçiyor; RECORD_AUDIO izni manifeste ekleniyor.
+  **Kullanıcı doğrulaması (kalan):** (1) cihaz denemesi — APK'yı Actions
+  artefaktından indir, beacon WAV'ını kablolu hoparlörden çal, "beacon dinle"
+  düğmesiyle yakaladığını gör (adım adım: docs/ultrasonik-beacon.md §Cihaz
+  denemesi); (2) mekân PA saha ölçümü (aynı dosyadaki §PA saha testi).
 
 ## Notlar
 
