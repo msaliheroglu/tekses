@@ -71,3 +71,29 @@ func TestEstimateSingleSample(t *testing.T) {
 		t.Fatalf("OffsetMs = %d, beklenen 42", est.OffsetMs)
 	}
 }
+
+// Çift tepeli dağılım (20k fırtına yük testinin yakaladığı durum): izdiham
+// anında örneklerin ÇOĞU asimetrik gecikmeyle saptırılmışken azınlıktaki
+// temiz örnekler kazanmalı. "En iyi yarı" burada çöp örnekleri de medyana
+// taşıyordu; RTT bandı taşımaz.
+func TestEstimateBimodalCrush(t *testing.T) {
+	var e Estimator
+	trueOffset := int64(777)
+	// 2 temiz örnek (RTT 4)...
+	e.Add(makeSample(1000, trueOffset, 2, 2, 1))
+	e.Add(makeSample(1100, trueOffset, 2, 2, 1))
+	// ...ve 8 saptırılmış: gidiş 5 ms, dönüş 55 ms (RTT 60, ofset −25 ms kayar).
+	for i := int64(0); i < 8; i++ {
+		e.Add(makeSample(2000+i*100, trueOffset, 5, 55, 1))
+	}
+	est, err := e.Estimate()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if est.OffsetMs != trueOffset {
+		t.Fatalf("OffsetMs = %d, beklenen %d (çöp örnekler medyana sızdı)", est.OffsetMs, trueOffset)
+	}
+	if est.UsedSamples != 2 {
+		t.Fatalf("UsedSamples = %d, beklenen 2", est.UsedSamples)
+	}
+}

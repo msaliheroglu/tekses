@@ -328,7 +328,11 @@ function advanceRound() {
   }
   if (samples.length > 0) {
     const byRtt = samples.slice().sort((a, b) => a.rtt - b.rtt);
-    const keep = Math.ceil(byRtt.length / 2); // en iyi yarı
+    // En iyi RTT'nin +10 ms bandındaki örnekler (packages/clocksync ile
+    // birebir; "en iyi yarı" değil — izdihamda çöp örnekler medyana sızar).
+    const cut = byRtt[0].rtt + 10;
+    let keep = 1;
+    while (keep < byRtt.length && byRtt[keep].rtt <= cut) keep++;
     const chosen = byRtt.slice(0, keep);
     const offsets = chosen.map((s) => s.offset).sort((a, b) => a - b);
     const median = keep % 2 === 1

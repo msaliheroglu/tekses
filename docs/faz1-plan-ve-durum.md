@@ -341,8 +341,17 @@ gerektirenler.
   eldeki kabul 2 dk'dan taze ve belirgin daha kaliteliyse (RTT +10 ms pay)
   yeni tur onu ezmez, kısa aralıkla taze tur denenir; loadgen'de sabit
   istemciler de kalitesiz ilk turu tazeler (telefon aynası) ve rapor artık
-  fırtına/sabit grup kırılımı verir. **Kalan:** VM'de üçüncü koşum
-  (imaj yeniden derlenerek); 100k tam koşum ayrı yük makinesi ister.
+  fırtına/sabit grup kırılımı verir. Üçüncü VM koşumu (2026-09-26):
+  sabit grup 1 ms'e indi, fırtına grubunda uç değerler kaldı (maks−min 57,
+  p95−p5 18) ve İZ ele verdi: en iyi RTT p95 1 ms iken ofset uçları ±28 ms —
+  yani KESTİRİCİNİN kendisi. "En iyi yarının medyanı", izdihamın çift tepeli
+  dağılımında çöp örnekleri de medyana taşıyor; en iyi RTT tertemiz görünüp
+  kalite kapısını da kandırıyordu. Düzeltme: kestirim artık en iyi RTT'nin
+  +10 ms BANDINDAKİ örneklerin medyanı — dört gerçekleme birden değişti
+  (Go clocksync + Dart clock_sync + join.html + proto sözleşme yorumu),
+  iki tarafta da çift tepeli regresyon testi var. Yerel jitter'lı duman:
+  yayılım 22 ms ✓. **Kalan:** VM'de dördüncü koşum; 100k tam koşum ayrı
+  yük makinesi ister.
 - [ ] **F3.5 Cihaz sınıfı fener kalibrasyon tablosu:** fener sürücü gecikmesi
   cihazdan cihaza değişir; model bazlı ofset tablosu + ölçüm prosedürü.
 - [x] **F3.6 Tarayıcı katılımcı yedeği ürünleşti (2026-09-26):** /join artık
