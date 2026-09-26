@@ -45,6 +45,17 @@
     border: 0; border-radius: 12px; background: #d92b2b; color: #fff;
     font-size: 20px; font-weight: 700; padding: 16px 48px; cursor: pointer;
   }
+  #codeInput {
+    border: 1px solid #555; border-radius: 10px; background: #111; color: #fff;
+    font-size: 20px; text-align: center; letter-spacing: 4px;
+    text-transform: uppercase; padding: 12px 16px; width: 240px;
+  }
+  #safeBtn {
+    position: fixed; bottom: 8px; left: 8px; z-index: 5;
+    border: 1px solid #444; border-radius: 8px; background: rgba(0,0,0,0.5);
+    color: #888; font-size: 12px; padding: 6px 10px; cursor: pointer;
+  }
+  #safeBtn.on { color: #ffd54f; border-color: #ffd54f; }
   .hidden { display: none !important; }
 </style>
 </head>
@@ -52,12 +63,17 @@
 <div id="stage"></div>
 <div id="lyrics"><div id="lyricNow"></div><div id="lyricNext"></div></div>
 <div id="status"></div>
+<button id="safeBtn" class="hidden" title="Yanıp sönmeyi sabit ışığa indirger">ışığa duyarlı mod</button>
 <div id="overlay">
   <h1>TekSes</h1>
-  <p>Tarayıcı katılımcı sayfası: gösteri koreografisi (ekran rengi + sözler)
-     burada da oynar. Parlaklığı elle sonuna kadar açın.
-     <b>Yanıp sönen ışık içerir.</b><br><br>
-     Fener ve zamanlanmış ses yalnızca telefon uygulamasında çalışır.</p>
+  <p>Uygulamayı kuramayanlar için tarayıcı yedeği: gösteri koreografisi
+     (ekran rengi + sözler) burada oynar; <b>fener ve zamanlanmış ses
+     yalnızca telefon uygulamasında</b>. Parlaklığı elle sonuna kadar açın.
+     <b>Gösteri yanıp sönen ışık içerebilir</b> — ışığa duyarlıysanız
+     katıldıktan sonra sol alttaki "ışığa duyarlı mod"u açın.</p>
+  <input id="codeInput" autocomplete="off" autocapitalize="characters"
+         spellcheck="false" placeholder="Katılım kodu">
+
   <p id="wlWarn" hidden style="color:#ffb74d">
      ⚠ Bu adres şifresiz (http) olduğu için tarayıcı ekranı otomatik açık
      tutamıyor. Denemeden önce telefonun <b>ekran kapanma süresini 5 dakika
@@ -116,10 +132,11 @@ function wsUrl() {
   return (location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/ws";
 }
 
-// Katılım kodu URL'den gelir (panelin ürettiği QR: /join?code=ABC234);
-// kod yoksa varsayılan odaya girilir (Faz 0 yerel denemesi).
+// Katılım kodu URL'den gelir (panelin ürettiği QR: /join?code=ABC234) ya da
+// kapak ekranındaki kutudan elle yazılır; boş bırakılırsa varsayılan odaya
+// girilir (Faz 0 yerel denemesi).
 const params = new URLSearchParams(location.search);
-const joinCode = (params.get("code") || "").trim().toUpperCase();
+let joinCode = (params.get("code") || "").trim().toUpperCase();
 // control-api normalde aynı origin'dedir (Caddy yol tablosu); yerel geliştirme
 // gibi ayrık kurulumlar için ?control=http://host:8090 ile geçilebilir.
 const controlBase = (params.get("control") || "").replace(/\/+$/, "");
@@ -160,7 +177,12 @@ function clampFlashHz(hz) {
   return hz > 3 ? 3 : hz;
 }
 
+// Işığa duyarlı mod (telefondaki anahtarın eşleniği): yanıp sönme sabit
+// ışığa indirgenir; renk, süre ve koreografi kapsamı aynı kalır.
+let safeMode = false;
+
 function cueLitAt(cue, e) {
+  if (safeMode) return true;
   const hz = clampFlashHz(cue.flash_hz);
   if (!hz) return true;
   return Math.floor(((e - cue.at_ms) * hz) / 500) % 2 === 0;
@@ -321,6 +343,12 @@ function advanceRound() {
       active.fireLocalMs = active.cue.fire_at_server_ms - estimate.offsetMs;
       if (!active.fired) armFireTimer();
     }
+    // Senkron beklerken saklanan kue (geç katılım tekrarı) şimdi işlenir.
+    if (pendingCue) {
+      const c = pendingCue;
+      pendingCue = null;
+      onCue(c);
+    }
   } else {
     setStatus("saat senkronu başarısız; yeniden denenecek");
   }
@@ -329,11 +357,14 @@ function advanceRound() {
 
 // --- kue akışı ---
 
+let pendingCue = null; // ilk senkrondan önce gelen kue (geç katılım tekrarı TEK gelir)
+
 function onCue(cue) {
   if (!cue.run_id || seenRuns.has(cue.run_id)) return; // tekrar tekilleştirme
-  // Senkron henüz yoksa run_id İŞARETLENMEZ: sunucunun 250 ms arayla yolladığı
-  // 2.-3. tekrarlar, estimate o sırada hazırlanmışsa kueyi kurtarabilsin.
-  if (!estimate) { setStatus("kue geldi ama saat senkronu yok; tekrar bekleniyor"); return; }
+  // Senkron henüz yoksa kue SAKLANIR: geç katılım tekrarı (gateway welcome'dan
+  // hemen sonra tek sefer yollar) canlı 250 ms'lik yinelemeler gibi kendini
+  // telafi edemez; ilk ofset çıkınca advanceRound işler.
+  if (!estimate) { pendingCue = cue; setStatus("kue geldi; saat senkronu bekleniyor"); return; }
   seenRuns.add(cue.run_id);
 
   cancelActive(true);
@@ -399,7 +430,7 @@ function applyFrame() {
     return;
   }
   let lit = true;
-  const payloadHz = clampFlashHz(p.flash_hz);
+  const payloadHz = safeMode ? 0 : clampFlashHz(p.flash_hz);
   if (payloadHz > 0) {
     // Faz daima (şimdi − ateşlemeAnı) üzerinden: tüm telefonlar aynı yarımda.
     // floor(elapsed*hz/500): yarım periyodu (500/hz) yuvarlamadan sayar;
@@ -463,10 +494,30 @@ document.addEventListener("visibilitychange", () => {
   }
 });
 
+const safeBtn = document.getElementById("safeBtn");
+safeBtn.addEventListener("click", () => {
+  safeMode = !safeMode;
+  safeBtn.classList.toggle("on", safeMode);
+  safeBtn.textContent = safeMode ? "flaş kapalı (duyarlı mod)" : "ışığa duyarlı mod";
+});
+
+const codeInput = document.getElementById("codeInput");
+codeInput.value = joinCode;
+
 document.getElementById("joinBtn").addEventListener("click", async () => {
+  // Elle yazılan kod URL'den geleni ezer ve adrese işlenir: sayfa
+  // yenilenirse ya da bağlantı paylaşılırsa kod korunur.
+  joinCode = codeInput.value.trim().toUpperCase();
+  if (joinCode) {
+    const u = new URL(location.href);
+    u.searchParams.set("code", joinCode);
+    history.replaceState(null, "", u);
+  }
   document.getElementById("overlay").classList.add("hidden");
+  safeBtn.classList.remove("hidden");
   await acquireWakeLock(); // kullanıcı jesti gerektirir; o yüzden burada
   try { await document.documentElement.requestFullscreen(); } catch { /* iOS Safari desteklemez */ }
+  loadManifest(); // elle girilen kodun paketi (welcome'daki çağrı da tazeler)
   connect();
 });
 </script>

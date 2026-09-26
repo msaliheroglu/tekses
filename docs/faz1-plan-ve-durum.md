@@ -332,9 +332,15 @@ gerektirenler.
   koşum; 100k tam koşum ayrı yük makinesi gerektirir.
 - [ ] **F3.5 Cihaz sınıfı fener kalibrasyon tablosu:** fener sürücü gecikmesi
   cihazdan cihaza değişir; model bazlı ofset tablosu + ölçüm prosedürü.
-- [ ] **F3.6 Tarayıcı katılımcı yedeği (ürünleştirme):** /join denemesi Faz 0
-  aracı olarak var; ürün kararı gereği söz + ekran rengi kapsamıyla
-  resmîleştirilir (iOS Safari'de fener yok).
+- [x] **F3.6 Tarayıcı katılımcı yedeği ürünleşti (2026-09-26):** /join artık
+  resmî yedek: kapak ekranına ELLE kod girişi eklendi (URL ?code hâlâ
+  çalışır ve elle girilen kod adrese işlenir), ışığa duyarlı mod düğmesi
+  (telefondaki anahtarın eşleniği), geç katılım tekrarının ilk senkrondan
+  önce kaybolması düzeltildi (telefondaki stash'in eşleniği), metinler
+  yedek diline çevrildi. Headless Chromium E2E ile doğrulandı (kod kutusu +
+  katılım + duyarlı modun 2 Hz flaşı bastırması). Kapsam bilinçli: söz +
+  ekran rengi; fener/ses yalnız uygulamada. VM'de devreye girmesi gateway
+  yeniden derlemesiyle (bekleyen güncelleme adımında zaten var).
 - [ ] **F3.7 Analitik** ve **F3.8 Faturalama:** kapsam kullanıcıyla
   netleşince ayrıntılanır.
 
