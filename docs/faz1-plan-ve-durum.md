@@ -21,9 +21,10 @@ adım sırasını izler.
   loadgen (yayılım 17–23 ms ✓), Flutter Faz 0 uygulaması, web konsol + /join.
   **Gerçek internet ölçümü (2026-09-26, KULLANICI):** 2 telefon, DuckDNS
   üzerindeki canlı sunucuya bağlı (yerel ağ DEĞİL), 240 fps kamerayla kare
-  farkı **6 ms** — hedef ≤30 ms'in beşte biri, ana tez gerçek altyapıda
-  doğrulandı. (6 ms ≈ 1-2 kare, yöntemin çözünürlük sınırı; gerçek fark
-  daha da küçük olabilir.)
+  farkı **6 ms**; telefonlar FARKLI ağlara ayrılınca (Wi-Fi + mobil veri —
+  stadyum senaryosuna en yakın durum) maksimum **3 ms**. Hedef ≤30 ms'in
+  onda biri: ana tez gerçek altyapıda, karışık ağlarda doğrulandı. (Bu
+  değerler yöntemin çözünürlük sınırında, ~1 kare.)
 - [x] **1. Bu plan dosyası + devam mekanizması**
 - [x] **2. Control API temeli** — `services/control-api`: alan modeli
   (Organization→Event→Room; Show→ShowVersion), depolama arayüzü + bellek içi
