@@ -27,6 +27,14 @@ message Welcome {
   string room_id = 3;
 }
 
+// Odada yeni gösteri sürümü etkinleştirildi: istemci katılım bilgisini
+// (manifest + varlıklar) yeniden indirmelidir; süren koreografi etkilenmez.
+message ShowActivated {
+  string room_id = 1;
+  // Etkinleştirilen sürüm (tanılama için; istemci her durumda tazeler).
+  string show_version_id = 2;
+}
+
 // Sunucu ile istemci arasındaki tek WebSocket çerçevesi.
 // Faz 0'da tel JSON'dur ve bu şemayı alan adlarıyla birebir izler;
 // Faz 1'de ikili protobuf'a (~40 bayt) geçilir.
@@ -38,5 +46,6 @@ message Envelope {
     ClockSyncResponse clock_sync_response = 4;
     CueStart cue_start = 5;
     Intervention intervention = 6;
+    ShowActivated show_activated = 7;
   }
 }

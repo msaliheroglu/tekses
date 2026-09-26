@@ -19,6 +19,12 @@ adım sırasını izler.
 
 - [x] **0. Faz 0 tamamlandı** — monorepo, proto sözleşmeleri, gateway,
   loadgen (yayılım 17–23 ms ✓), Flutter Faz 0 uygulaması, web konsol + /join.
+  **Gerçek internet ölçümü (2026-09-26, KULLANICI):** 2 telefon, DuckDNS
+  üzerindeki canlı sunucuya bağlı (yerel ağ DEĞİL), 240 fps kamerayla kare
+  farkı **6 ms**; telefonlar FARKLI ağlara ayrılınca (Wi-Fi + mobil veri —
+  stadyum senaryosuna en yakın durum) maksimum **3 ms**. Hedef ≤30 ms'in
+  onda biri: ana tez gerçek altyapıda, karışık ağlarda doğrulandı. (Bu
+  değerler yöntemin çözünürlük sınırında, ~1 kare.)
 - [x] **1. Bu plan dosyası + devam mekanizması**
 - [x] **2. Control API temeli** — `services/control-api`: alan modeli
   (Organization→Event→Room; Show→ShowVersion), depolama arayüzü + bellek içi
@@ -71,8 +77,10 @@ adım sırasını izler.
   senkronu (ofset/RTT görüldü) ve kue denemesi başarılı. Yol boyu düzelen
   saha hataları: analyze hataları (library sırası, eksik import), release
   manifest'te INTERNET izni, ASCII olmayan Windows yolu.
-- [ ] Çoklu telefon + 240 fps kamera ile fiziksel senkron ölçümü (≤30 ms
-  hedefi) — cihazlar toplanınca; kılavuz: docs/faz0-senkron-denemesi.md.
+- [~] Çoklu telefon + 240 fps kamera ile fiziksel senkron ölçümü (≤30 ms
+  hedefi): **2 telefonla YAPILDI (2026-09-26)** — canlı DuckDNS sunucusu,
+  aynı ağda 6 ms, karışık ağda (Wi-Fi + mobil) 3 ms. 5-10 telefonluk tam
+  koşum cihazlar toplanınca; kılavuz: docs/faz0-senkron-denemesi.md.
 - [ ] GitHub Actions koşumlarının gözden geçirilmesi; "Katılımcı APK" iş
   akışının Run workflow düğmesi branch main'e merge edilince görünür.
 
@@ -80,8 +88,9 @@ adım sırasını izler.
 
 - [x] **F2.0 PR:** Faz 1 main'e PR #2 ile merge edildi (2026-09-19). Faz 2
   işleri (dağıtım, çift kodek, ses+karaoke, görsel editör, VM söz çıkarma)
-  **PR #3 ile main'e merge edildi (2026-09-20)**; çalışma dalı yeni main'in
-  üzerine alındı.
+  **PR #3 ile (2026-09-20)**, yük testi + canlı etkinleştirme + NATS çok
+  düğüm + telemetri **PR #4 ile (2026-09-21)** main'e merge edildi; çalışma
+  dalı her merge sonrası yeni main'in üzerine alındı.
 - [x] **F2.1 Dağıtım paketi:** Dockerfile'lar (gateway, control-api, panel
   standalone), `deploy/docker-compose.yml` (postgres + üç servis + Caddy
   otomatik TLS, tek alan adında yol bazlı dağıtım), `.env.example`,
@@ -185,7 +194,181 @@ adım sırasını izler.
   NATS ile 40k ikili istemci — 40000/40000 başarılı, yayılım maks−min 2 ms /
   p95−p5 2 ms / σ 0.6 ms: düğümler arası senkron yük altında kanıtlandı.
   İleride: org-kapsamlı telemetri (control-api vekaletiyle).
-- [ ] **F2.7 Ultrasonik beacon + PA test kiti** (karar dokümanı §3).
+- [~] **F2.7 Ultrasonik beacon + PA test kiti (sunucu tarafı TAMAM,
+  2026-09-21):** sinyal sözleşmesi v1 (18,5–20 kHz; 120 ms chirp + 34 bit
+  FSK: version/cue_index/seq/geri sayım/CRC-8; geri sayım chirp başına
+  göre) + Go kodlayıcı/çözücü `packages/beacon` (chirp korelasyonu +
+  Goertzel; 17,5 kHz yüksek-geçirenle gürültü bağışıklığı; negatif SNR,
+  44,1 kHz kayıt, çoklu patlama, kayıt-sonu regresyonu testli) +
+  `tools/beacon` (beacon WAV üretimi, PA test kiti, kayıt çözümü; WAV G/Ç).
+  Saha kılavuzu **docs/ultrasonik-beacon.md** (PA test prosedürü + etkinlik
+  günü akışı). cue_index eşlemesi: 0=program, i=manifest sırası.
+  **HAVA TESTİ BAŞARILI (2026-09-21):** PC hoparlörü → oda → telefon m4a
+  kaydı → çözüm (2 bit chase düzeltmesiyle). Seansın kattığı sağlamlıklar:
+  stereo kanal seçimi, ±20 ms kilit kurtarma, geç pencere profili, CRC
+  kılavuzlu chase (≤2 bit), -analyze ham bit/ofset teşhisi — hepsi testli.
+  **Dart dinleyicisi YAZILDI (2026-09-21, cihaz doğrulaması bekliyor):**
+  `apps/participant/lib/core/ultrasonic.dart` Go çözücünün akış-tabanlı
+  portu (aynı sabitler/CRC/chirp korelasyonu/Goertzel/pencere profilleri/
+  chase; ek olarak biquad durumu chunk'lar arası taşınır, bant-içi enerji
+  kapısı EMA×6 + mutlak 0.002, searchedUntil yalnız tam değerlendirilen
+  bölgeyi ilerletir, 3 sn tampon) + `test/ultrasonic_test.dart` (Go
+  beklentilerinin aynası, 960 örneklik parçalarla). `ultrasonic_listener.dart`
+  record paketiyle 48 kHz PCM akışı + MonoClock çıpası; show_screen'de
+  "beacon dinle" anahtarı, cue_index→cueId eşlemesi, sentetik runId
+  `beacon:<cue>:<sn>`, WS ±2 sn önceliği, ultrasonik kaynakta ofset=0.
+  **Dart tarafı TESTLİ (2026-09-23):** `flutter analyze` temiz, 18 test
+  geçiyor. Test turu iki gerçek hata çıkardı, ikisi de düzeltildi: (1) tip
+  hatası `num`→`int` (analyze'ı kırıyordu), (2) **beacon kaçırma:** akış
+  penceresinin sonu kapının kurulduğu ana göre hesaplanıyordu; kapıyı chirp
+  değil sürekli mekân gürültüsü kurduğunda — sahanın tipik durumu — chirp
+  bulunuyor ama yükü pencereye sığmıyor, bölge "arandı" sayılıp beacon
+  büsbütün kaçırılıyordu. Pencere sonu artık pencere BAŞINA göre (bölge + bir
+  tam patlama), arama yalnız bant içi ses görülen bölgeye kadar ilerliyor ve
+  taranmamış bölge kaldıkça sürüyor. Hata, Dart'ın ürettiği kaydı WAV'a yazıp
+  Go referansına çözdürerek yakalandı (Go skor 0.51 ile çözüyordu) — yöntem
+  docs/ultrasonik-beacon.md'de. Regresyon testleri eklendi. Ayrıca çözücü
+  AYRI ISOLATE'e taşındı (`ultrasonic_worker.dart`): ölçümde tek bir 20 ms'lik
+  parça 185 ms sürüyordu, yani ana isolate'te tam beacon yakalandığı anda
+  koreografi donacaktı. APK derlemesi de kırıktı: record 5.x arayüzle uyumsuz
+  bir record_linux çekiyor — ^7.1.1'e yükseltildi (analyze/test bu sınıf
+  hatayı görmez, yalnızca `flutter build apk` görür).
+  **APK derlemesi YEŞİL (2026-09-23):** analyze + 20 test + release APK,
+  "Katılımcı APK" iş akışında geçiyor; RECORD_AUDIO izni manifeste ekleniyor.
+  **Cihaz denemesi TAMAM (2026-09-26, KULLANICI DOĞRULADI):** telefon,
+  PC hoparlöründen çalınan beacon.wav'ı yakaladı, koşuyu kurdu (`run
+  beacon:0`) ve 5 sn geri sayım dolunca koreografi başladı. Denemede tek
+  kozmetik kusur çıktı ve düzeltildi: yinelemelerin yok sayılma mesajı,
+  koşu beacon'ın kendisinden kuruluyken de "WS kuesi zaten kurulu"
+  diyordu — artık kaynak ayrılıyor.
+  **Kullanıcı doğrulaması (kalan):** mekân PA saha ölçümü
+  (docs/ultrasonik-beacon.md §PA saha testi).
+
+## Faz 3 — Sertleştirme
+
+Yol haritası kalemleri (karar dokümanı §5) + Faz 2'den devreden borçlar.
+Sıra: önce bu ortamda yapılabilen mühendislik işleri, sonra cihaz/saha
+gerektirenler.
+
+- [x] **F3.0 Dart protobuf teli (v2) — kod TAMAM (2026-09-26):** ön koşul
+  olarak show_activated proto zarfına alındı (alan 7) ve gateway onu çift
+  kodlamalı yayınlıyor (v2 istemciler artık canlı paket tazelemeyi
+  kaçırmaz; gerileme testli). Dart stub'ları `lib/gen` altına üretildi
+  (protoc_plugin 25.x → protobuf ^6.1.0 ŞART), `wire_binary.dart` ikili
+  zarfı JSON yolundakiyle aynı (type, data) çiftine indirger,
+  RealtimeClient hello'yu ikili çerçeveyle atarak v2'de konuşur (kue ~56
+  bayt ↔ JSON ~207). Çapraz doğrulama: `wire/testdata/golden_frames.txt`
+  altın baytları — Go golden_test.go üretir/doğrular, Dart
+  wire_binary_test.dart aynı dosyaya karşı bayt-bayt sınar. analyze temiz,
+  25 test; APK derlemesi YEŞİL (koşum #9, 2026-09-26).
+  **Kalan doğrulama:** VM'deki gateway yeniden derlenmeli
+  (`docker compose up -d --build gateway`) — eski gateway v2 istemciye
+  show_activated'ı YOLLAMAZ; sonra yeni APK ile telefonun katılıp kue
+  aldığı görülmeli.
+- [x] **F3.1 Geç katılım (kullanıcı isteği 2026-09-26, cihazda DOĞRULANDI):**
+  koreografi başladıktan sonra odaya giren telefon süren koşuya ortasından
+  yetişir. Gateway oda başına son kueyi tutar (lastrun.go; gözlem noktası
+  dağıtım sink'i olduğundan çok düğümde kendiliğinden tutarlı, STOP/
+  BLACKOUT düşürür + yineleme yarışına mezar taşı, TTL 3 saat) ve yeni
+  katılana welcome'dan sonra tek seferlik yollar. Telefonda: tekrar ilk
+  saat senkronundan önce geldiği için saklanıp ofset çıkınca işlenir;
+  CueScheduler geçmiş fireAt'i zaten hemen ateşler, motor frameAt(elapsed)
+  ile ortadan sürer; SES de ortadan başlar — kanala seekMs eklendi
+  (Android seekTo SEEK_CLOSEST, iOS currentTime; konum süreyi aşarsa parça
+  atlanır). Bilinen sınırlar lastrun.go başlığında (HOLD/SKIP, düğüm
+  yeniden başlaması). **Cihaz doğrulaması bekliyor:** yeni APK +
+  güncellenmiş gateway ile: koreografi sürerken ikinci telefonla katıl,
+  ekranın/sözün KALINAN YERDEN ve müzikle hizalı başladığını gör.
+  MainActivity.kt değişti — APK iş akışı native dosyayı zaten kopyalıyor.
+  Cihaz denemesi (2026-09-26, KULLANICI): ekran/söz kalınan yerden doğru
+  girdi; seste hafif gecikme görüldü — neden, eşzamansız seek'in çalma
+  başladıktan sonra bitmesi. Düzeltme: ~0,5 sn SONRASININ konumuna atlanıp
+  çalma tam o ana zamanlanıyor (atlama çalmadan önce ödenir, parça kısa
+  sessiz girişten sonra hizalı girer). İkinci deneme (2026-09-26): kayma
+  sabit <1 sn'ye indi ama sıfırlanmadı — kök neden dosya FORMATI: mp3'te
+  kesin konum tablosu yok, Android ortadan başlatmayı bit hızından tahmin
+  ediyor (m4a örnek hassasiyetinde). Önlem: mp3 yüklemesine API + panel
+  uyarısı eklendi (m4a öner; ffmpeg komutuyla). m4a denemesi (2026-09-26):
+  kayma m4a'da da sürdü → kök neden konum tablosu DEĞİL. Yeni teşhis: ses
+  hattı gecikmesi (start() → hoparlör) cihazdan cihaza 50-300 ms değişir ve
+  hiç telafi edilmiyordu — geç katılıma özgü olmayabilir. Çözüm: native
+  KONUM SERVOSU (Android + iOS): çalma oturduktan ~0,7 sn sonra gerçek
+  konum (currentPosition) beklenenle karşılaştırılır, sapma >80 ms ise
+  hedefe atlanır (en çok 3 deneme; bir kez kısa sıçrama duyulabilir —
+  kalıcı kaymadan iyidir). **Cihaz doğrulaması TAMAM (2026-09-26, KULLANICI):
+  servolu APK ile hem geç katılım hem normal yol denemeleri BAŞARILI — ses
+  hizalı.** Kök neden böylece kesinleşti: telafi edilmeyen cihaz ses hattı
+  gecikmesi. Not: ürün sözü akustik birlik değildir (ses PA'dan); servo koro
+  etkisini <80 ms'e indirir, yok etmeyi vaat etmez. F3.1 KAPANDI.
+- [x] **F3.2 Işığa duyarlılık / güvenlik incelemesi (2026-09-26):** inceleme
+  raporu **docs/isik-guvenligi.md**. Bulgu: sunucular flash_hz'i doğruluyordu
+  ama telefon ve /join tarayıcısı tele/manifeste körü körüne güveniyordu —
+  ikisine de 0..3 kelepçesi eklendi (savunma derinliği; clampFlashHz).
+  Telefona "ışığa duyarlı mod" anahtarı eklendi: yanıp sönme sabit ışığa
+  indirgenir (motor disableFlash + Faz 0 yükü), gösteri ortasında açılabilir;
+  katılım ekranı uyarısı anahtara yönlendiriyor. Fener ısıl incelemesi:
+  kod sınırı bilinçli yok (sahne ortası kesinti daha kötü), tasarım kılavuzu
+  dokümanda; BLACKOUT/HOLD feneri zaten söndürüyor. analyze temiz, 29 test.
+- [x] **F3.3 R2 varlık deposu sürücüsü — kod TAMAM (2026-09-26):**
+  packages/blob'a S3 sürücüsü (minio-go; anahtar düzeni FS ile birebir,
+  içerik türü uzantıdan — kova CDN'den herkese açık servis edilebilsin;
+  sahte S3 ucuyla testli, aws-chunked gövde dahil). control-api env ile
+  seçer (TEKSES_BLOB_S3_*; boşsa FS, eski kurulum kırılmaz).
+  TEKSES_ASSET_PUBLIC_BASE ayarlıysa join yanıtı asset_base_url + mutlak
+  manifest_url döner; telefon paketi ve ses dosyalarını CDN'den indirir
+  (özet doğrulaması aynı; testli iki tarafta da). Kurulum: docs/dagitim.md
+  §8; compose + .env.example güncel. **Kullanıcı doğrulaması:** R2 kovası +
+  API anahtarı + özel alan adı kullanıcının Cloudflare hesabında açılmalı
+  (§8 adımları), sonra VM'de control-api yeniden derlenip telefonla katılım
+  denenmeli.
+- [x] **F3.4 Yeniden bağlanma fırtınası (KAPANDI; 100k koşumu isteğe bağlı) — araç HAZIR
+  (2026-09-26):** loadgen'e -storm/-stormPause eklendi: senkronu bitmiş
+  istemcilerin verilen oranı kopar ve süre sonunda HEPSİ BİRDEN döner
+  (rampasız — telefonun jitter'lı geri çekilmesinden bile kötü, bilinçli
+  en kötü durum); yeniden senkron süreleri raporlanır, kue fırtına sonrası
+  tetiklenir. Yerel duman: 400 istemci, 200 fırtına — 200/200 döndü
+  (medyan 524 ms), kue 400/400, yayılım 8 ms. Koşum kılavuzu
+  docs/yuk-testi.md §4. **VM koşumu (2026-09-26, KULLANICI): 20k istemci,
+  10k fırtınada — 10000/10000 geri döndü (medyan 2,6 sn), kimse kue
+  kaçırmadı; AMA yayılım 69 ms'e çıktı.** Kök neden: fırtına istemcileri
+  ofseti tam izdiham anında ölçüyor (RTT p95 28 ms) ve bir daha ölçmüyordu.
+  Düzeltme (telefon + loadgen aynası): senkron turunun en iyi RTT'si
+  25 ms'i aşarsa 60 sn beklenmez, ~5 sn sonra taze tur atılır ve iyisi
+  kullanılır; başarısız tur da 5 sn'de tekrarlanır. İkinci VM koşumu
+  (2026-09-26): p95−p5 32→18 ms, σ 11→6 ms düzeldi ama uç değerler kaldı
+  (maks−min 61 ms) — 5 sn'lik taze tur, İYİ ofsetin önce kalitesiziyle
+  ezilmesini önlemiyordu. Ek düzeltme: KALİTE KAPISI (telefon + loadgen) —
+  eldeki kabul 2 dk'dan taze ve belirgin daha kaliteliyse (RTT +10 ms pay)
+  yeni tur onu ezmez, kısa aralıkla taze tur denenir; loadgen'de sabit
+  istemciler de kalitesiz ilk turu tazeler (telefon aynası) ve rapor artık
+  fırtına/sabit grup kırılımı verir. Üçüncü VM koşumu (2026-09-26):
+  sabit grup 1 ms'e indi, fırtına grubunda uç değerler kaldı (maks−min 57,
+  p95−p5 18) ve İZ ele verdi: en iyi RTT p95 1 ms iken ofset uçları ±28 ms —
+  yani KESTİRİCİNİN kendisi. "En iyi yarının medyanı", izdihamın çift tepeli
+  dağılımında çöp örnekleri de medyana taşıyor; en iyi RTT tertemiz görünüp
+  kalite kapısını da kandırıyordu. Düzeltme: kestirim artık en iyi RTT'nin
+  +10 ms BANDINDAKİ örneklerin medyanı — dört gerçekleme birden değişti
+  (Go clocksync + Dart clock_sync + join.html + proto sözleşme yorumu),
+  iki tarafta da çift tepeli regresyon testi var. Yerel jitter'lı duman:
+  yayılım 22 ms ✓. **Dördüncü VM koşumu (2026-09-26, KULLANICI): BAŞARILI —
+  ≤30 ms hedefi fırtına altında tutuyor. F3.4 KAPANDI.** Üç koşumluk
+  kovalamaca üç ayrı katman hatası yakaladı ve düzeltti: ölçüm zamanlaması
+  (5 sn taze tur) → kabul politikası (kalite kapısı) → kestirim algoritması
+  (RTT bandı). **İsteğe bağlı kalan:** 100k tam koşum — ayrı yük makinesi
+  ister; tek 4-OCPU düğüm ≥40k kanıtlı, 80k = 2 düğüm (F2.6).
+- [ ] **F3.5 Cihaz sınıfı fener kalibrasyon tablosu:** fener sürücü gecikmesi
+  cihazdan cihaza değişir; model bazlı ofset tablosu + ölçüm prosedürü.
+- [x] **F3.6 Tarayıcı katılımcı yedeği ürünleşti (2026-09-26):** /join artık
+  resmî yedek: kapak ekranına ELLE kod girişi eklendi (URL ?code hâlâ
+  çalışır ve elle girilen kod adrese işlenir), ışığa duyarlı mod düğmesi
+  (telefondaki anahtarın eşleniği), geç katılım tekrarının ilk senkrondan
+  önce kaybolması düzeltildi (telefondaki stash'in eşleniği), metinler
+  yedek diline çevrildi. Headless Chromium E2E ile doğrulandı (kod kutusu +
+  katılım + duyarlı modun 2 Hz flaşı bastırması). Kapsam bilinçli: söz +
+  ekran rengi; fener/ses yalnız uygulamada. VM'de devreye girmesi gateway
+  yeniden derlemesiyle (bekleyen güncelleme adımında zaten var).
+- [ ] **F3.7 Analitik** ve **F3.8 Faturalama:** kapsam kullanıcıyla
+  netleşince ayrıntılanır.
 
 ## Notlar
 

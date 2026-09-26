@@ -101,3 +101,47 @@ Tek kopyaya dönmek: `... up -d --scale gateway=1`.
   doğrulayın.
 
 Sonuçlar `docs/faz1-plan-ve-durum.md` F2.4 maddesine işlenir.
+
+## 4. Yeniden bağlanma fırtınası (F3.4)
+
+Stadyumda ağ bir an kesilip gelince on binlerce telefon AYNI saniyede geri
+bağlanır; bu koşum gateway'in o anı yediğini kanıtlar. `-storm`, senkronu
+bitmiş istemcilerin verilen oranını koparır ve `-stormPause` sonra hepsini
+birden (rampasız) geri döndürür; kue fırtına oturduktan sonra tetiklenir.
+
+VM'de Go yoktur; koşum §0-1'deki gibi Docker'la yapılır (imajı `git pull`
+SONRASI yeniden derleyin ki -storm bayrağı imaja girsin):
+
+```bash
+cd ~/tekses && git pull
+docker build -f tools/loadgen/Dockerfile -t tekses-loadgen .
+cd deploy && TOKEN=$(grep '^TEKSES_ADMIN_TOKEN=' .env | cut -d= -f2-)
+
+# 20k istemci, yarısı kopup 3 sn sonra hep birden dönüyor:
+docker run --rm --network tekses_default \
+  --ulimit nofile=200000:200000 \
+  --sysctl net.ipv4.ip_local_port_range="1024 65000" \
+  tekses-loadgen \
+  -server ws://gateway:8080/ws -wire proto \
+  -n 20000 -ramp 2000 -storm 0.5 -stormPause 3s \
+  -cue -cueDelay 5000 -adminToken "$TOKEN" -waitCue 300s
+```
+
+Rapor iki ek satır verir: `fırtına bitti: X/Y yeniden senkron — süre medyan/
+p95/maks` ve dönemeyenlerin sayısı. Geçer sayılmak için: (1) dönemeyen ~0,
+(2) yeniden senkron p95'i birkaç saniyeyi aşmıyor, (3) ateşleme yayılımı
+fırtınasız koşumla aynı sınıfta (≤30 ms hedefi).
+
+Yerel duman referansı (2026-09-26, geliştirme konteyneri): 400 istemci,
+200'ü fırtınada — 200/200 geri döndü (medyan 524 ms, maks 573 ms), kue
+400/400, yayılım maks−min 8 ms.
+
+Not: telefondaki gerçek istemci jitter'lı üstel geri çekilmeyle döner
+(0,5–45 sn'ye yayılır); loadgen fırtınayı BİLE BİLE aynı milisaniyeye
+yığar — ölçülen, en kötü durumdur.
+
+İlk VM koşumu (2026-09-26, 20k/10k fırtına): 10000/10000 geri döndü
+(medyan 2,6 sn) ama yayılım 69 ms'e çıktı — fırtına istemcileri ofseti
+izdiham anında ölçüyordu. loadgen ve telefon istemcisi artık kalitesiz
+turu (en iyi RTT > 25 ms) ~5 sn sonra taze turla değiştirir; koşumu
+tekrarlamadan önce imajı yeniden derleyin.

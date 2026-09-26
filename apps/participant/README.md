@@ -41,16 +41,18 @@ flutter create --project-name tekses_participant --org app.tekses --platforms an
 flutter pub get
 ```
 
-Sonrasında iki platform dokunuşu gerekir:
+Sonrasında şu platform dokunuşları gerekir:
 
-- **Android** — `android/app/src/main/AndroidManifest.xml` dosyasında İKİ
+- **Android** — `android/app/src/main/AndroidManifest.xml` dosyasında ÜÇ
   değişiklik gerekir (Flutter, INTERNET iznini yalnızca debug/profile
   manifestlerine ekler; **release APK bu izin olmadan ağa çıkamaz** —
-  belirtisi `SocketException: Operation not permitted, errno = 1`):
+  belirtisi `SocketException: Operation not permitted, errno = 1`;
+  RECORD_AUDIO olmadan "beacon dinle" düğmesi izin alamaz):
 
   ```xml
   <!-- <application ...> etiketinin HEMEN ÜSTÜNE: -->
   <uses-permission android:name="android.permission.INTERNET" />
+  <uses-permission android:name="android.permission.RECORD_AUDIO" />
   ```
 
   ve `<application ...>` etiketine, Faz 0/1'in yerel ağdaki şifresiz
@@ -66,12 +68,15 @@ Sonrasında iki platform dokunuşu gerekir:
 
   Kopyalanmazsa uygulama çalışmaya devam eder; yalnızca ses kueleri sessizce
   atlanır (ışık koreografisi etkilenmez).
-- **iOS** — `ios/Runner/Info.plist` içine fener için kamera açıklaması ve
-  Faz 0 için ATS istisnası ekleyin:
+- **iOS** — `ios/Runner/Info.plist` içine fener için kamera açıklaması,
+  ultrasonik beacon için mikrofon açıklaması ve Faz 0 için ATS istisnası
+  ekleyin:
 
   ```xml
   <key>NSCameraUsageDescription</key>
   <string>Telefon fenerini gösteri koreografisi için kullanır.</string>
+  <key>NSMicrophoneUsageDescription</key>
+  <string>Ağ koptuğunda kueyi mekân hoparlöründeki duyulmaz sinyalden alır.</string>
   <key>NSAppTransportSecurity</key>
   <dict>
     <key>NSAllowsLocalNetworking</key>

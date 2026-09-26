@@ -57,14 +57,39 @@ class MainActivity : FlutterActivity() {
                 "playAt" -> {
                     val id = call.argument<String>("id")
                     val uptimeMs = call.argument<Number>("uptimeMs")?.toLong()
+                    // seekMs > 0: geç katılan telefon çoktan başlamış parçaya
+                    // ortasından girer. Konum süreyi aşıyorsa parça bitmiştir,
+                    // çalma sessizce atlanır.
+                    val seekMs = call.argument<Number>("seekMs")?.toLong() ?: 0L
                     val player = if (id != null) players[id] else null
                     if (player == null || uptimeMs == null) {
                         result.error("args", "bilinmeyen id ya da uptimeMs yok", null)
                         return@setMethodCallHandler
                     }
+                    if (seekMs > 0 && seekMs >= player.duration) {
+                        result.success(null); return@setMethodCallHandler
+                    }
+                    if (seekMs > 0) {
+                        seekPrecise(player, seekMs)
+                    }
                     val now = SystemClock.uptimeMillis()
                     if (uptimeMs <= now) player.start()
                     else handler.postAtTime({ player.start() }, uptimeMs)
+                    // Konum servosu: start() komutu anında ses BAŞLAMAZ —
+                    // kod çözücü/tampon gecikmesi cihazdan cihaza 50-300 ms
+                    // değişir ve iki telefon aynı anda başlatılsa bile sabit
+                    // bir kayma bırakır (saha bulgusu, 2026-09-26: kayma
+                    // m4a'da da sürdü, yani konum tablosu değil hat gecikmesi).
+                    // Çalma oturduktan sonra gerçek konum beklenenle
+                    // karşılaştırılır; sapma eşiği aşarsa hedefe yeniden
+                    // atlanır (bir kez kısa bir sıçrama duyulabilir — kalıcı
+                    // kaymadan iyidir).
+                    schedulePositionServo(
+                        player,
+                        pos0Uptime = uptimeMs - seekMs,
+                        checkAtUptime = maxOf(uptimeMs, now) + 700, // çalma otursun
+                        attempt = 0,
+                    )
                     result.success(null)
                 }
 
@@ -81,6 +106,52 @@ class MainActivity : FlutterActivity() {
                 else -> result.notImplemented()
             }
         }
+    }
+
+    // Örnek hassasiyetli atlama: API 26+ SEEK_CLOSEST (varsayılan seekTo en
+    // yakın senkron kareye atlayıp yüzlerce ms kayabilir).
+    private fun seekPrecise(player: MediaPlayer, positionMs: Long) {
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            player.seekTo(positionMs, MediaPlayer.SEEK_CLOSEST)
+        } else {
+            player.seekTo(positionMs.toInt())
+        }
+    }
+
+    // Servo eşiği/planı: ilk ölçüm çalma oturduktan sonra (start + ~700 ms),
+    // düzeltme sonrası bir doğrulama daha; en çok 3 deneme (kararsız cihazda
+    // sonsuz atlama-zıplama olmasın). 80 ms eşiği: bunun altı telefon
+    // hoparlörlerinde koro etkisi olarak zaten duyulur ama rahatsız etmez;
+    // ürün sözü de akustik birlik değildir (ses PA'dan, telefon ışık/söz).
+    private fun schedulePositionServo(
+        player: MediaPlayer,
+        pos0Uptime: Long,
+        checkAtUptime: Long,
+        attempt: Int,
+    ) {
+        if (attempt >= 3) return
+        handler.postAtTime({
+            // stopAll/yeniden hazırlama sonrası bayat servo koşmasın.
+            if (!players.containsValue(player)) return@postAtTime
+            try {
+                if (!player.isPlaying) return@postAtTime
+                val expected = SystemClock.uptimeMillis() - pos0Uptime
+                if (expected + 500 >= player.duration) return@postAtTime // parça bitmek üzere
+                val errMs = player.currentPosition - expected // + = ileride
+                if (errMs < -80 || errMs > 80) {
+                    seekPrecise(player, expected)
+                    // Doğrulama turu: atlama kendisi de zaman yer; kalan hata
+                    // eşiğin altına inene ya da deneme hakkı bitene dek sürer.
+                    schedulePositionServo(
+                        player, pos0Uptime,
+                        checkAtUptime = SystemClock.uptimeMillis() + 700,
+                        attempt = attempt + 1,
+                    )
+                }
+            } catch (_: Exception) {
+                // yarış (tam o anda durduruldu): servo sessizce vazgeçer
+            }
+        }, checkAtUptime)
     }
 
     override fun onDestroy() {

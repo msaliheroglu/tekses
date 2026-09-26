@@ -1,9 +1,13 @@
 // Package clocksync, NTP benzeri örneklerden saat ofseti kestirimi yapar.
 //
-// Algoritma karar dokümanındaki gibidir ve Dart tarafındaki
-// apps/participant/lib/core/clock_sync.dart ile birebir aynı tutulmalıdır:
-// 8–12 örnek toplanır, RTT'ye göre en iyi yarı seçilir, ofsetlerin medyanı
-// alınır. Ofset, "sunucu saati - istemci monoton saati" (ms) olarak tanımlıdır:
+// Algoritma, Dart tarafındaki apps/participant/lib/core/clock_sync.dart ve
+// tarayıcıdaki join.html ile birebir aynı tutulmalıdır: 8–12 örnek toplanır,
+// en iyi RTT'nin +10 ms BANDINDAKİ örnekler seçilir, ofsetlerin medyanı
+// alınır. Bant seçimi bilinçli ("en iyi yarı" DEĞİL): 20k fırtına yük testi
+// (2026-09-26) çift tepeli dağılımı yakaladı — izdihamda örneklerin çoğu
+// asimetrik gecikmeyle saptırılmışken "yarı" onları da medyana taşıyor,
+// en iyi RTT ise tertemiz görünüyordu (kalite kapısını da kandırır). Ofset,
+// "sunucu saati - istemci monoton saati" (ms) olarak tanımlıdır:
 //
 //	sunucuSaati ≈ istemciMonoton + ofset
 package clocksync
@@ -65,7 +69,13 @@ func (e *Estimator) Len() int { return len(e.samples) }
 // Reset, yeni bir senkron turu için örnekleri temizler.
 func (e *Estimator) Reset() { e.samples = e.samples[:0] }
 
-// Estimate, düşük RTT'li yarının ofset medyanını döndürür.
+// RTTBandMs: en iyi örneğin RTT'sine eklenen seçim bandı. Bandın dışında
+// kalan örnek, en iyisinden belirgin daha uzun yol yüründüğünün kanıtıdır
+// ve o yolun asimetrisi ofseti saptırır — medyana giremez.
+const RTTBandMs = 10
+
+// Estimate, en iyi RTT'nin +RTTBandMs bandındaki örneklerin ofset medyanını
+// döndürür (paket başlığındaki gerekçe; Dart/JS gerçeklemeleriyle birebir).
 func (e *Estimator) Estimate() (Estimate, error) {
 	n := len(e.samples)
 	if n == 0 {
@@ -76,9 +86,11 @@ func (e *Estimator) Estimate() (Estimate, error) {
 	copy(byRTT, e.samples)
 	sort.Slice(byRTT, func(i, j int) bool { return byRTT[i].RTT() < byRTT[j].RTT() })
 
-	// En iyi yarı (en az 1): yüksek RTT'li örnekler asimetrik gecikme
-	// taşıdığı için ofseti saptırır.
-	keep := (n + 1) / 2
+	cut := byRTT[0].RTT() + RTTBandMs
+	keep := 1
+	for keep < n && byRTT[keep].RTT() <= cut {
+		keep++
+	}
 	chosen := byRTT[:keep]
 
 	offsets := make([]int64, keep)

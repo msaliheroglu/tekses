@@ -106,6 +106,10 @@ type Server struct {
 	// Kalıcı kayıt runSink üzerinden control-api'ye yazılır (recordRun).
 	runsMu sync.Mutex
 	runs   []runRecord
+
+	// lastRuns, oda başına son kue hafızasıdır: odaya sonradan katılan
+	// telefon süren koreografiye ortasından yetişsin (lastrun.go).
+	lastRuns *lastRunStore
 }
 
 // runRecord, tek bir kue yayını ya da müdahalenin izidir.
@@ -185,6 +189,7 @@ func New(log *slog.Logger, adminToken string, resolver rooms.Resolver, sessions 
 		sessions:   sessions,
 		sessCache:  map[string]time.Time{},
 		peers:      map[string]presenceEntry{},
+		lastRuns:   newLastRunStore(),
 		upgrader: websocket.Upgrader{
 			ReadBufferSize:  1024,
 			WriteBufferSize: 1024,
@@ -201,9 +206,12 @@ func New(log *slog.Logger, adminToken string, resolver rooms.Resolver, sessions 
 }
 
 // BroadcastSink, çerçeveyi yerel hub'a veren dağıtım ucudur; NATS yolu da
-// gelen çerçeveleri buraya boşaltır.
+// gelen çerçeveleri buraya boşaltır. Geç katılım hafızası da burada beslenir:
+// çok düğümde her düğüm tüm çerçeveleri bu noktadan görür (fanout paketi),
+// dolayısıyla hafıza düğümler arasında kendiliğinden tutarlıdır.
 func (s *Server) BroadcastSink() fanout.Sink {
 	return func(room string, f hub.Frame) {
+		s.lastRuns.observe(room, f, s.clock.NowMs())
 		if room == "" {
 			s.hub.Broadcast(f)
 			return
@@ -471,6 +479,15 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 				ProtocolVersion: hello.ProtocolVersion,
 				RoomID:          room,
 			})
+			// Geç katılım tekrarı: odada süren/bekleyen bir koşu varsa yeni
+			// istemciye tek seferlik gönderilir; telefon fireAt geçmişteyse
+			// koreografiye ortasından yetişir. Telefon tarafı, tekrar saat
+			// senkronundan ÖNCE geldiği için kueyi bekletip senkron bitince
+			// işler (show_screen); run_id tekilleştirmesi, yeniden bağlanan
+			// istemcide koşuyu ikinci kez başlatmayı zaten önler.
+			if cue, ok := s.lastRuns.forRoom(room, s.clock.NowMs()); ok {
+				s.send(client, wire.TypeCueStart, cue)
+			}
 
 		case wire.TypeClockSyncRequest:
 			req := payload.(wire.ClockSyncRequest)
@@ -692,9 +709,8 @@ type showActivatedRequest struct {
 // handleShowActivated, odadaki istemcilere "gösteri değişti, paketi tazele"
 // sinyali yayınlar. Panel, control-api'de etkinleştirme başarılı olunca bunu
 // çağırır; böylece telefonların odadan çıkıp yeniden katılması gerekmez.
-// Mesaj şimdilik yalnız v1 JSON telinde taşınır: ikili kodlaması olmayan
-// çerçeveyi v2 istemciler (bugün yalnız loadgen) atlar — SendFrame böyle
-// tasarlandı; proto zarfına eklenmesi sonraki yineleme.
+// Çerçeve iki kodlamada birden yayınlanır (F3.0'dan beri proto zarfında da
+// var); eski gateway'ler yalnız JSON yolluyordu, v2 istemciler atlıyordu.
 func (s *Server) handleShowActivated(w http.ResponseWriter, r *http.Request) {
 	var req showActivatedRequest
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxMessageBytes)).Decode(&req); err != nil {
@@ -705,7 +721,7 @@ func (s *Server) handleShowActivated(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "room_id gerekli"})
 		return
 	}
-	data, err := wire.Encode(wire.TypeShowActivated, wire.ShowActivated{
+	frame, err := s.encodeFrame(wire.TypeShowActivated, wire.ShowActivated{
 		RoomID:        req.RoomID,
 		ShowVersionID: req.ShowVersionID,
 	})
@@ -713,7 +729,7 @@ func (s *Server) handleShowActivated(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "mesaj kodlanamadı"})
 		return
 	}
-	s.cast(req.RoomID, hub.Frame{JSON: data})
+	s.cast(req.RoomID, frame)
 	clients := s.hub.RoomCounts()[req.RoomID]
 	s.log.Info("gösteri etkinleştirme sinyali yayınlandı",
 		"oda", req.RoomID, "sürüm", req.ShowVersionID, "istemci", clients)

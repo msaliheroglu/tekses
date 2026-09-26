@@ -55,6 +55,19 @@ type Server struct {
 	// Tek işlik kapı: Demucs/Whisper CPU ve RAM'i tekeline alır; eşzamanlı
 	// işler küçük VM'yi devirir. Sıradaki işler kapıda bekler (durum: queued).
 	trGate chan struct{}
+
+	// assetPublicBase, paket/varlık kovasının HERKESE AÇIK tabanıdır
+	// (R2 özel alan adı / CDN, ör. https://cdn.tekses.example). Doluysa
+	// join yanıtı ve varlık yükleme yanıtı MUTLAK URL döner: 60k telefon
+	// dosyaları VM'den değil CDN'den çeker (çıkış trafiği R2'de ücretsiz).
+	// Boşsa URL'ler bu API'ye göredir (pilot: /packages, /assets uçları).
+	assetPublicBase string
+}
+
+// SetAssetPublicBase, kovanın herkese açık tabanını ayarlar (sondaki /
+// kırpılır). Sunucu başlamadan çağrılmalıdır.
+func (s *Server) SetAssetPublicBase(base string) {
+	s.assetPublicBase = strings.TrimRight(base, "/")
 }
 
 // New, bir kontrol API sunucusu kurar. packages, yayınlanan manifestlerin
@@ -576,16 +589,26 @@ func (s *Server) handleJoin(w http.ResponseWriter, r *http.Request) {
 		"room_name":  room.Name,
 		"event_name": event.Name,
 	}
+	// Herkese açık kova tabanı ayarlıysa telefonlar paketi ve varlıkları
+	// CDN'den çeker; taban her durumda yanıtta (boşken alan yazılmaz) —
+	// telefon varlık URL'lerini bununla kurar (yoksa /assets'e düşer).
+	if s.assetPublicBase != "" {
+		resp["asset_base_url"] = s.assetPublicBase
+	}
 	if room.ActiveShowVersionID != "" {
 		sv, err := s.store.ShowVersionByID(room.OrgID, room.ActiveShowVersionID)
 		if err == nil {
+			manifestURL := "/packages/" + packageKey(sv.SHA256)
+			if s.assetPublicBase != "" {
+				manifestURL = s.assetPublicBase + "/" + packageKey(sv.SHA256)
+			}
 			resp["show_version"] = map[string]any{
 				"id":      sv.ID,
 				"version": sv.Version,
 				"sha256":  sv.SHA256,
 				// Telefonun tercih etmesi gereken yol: paketi bu adresten
 				// indir, SHA-256 ile doğrula (60k telefon CDN'den çeker).
-				"manifest_url": "/packages/" + packageKey(sv.SHA256),
+				"manifest_url": manifestURL,
 				// Küçük manifestler için kolaylık; tel sözleşmesi URL'dir.
 				"manifest": json.RawMessage(sv.ManifestJSON),
 			}
@@ -652,11 +675,23 @@ func (s *Server) handleUploadAsset(w http.ResponseWriter, r *http.Request, _ mod
 		return
 	}
 	s.log.Info("ses varlığı yüklendi", "asset_id", assetID, "bayt", len(data))
-	writeJSON(w, http.StatusCreated, map[string]any{
+	assetURL := "/assets/" + assetID
+	if s.assetPublicBase != "" {
+		assetURL = s.assetPublicBase + "/" + assetID
+	}
+	resp := map[string]any{
 		"asset_id": assetID,
-		"url":      "/assets/" + assetID,
+		"url":      assetURL,
 		"bytes":    len(data),
-	})
+	}
+	// mp3'te kesin konum tablosu yoktur: Android ortadan başlatmayı bit
+	// hızından TAHMİN eder ve geç katılan telefonun sesi ~1 sn'ye dek
+	// kayabilir (saha bulgusu, 2026-09-26). m4a örnek hassasiyetindedir.
+	if ext == "mp3" {
+		resp["warning"] = "mp3'te geç katılan telefonun sesi 1 sn'ye dek kayabilir; " +
+			"hassas hizalama için m4a yükleyin (ffmpeg -i sarki.mp3 -c:a aac -b:a 192k sarki.m4a)"
+	}
+	writeJSON(w, http.StatusCreated, resp)
 }
 
 func (s *Server) handleAsset(w http.ResponseWriter, r *http.Request) {

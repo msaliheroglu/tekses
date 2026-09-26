@@ -85,7 +85,8 @@ Gateway iki gömülü sayfa sunar:
   ateşleme anında ekranı boyar.
 
 Akış: gateway'i çalıştırın → bilgisayarda `http://<ip>:8080/` açın →
-telefonlarda `http://<ip>:8080/join` açıp "Gösteriye katıl"a basın (telefonlar
+telefonlarda `http://<ip>:8080/join?dev=1` açıp "Gösteriye katıl"a basın
+(`dev=1` kodsuz deneme kapısıdır; üretim sayfası katılım kodu ister) (telefonlar
 sunucuyla aynı Wi-Fi'de olmalı; LTE denemesi için gateway'i internete açık bir
 sunucuya koyun) → konsoldan KUE GÖNDER.
 

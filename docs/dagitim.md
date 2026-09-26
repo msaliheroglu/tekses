@@ -99,8 +99,54 @@ ile ayarlanır (whisper compose eki 60m verir; varsayılan 10m).
 
 ## 7. Sonrası (etkinlik günü ölçeği — Faz 2 devamı)
 
-- Paket indirmeleri R2 + Cloudflare CDN'e taşınır (blob arayüzü hazır;
-  yalnızca R2 sürücüsü ve `manifest_url`'in mutlak CDN adresi gerekir).
+- Paket indirmeleri R2 + Cloudflare CDN'e taşındı (§8) — etkinlikten önce
+  kurulmalı: 60k telefonun ~5 MB'lık indirmesi VM'yi değil R2'yi yorar.
 - Etkinlik günü 2–4 geçici gateway düğümü kiralanıp NATS JetStream ile oda
   dağıtımı yapılır (düğüm başına 50–100k bağlantı hedefi).
 - Mağaza dağıtımı için Android keystore/iOS imzalama Faz 3.
+
+## 8. İsteğe bağlı: Cloudflare R2 paket/varlık deposu (F3.3)
+
+Boş bırakılırsa her şey bugünkü gibi VM diskinde çalışır. R2'ye geçiş,
+paketlerin/ses dosyalarının kalıcılığını VM'den ayırır ve indirmeleri
+CDN'e taşır (R2'de çıkış trafiği ücretsizdir — karar dokümanı §4).
+
+1. **Kova:** Cloudflare panosunda R2 → Create bucket (ör. `tekses`).
+2. **API anahtarı:** R2 → Manage R2 API Tokens → Create API Token,
+   izin "Object Read & Write", kapsam yalnız bu kova. Çıkan
+   Access Key ID / Secret Access Key değerlerini not edin.
+3. **Herkese açık erişim:** kovanın Settings → Public access → **Custom
+   Domains** ile bir alan adı bağlayın (ör. `cdn.ornek.com`; Cloudflare
+   DNS'te olmalı). r2.dev geliştirme URL'si de çalışır ama hız sınırlıdır;
+   etkinlik için özel alan adı kullanın.
+4. `deploy/.env` içine:
+
+   ```
+   TEKSES_BLOB_S3_ENDPOINT=https://<hesap-id>.r2.cloudflarestorage.com
+   TEKSES_BLOB_S3_BUCKET=tekses
+   TEKSES_BLOB_S3_ACCESS_KEY_ID=...
+   TEKSES_BLOB_S3_SECRET_KEY=...
+   TEKSES_ASSET_PUBLIC_BASE=https://cdn.ornek.com
+   ```
+
+5. `docker compose up -d --build control-api` — günlükte
+   `paket deposu: s3/r2` görünmeli.
+6. **Eski dosyaların taşınması** (daha önce yerel diske yayın yapıldıysa):
+   anahtar düzeni birebir aynıdır, kopyalamak yeter:
+
+   ```bash
+   docker compose cp control-api:/data/packages ./packages-yedek
+   # rclone ile: rclone copy ./packages-yedek r2:tekses
+   ```
+
+   Taşımak istemezseniz gösteriyi panelden bir kez yeniden yayınlamak da
+   dosyaları R2'ye yazar.
+7. Doğrulama: panelden ses yükleyin → yanıttaki `url` CDN tabanlı olmalı;
+   telefonla katılın → şarkı çalmalı. `TEKSES_ASSET_PUBLIC_BASE`'i kaldırıp
+   yalnız S3 değişkenlerini bırakmak da geçerlidir: dosyalar R2'de durur ama
+   telefonlara control-api üzerinden (vekil gibi) servis edilir.
+
+Not: `TEKSES_ASSET_PUBLIC_BASE` ayarlıyken join yanıtı `asset_base_url` ve
+mutlak `manifest_url` taşır; telefon uygulaması bunları doğrudan kullanır
+(SHA-256 doğrulaması kaynaktan bağımsız aynıdır). Tarayıcı /join sayfası
+kueleri telden aldığı için etkilenmez.

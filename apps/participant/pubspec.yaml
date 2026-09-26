@@ -23,6 +23,19 @@ dependencies:
   torch_light: ^1.1.0
   # Gösteri boyunca ekranın açık kalması (yalnızca ön planda çalışma kararı).
   wakelock_plus: ^1.2.0
+  # v2 ikili tel (F3.0): lib/gen altındaki üretilmiş stub'ların çalışma
+  # zamanı. Stub üretimi: packages/proto/README.md (protoc_plugin + buf).
+  # 6.x ŞART: stub'lar protoc_plugin 25.x ile üretildi ve 6.x çalışma zamanı
+  # API'sini kullanır; 4.x ile analyze düşer. Stub'ları yeniden üretirsen
+  # protoc_plugin ile protobuf sürümlerinin eş gittiğinden emin ol.
+  protobuf: ^6.1.0
+  fixnum: ^1.1.0
+  # Ultrasonik beacon dinleyicisi: mikrofon PCM akışı (F2.7).
+  # AndroidManifest'e RECORD_AUDIO, iOS'a NSMicrophoneUsageDescription gerekir.
+  # 5.x KULLANILMAZ: o hat, arayüzle uyumsuz bir record_linux çekiyor ve
+  # `flutter build apk` Dart derlemesinde patlıyor (analyze/test görmez —
+  # platform gerçeklemeleri yalnızca derlemede ele alınır).
+  record: ^7.1.1
 
 dev_dependencies:
   flutter_test:

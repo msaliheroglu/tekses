@@ -19,6 +19,7 @@ func TestBinaryRoundTrip(t *testing.T) {
 			Payload: CuePayload{Color: "#FF2A2A", Torch: true, FlashHz: 2, DurationMs: 4000},
 		}},
 		{TypeIntervention, Intervention{RunID: "r1", Kind: "BLACKOUT", IssuedAtServerMs: 42}},
+		{TypeShowActivated, ShowActivated{RoomID: "room_1", ShowVersionID: "sv_42"}},
 	}
 	for _, tc := range cases {
 		data, err := EncodeBinary(tc.msgType, tc.msg)

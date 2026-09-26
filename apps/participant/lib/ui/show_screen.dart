@@ -14,6 +14,8 @@ import '../core/realtime_client.dart';
 import '../core/show_manifest.dart';
 import '../core/timeline_engine.dart';
 import '../core/torch_service.dart';
+import '../core/ultrasonic.dart';
+import '../core/ultrasonic_listener.dart';
 
 /// Gösteri ekranı: bağlanır, saatini eşitler, kue bekler; ateşleme anında
 /// koreografiyi oynatır. cue_id manifestteki bir sekansa denk geliyorsa
@@ -46,6 +48,16 @@ class _ShowScreenState extends State<ShowScreen> {
   late final CueArbiter _arbiter;
   final _torch = TorchService();
   final _audio = NativeAudio();
+  UltrasonicListener? _listener;
+
+  /// Ultrasonik yedek: mikrofon dinlemesi kullanıcı eliyle açılır (pil +
+  /// izin istemi gerekçesi); durum satırı ne olduğunu her an söyler.
+  bool _micOn = false;
+
+  /// Işığa duyarlı mod (F3.2): yanıp sönme sabit ışığa indirgenir; renk,
+  /// süre ve fener kararı aynı kalır. Gösteri ortasında da açılabilir.
+  bool _safeMode = false;
+  String _beaconNote = '';
 
   /// Katılım bilgisi: show_activated sinyaliyle yerinde tazelenir (paket +
   /// varlıklar yeniden iner); ilk değer katılım ekranından gelir.
@@ -56,6 +68,10 @@ class _ShowScreenState extends State<ShowScreen> {
   List<({String playerId, int atMs})> _audioPlan = const [];
 
   ClockEstimate? _estimate;
+
+  /// İlk saat senkronundan ÖNCE gelen kue (geç katılım tekrarı tek sefer
+  /// gelir, canlı yinelemeler gibi kendini telafi edemez); ofset çıkınca işlenir.
+  CueStartMsg? _cueAwaitingSync;
   String _status = 'başlatılıyor';
 
   /// Ses teşhis satırı: kanal yoksa ya da dosya inmemişse kullanıcı
@@ -90,12 +106,23 @@ class _ShowScreenState extends State<ShowScreen> {
     _client = RealtimeClient(
       uri: widget.serverUri,
       joinCode: widget.joinCode,
-      onEstimate: (est) => setState(() => _estimate = est),
+      onEstimate: (est) {
+        setState(() => _estimate = est);
+        // Senkron beklerken saklanan kue (geç katılım tekrarı) şimdi işlenir.
+        final pending = _cueAwaitingSync;
+        if (pending != null) {
+          _cueAwaitingSync = null;
+          _arbiter.offer(pending, CueSource.websocket);
+        }
+      },
       onCue: (cue) {
-        // Senkron yoksa run kilitlenmez: sunucunun 250 ms arayla yolladığı
-        // tekrarlar, ofset o sırada hazırlanmışsa kueyi kurtarabilsin.
+        // Senkron yoksa run kilitlenmez ama kue SAKLANIR: geç katılım
+        // tekrarı (gateway, welcome'dan hemen sonra TEK sefer yollar) ilk
+        // senkron turundan önce gelir; 250 ms'lik canlı yinelemeler gibi
+        // kendini telafi edemez. İlk ofset çıkınca işlenir.
         if (_estimate == null) {
-          setState(() => _status = 'kue geldi ama saat senkronu yok; tekrar bekleniyor');
+          _cueAwaitingSync = cue;
+          setState(() => _status = 'kue geldi; saat senkronu bekleniyor');
           return;
         }
         _arbiter.offer(cue, CueSource.websocket);
@@ -137,18 +164,112 @@ class _ShowScreenState extends State<ShowScreen> {
   void dispose() {
     _stopEffect(toBlack: false);
     _client.close();
+    _listener?.dispose();
     _torch.off();
     WakelockPlus.disable();
     super.dispose();
   }
 
+  // --- ultrasonik yedek ---
+
+  /// Işığa duyarlı modu açıp kapar; süren koşunun motoru anında güncellenir
+  /// (Faz 0 yükü zaten kare hesabında _safeMode'a bakar).
+  void _toggleSafeMode() {
+    setState(() => _safeMode = !_safeMode);
+    _engine?.disableFlash = _safeMode;
+  }
+
+  Future<void> _toggleMic() async {
+    if (_micOn) {
+      await _listener?.stop();
+      setState(() {
+        _micOn = false;
+        _beaconNote = '';
+      });
+      return;
+    }
+    final listener = _listener ??= UltrasonicListener(
+      onDetection: _onBeaconDetected,
+      onStatus: (note) {
+        if (mounted) setState(() => _beaconNote = 'beacon: $note');
+      },
+    );
+    final ok = await listener.start();
+    if (mounted) setState(() => _micOn = ok);
+  }
+
+  /// Beacon algısı → kue adayı. Geri sayım chirp'in duyulduğu MONOTON ana
+  /// eklenir; ateşleme anı zaten yerel olduğu için saat senkronu GEREKMEZ
+  /// (beacon tam da senkronsuz/WS'siz telefonlar için var).
+  void _onBeaconDetected(BeaconDetection det, int heardAtMonoMs) {
+    if (!mounted) return;
+    final fireLocalMs = heardAtMonoMs + det.payload.countdownMs;
+
+    // cue_index eşlemesi (sinyal sözleşmesi): 0 = otomatik program,
+    // i>0 = manifestteki sequences[i-1]. Eşleşmeyen indeks yok sayılır.
+    final manifest = _joinInfo?.manifest;
+    final String cueId;
+    if (det.payload.cueIndex == 0) {
+      cueId = programCueId;
+    } else if (manifest != null &&
+        det.payload.cueIndex <= manifest.sequences.length) {
+      cueId = manifest.sequences[det.payload.cueIndex - 1].id;
+    } else {
+      setState(() => _beaconNote =
+          'beacon: bilinmeyen sekans #${det.payload.cueIndex}; yok sayıldı');
+      return;
+    }
+
+    // Kurulu koşunun ateşlemesi ±2 sn içindeyse bu algı aynı kuenin
+    // kopyasıdır ve yok sayılır: WS koşusuysa sesli kopya (karar dokümanı
+    // §3, WS kaynağı beacon'a baskın), beacon koşusuysa ~1 sn aralıklı
+    // YİNELEME. Mesaj ikisini ayırır — cihaz denemesinde tek "WS kuesi"
+    // metni yanılttı (WS hiç yokken WS varmış gibi okundu).
+    if (_activeCue != null && (fireLocalMs - _fireLocalMs).abs() < 2000) {
+      final beaconRun = _activeCue!.runId.startsWith('beacon:');
+      setState(() => _beaconNote = beaconRun
+          ? 'beacon: kue #${det.payload.cueIndex} kuruldu · yineleme duyuldu'
+          : 'beacon: duyuldu, WS kuesi zaten kurulu');
+      return;
+    }
+
+    // Yinelemeler (~1 sn arayla, geri sayım düşerek) aynı ateşleme SANİYESİNE
+    // çözülür; sentetik runId bu yüzden tekrarları arbiter'da tekilleştirir.
+    final runId =
+        'beacon:${det.payload.cueIndex}:${(fireLocalMs + 500) ~/ 1000}';
+    setState(() => _beaconNote =
+        'beacon: kue #${det.payload.cueIndex} duyuldu (${det.payload.countdownMs} ms)'
+        '${det.correctedBits > 0 ? ' · ${det.correctedBits} bit düzeltildi' : ''}');
+    _arbiter.offer(
+      CueStartMsg(
+        runId: runId,
+        cueId: cueId,
+        // Ultrasonik kaynakta bu alan YEREL monoton ateşleme anını taşır;
+        // _onCueAccepted ofset=0 ile okur (sunucu saati hiç işe karışmaz).
+        fireAtServerMs: fireLocalMs,
+        repeatSeq: det.payload.seq,
+        payload: const CuePayloadMsg(
+            color: '#FFFFFF', torch: false, flashHz: 0, durationMs: 3000),
+      ),
+      CueSource.ultrasonic,
+    );
+  }
+
   // --- kue akışı ---
 
   void _onCueAccepted(CueStartMsg cue, CueSource source) {
-    final estimate = _estimate;
-    if (estimate == null) {
-      setState(() => _status = 'kue geldi ama saat senkronu yok; atlandı');
-      return;
+    // Sözleşme: ultrasonik kaynakta fireAtServerMs yerel monoton andır →
+    // ofset 0; WS kaynağında sunucu anıdır → saat senkronu şarttır.
+    final int offsetMs;
+    if (source == CueSource.ultrasonic) {
+      offsetMs = 0;
+    } else {
+      final estimate = _estimate;
+      if (estimate == null) {
+        setState(() => _status = 'kue geldi ama saat senkronu yok; atlandı');
+        return;
+      }
+      offsetMs = estimate.offsetMs;
     }
     _pendingFire?.cancel();
     _stopEffect(toBlack: true);
@@ -159,7 +280,7 @@ class _ShowScreenState extends State<ShowScreen> {
     String statusLabel;
     List<({String sequenceId, int baseMs})> played = const [];
     if (cue.cueId == programCueId && manifest != null && manifest.program.isNotEmpty) {
-      _engine = ProgramEngine(manifest);
+      _engine = ProgramEngine(manifest, disableFlash: _safeMode);
       played = [
         for (final item in manifest.program)
           (sequenceId: item.sequenceId, baseMs: item.atOffsetMs),
@@ -167,7 +288,9 @@ class _ShowScreenState extends State<ShowScreen> {
       statusLabel = 'otomatik program hazır (${manifest.program.length} sekans)';
     } else {
       final sequence = manifest?.sequenceById(cue.cueId);
-      _engine = sequence == null ? null : TimelineEngine(sequence);
+      _engine = sequence == null
+          ? null
+          : TimelineEngine(sequence, disableFlash: _safeMode);
       if (sequence != null) played = [(sequenceId: sequence.id, baseMs: 0)];
       statusLabel = sequence == null
           ? 'kue alındı (${cue.cueId})'
@@ -178,10 +301,10 @@ class _ShowScreenState extends State<ShowScreen> {
       _activeCue = cue;
       _status = '$statusLabel; ateşleme bekleniyor';
     });
-    _fireLocalMs = cue.fireAtServerMs - estimate.offsetMs;
+    _fireLocalMs = cue.fireAtServerMs - offsetMs;
     _pendingFire = CueScheduler.schedule(
       fireAtServerMs: cue.fireAtServerMs,
-      offsetMs: estimate.offsetMs,
+      offsetMs: offsetMs,
       onFire: (lateByMs) => _startEffect(cue, lateByMs),
     );
   }
@@ -229,9 +352,23 @@ class _ShowScreenState extends State<ShowScreen> {
     if (!mounted) return;
     // Ses planı ateşleme anında, kesinleşmiş fireLocal üzerinden platforma
     // devredilir; bu andan sonra çalma anını platformun kendi saati tutar.
+    // Geç katılımda (lateByMs > 0) çoktan başlamış parçaya ortasından
+    // girilir; konum parça süresini aşıyorsa platform çalmayı atlar.
     for (final entry in _audioPlan) {
       if (entry.atMs >= lateByMs) {
         _audio.playAtMono(entry.playerId, _fireLocalMs + entry.atMs);
+      } else {
+        // Parça çoktan başladı. Konum atlama (seek) EŞZAMANSIZDIR ve
+        // sıkıştırılmış dosyada yüzlerce ms sürebilir; "şimdiki konuma atla
+        // ve hemen çal" bu yüzden hep atlama süresi kadar geride çalar.
+        // Bunun yerine ~yarım saniye SONRASININ konumuna atlanır ve çalma
+        // tam o ana zamanlanır: atlama, çalma başlamadan biter ve parça
+        // kısa sessiz girişten sonra hizalı girer (normal yolun postAtTime
+        // hassasiyetiyle — çıkış hattı gecikmesi de iki yolda aynı kalır).
+        const catchUpMs = 500;
+        final seekMs = (lateByMs - entry.atMs) + catchUpMs;
+        _audio.playAtMono(entry.playerId, _fireLocalMs + entry.atMs + seekMs,
+            seekMs: seekMs);
       }
     }
     setState(() => _status = lateByMs > 0
@@ -278,13 +415,14 @@ class _ShowScreenState extends State<ShowScreen> {
         return;
       }
       final bool lit;
-      if (cue.payload.flashHz == 0) {
+      final flashHz = _safeMode ? 0 : cue.payload.flashHz;
+      if (flashHz == 0) {
         lit = true;
       } else {
         // floor(elapsed*hz/500): yarım periyodu (500/hz) yuvarlamadan sayar.
         // Tarayıcı istemcisi ve timeline_engine ile birebir aynı aritmetik;
         // kırpılmış tam sayı periyot (500 ~/ hz) 3 Hz'te ~4 ms/sn faz kaydırır.
-        lit = ((elapsed * cue.payload.flashHz) ~/ 500).isEven;
+        lit = ((elapsed * flashHz) ~/ 500).isEven;
       }
       color = lit ? _parseColor(cue.payload.color) : Colors.black;
       torchWanted = lit && cue.payload.torch;
@@ -421,9 +559,51 @@ class _ShowScreenState extends State<ShowScreen> {
                         '${_torch.available ? '' : ' · fener yok'}',
                       ),
                     if (_audioNote.isNotEmpty) Text(_audioNote),
+                    if (_beaconNote.isNotEmpty) Text(_beaconNote),
                     if (_activeCue != null)
                       Text('run ${_activeCue!.runId.substring(0, 8)}'),
                   ],
+                ),
+              ),
+            ),
+            // Ultrasonik yedek anahtarı: WS'si kopabilecek telefonlarda
+            // seyirci gösteriden önce açar; açıkken mikrofon PA beacon'ını
+            // bekler. (Erişilebilirlik yedeği — hassasiyet kaynağı WS'dir.)
+            Positioned(
+              bottom: 8,
+              left: 12,
+              child: TextButton.icon(
+                onPressed: _toggleMic,
+                icon: Icon(
+                  _micOn ? Icons.hearing : Icons.hearing_disabled,
+                  size: 16,
+                  color: Colors.white.withValues(alpha: _micOn ? 0.8 : 0.4),
+                ),
+                label: Text(
+                  _micOn ? 'beacon açık' : 'beacon dinle',
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: _micOn ? 0.8 : 0.4),
+                  ),
+                ),
+              ),
+            ),
+            // Işığa duyarlı mod: yanıp sönmeyi sabit ışığa indirger. Gösteri
+            // ortasında da açılabilir; süren koşu anında etkilenir.
+            Positioned(
+              bottom: 40,
+              left: 12,
+              child: TextButton.icon(
+                onPressed: _toggleSafeMode,
+                icon: Icon(
+                  _safeMode ? Icons.flash_off : Icons.flash_on,
+                  size: 16,
+                  color: Colors.white.withValues(alpha: _safeMode ? 0.8 : 0.4),
+                ),
+                label: Text(
+                  _safeMode ? 'flaş kapalı (duyarlı mod)' : 'ışığa duyarlı mod',
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: _safeMode ? 0.8 : 0.4),
+                  ),
                 ),
               ),
             ),

@@ -145,7 +145,9 @@ class _JoinScreenState extends State<JoinScreen> {
               const SizedBox(height: 24),
               Text(
                 'Deneme sırasında ekran açık kalır ve parlaklığı elle '
-                'sonuna kadar açın. Yanıp sönen ışık içerir.',
+                'sonuna kadar açın. Gösteri YANIP SÖNEN IŞIK içerebilir; '
+                'ışığa duyarlıysanız gösteri ekranının sol altındaki '
+                '"ışığa duyarlı mod"u açın (yanıp sönme sabit ışığa döner).',
                 textAlign: TextAlign.center,
                 style: TextStyle(color: Colors.grey.shade500, fontSize: 12),
               ),

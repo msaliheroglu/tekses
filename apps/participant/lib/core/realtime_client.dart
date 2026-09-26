@@ -6,6 +6,7 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 import 'clock_sync.dart';
 import 'messages.dart';
 import 'mono_clock.dart';
+import 'wire_binary.dart';
 
 /// Gateway WebSocket istemcisi.
 ///
@@ -49,6 +50,10 @@ class RealtimeClient {
   final _estimator = ClockSyncEstimator();
   final _random = Random();
 
+  /// Kabul edilmiş son ofset ve kabul anı (kalite kapısı için).
+  ClockEstimate? _accepted;
+  int _acceptedAtMs = 0;
+
   WebSocketChannel? _channel;
   StreamSubscription<dynamic>? _sub;
   bool _closed = false;
@@ -73,8 +78,11 @@ class RealtimeClient {
       onDone: _handleDisconnect,
       cancelOnError: true,
     );
+    // Uygulama v2 ikili telde konuşur (F3.0): hello'nun ikili çerçeve
+    // olması kodeki seçer, gateway yanıtları da ikili döner. Kue çerçevesi
+    // ~56 bayta iner (JSON ~207) — 80k telefonda yayın trafiği ~3,5 kat düşer.
     _send(typeHello, {
-      'protocol_version': protocolVersion,
+      'protocol_version': protocolVersionBinary,
       'join_code': joinCode,
       'client_kind': 'flutter',
     });
@@ -108,11 +116,16 @@ class RealtimeClient {
   }
 
   void _send(String type, Map<String, dynamic> data) {
-    _channel?.sink.add(encodeEnvelope(type, data));
+    _channel?.sink.add(encodeBinaryEnvelope(type, data));
   }
 
   void _onData(dynamic raw) {
-    final env = decodeEnvelope(raw);
+    // İkili çerçeve = protobuf (v2, olağan yol); metin çerçevesi = JSON.
+    // JSON dalı dayanıklılık içindir: gateway hep hello'nun kodeğiyle
+    // yanıtlar ama beklenmedik bir metin çerçevesi bağlantıyı düşürmesin.
+    final env = raw is String
+        ? decodeEnvelope(raw)
+        : (raw is List<int> ? decodeBinaryEnvelope(raw) : null);
     if (env == null) return;
 
     switch (env.type) {
@@ -180,14 +193,34 @@ class RealtimeClient {
       return;
     }
     final estimate = _estimator.estimate();
+    var next = resyncEvery;
     if (estimate != null) {
-      onEstimate(estimate);
-      onStatus(
-          'saat senkronu: ofset ${estimate.offsetMs} ms, en iyi RTT ${estimate.bestRttMs} ms');
+      // Kalite kapısı (20k fırtına yük testi bulgusu, 2026-09-26): kopup
+      // dönen istemci ofseti tam yeniden bağlanma İZDİHAMINDA ölçer; o tur,
+      // elindeki taze ve iyi ofseti EZMEMELİ. Eldeki kabul 2 dakikadan yeni
+      // ve belirgin daha kaliteliyse (RTT +10 ms payla) korunur, kısa
+      // aralıkla taze tur denenir. Saat kayması 2 dakikada ihmal düzeyinde.
+      final prev = _accepted;
+      final prevFresh = prev != null && MonoClock.nowMs - _acceptedAtMs < 120000;
+      if (prevFresh && estimate.bestRttMs > prev.bestRttMs + 10) {
+        onStatus('saat senkronu kalitesiz (RTT ${estimate.bestRttMs} ms); '
+            'önceki ofset korunuyor');
+        next = const Duration(seconds: 5);
+      } else {
+        _accepted = estimate;
+        _acceptedAtMs = MonoClock.nowMs;
+        onEstimate(estimate);
+        onStatus(
+            'saat senkronu: ofset ${estimate.offsetMs} ms, en iyi RTT ${estimate.bestRttMs} ms');
+        // Kabul edilen tur yine de kalitesizse (elde daha iyisi yoktu)
+        // 60 sn beklenmez: kısa aralıkla taze tur atılır.
+        if (estimate.bestRttMs > 25) next = const Duration(seconds: 5);
+      }
     } else {
       onStatus('saat senkronu başarısız; yeniden denenecek');
+      next = const Duration(seconds: 5); // başarısız tur 60 sn beklemez
     }
-    // Ofset her 1–2 dakikada bir yenilenir; son iyi değer kullanımda kalır.
-    _resync = Timer(resyncEvery, _startSyncRound);
+    // Ofset olağan durumda 1–2 dakikada bir yenilenir; son iyi değer kullanımda.
+    _resync = Timer(next, _startSyncRound);
   }
 }

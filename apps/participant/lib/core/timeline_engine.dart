@@ -43,15 +43,23 @@ class TimelineFrame {
 /// ayırt etmez.
 abstract interface class FrameSource {
   TimelineFrame frameAt(int elapsedMs);
+
+  /// Işığa duyarlı mod (F3.2): true iken yanıp sönme SABİT ışığa indirgenir
+  /// (flashHz yok sayılır, kue süresi/rengi aynı kalır). Gösteri ortasında
+  /// açılabilir; bir sonraki kareden itibaren etkilidir.
+  abstract bool disableFlash;
 }
 
 class TimelineEngine implements FrameSource {
-  const TimelineEngine(this.sequence);
+  TimelineEngine(this.sequence, {this.disableFlash = false});
 
   final ShowSequence sequence;
 
-  static bool _lit(ShowCue cue, int elapsedMs) {
-    if (cue.flashHz == 0) return true;
+  @override
+  bool disableFlash;
+
+  bool _lit(ShowCue cue, int elapsedMs) {
+    if (disableFlash || cue.flashHz == 0) return true;
     final sinceCue = elapsedMs - cue.atMs;
     return ((sinceCue * cue.flashHz) ~/ 500).isEven;
   }
@@ -120,17 +128,32 @@ class TimelineEngine implements FrameSource {
 /// Öğeler arasındaki boşlukta ekran karanlık bekler (done değil); son
 /// öğenin sekansı bitince done olur. Bu da SAFTIR ve birim testlidir.
 class ProgramEngine implements FrameSource {
-  ProgramEngine(ShowManifest manifest)
+  ProgramEngine(ShowManifest manifest, {bool disableFlash = false})
       : _items = [
           for (final item in manifest.program)
             if (manifest.sequenceById(item.sequenceId) != null)
               (
                 atOffsetMs: item.atOffsetMs,
-                engine: TimelineEngine(manifest.sequenceById(item.sequenceId)!),
+                engine: TimelineEngine(manifest.sequenceById(item.sequenceId)!,
+                    disableFlash: disableFlash),
               ),
-        ];
+        ],
+        _disableFlash = disableFlash;
 
   final List<({int atOffsetMs, TimelineEngine engine})> _items;
+
+  bool _disableFlash;
+
+  @override
+  bool get disableFlash => _disableFlash;
+
+  @override
+  set disableFlash(bool value) {
+    _disableFlash = value;
+    for (final item in _items) {
+      item.engine.disableFlash = value;
+    }
+  }
 
   static const _idle = TimelineFrame(
       done: false, lyric: '', screenColor: '', screenLit: false, torchOn: false);

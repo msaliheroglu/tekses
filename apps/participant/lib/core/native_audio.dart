@@ -66,12 +66,16 @@ class NativeAudio {
   }
 
   /// Varlığı, MonoClock ekseninde verilen anda başlatacak şekilde planlar.
-  Future<void> playAtMono(String id, int fireLocalMs) async {
+  /// [seekMs] > 0 ise parça o konumdan başlar (geç katılan telefon çoktan
+  /// başlamış şarkıya ortasından girer); an geçmişteyse platform hemen çalar.
+  /// Konum parça süresini aşıyorsa platform çalmayı sessizce atlar.
+  Future<void> playAtMono(String id, int fireLocalMs, {int seekMs = 0}) async {
     if (!_available) return;
     try {
       await _channel.invokeMethod('playAt', {
         'id': id,
         'uptimeMs': fireLocalMs + _uptimeOffsetMs,
+        'seekMs': seekMs,
       });
     } catch (_) {
       // planlanamayan çalma yutulur

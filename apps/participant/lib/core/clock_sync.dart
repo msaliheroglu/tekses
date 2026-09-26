@@ -1,9 +1,16 @@
 /// NTP benzeri saat ofseti kestirimi.
 ///
-/// Algoritma Go tarafındaki packages/clocksync ile birebir aynıdır ve öyle
-/// kalmalıdır: 8–12 örnek, RTT'ye göre en iyi yarı, ofset medyanı.
+/// Algoritma Go tarafındaki packages/clocksync ve tarayıcıdaki join.html ile
+/// birebir aynıdır ve öyle kalmalıdır: 8–12 örnek, en iyi RTT'nin +10 ms
+/// BANDINDAKİ örnekler, ofset medyanı. Bant seçimi bilinçli ("en iyi yarı"
+/// değil): 20k fırtına yük testi (2026-09-26) çift tepeli dağılımı yakaladı —
+/// izdihamda örneklerin çoğu saptırılmışken "yarı" onları da medyana taşıyor,
+/// en iyi RTT ise tertemiz görünüyordu.
 /// Ofset tanımı: sunucuSaati ≈ istemciMonoton + ofset (ms).
 library;
+
+/// En iyi örneğin RTT'sine eklenen seçim bandı (packages/clocksync.RTTBandMs).
+const int rttBandMs = 10;
 
 class ClockSample {
   const ClockSample({
@@ -47,14 +54,19 @@ class ClockSyncEstimator {
     _samples.add(s);
   }
 
-  /// Düşük RTT'li yarının ofset medyanı; hiç örnek yoksa null.
+  /// En iyi RTT'nin +[rttBandMs] bandındaki örneklerin ofset medyanı; hiç
+  /// örnek yoksa null. Bandın dışındaki örnek belirgin daha uzun yol yürüdü
+  /// demektir ve o yolun asimetrisi ofseti saptırır — medyana giremez.
   ClockEstimate? estimate() {
     if (_samples.isEmpty) return null;
 
     final byRtt = List<ClockSample>.of(_samples)
       ..sort((a, b) => a.rtt.compareTo(b.rtt));
-    // En iyi yarı (en az 1): yüksek RTT asimetrik gecikme taşır, ofseti saptırır.
-    final keep = (byRtt.length + 1) ~/ 2;
+    final cut = byRtt.first.rtt + rttBandMs;
+    var keep = 1;
+    while (keep < byRtt.length && byRtt[keep].rtt <= cut) {
+      keep++;
+    }
     final chosen = byRtt.sublist(0, keep);
 
     final offsets = chosen.map((s) => s.offset).toList()..sort();

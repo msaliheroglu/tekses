@@ -8,8 +8,10 @@ option go_package = "github.com/msaliheroglu/tekses/packages/proto/gen/go/tekses
 //
 // İstemci t0'da isteği yollar, sunucu t1'de alır ve t2'de yanıtlar,
 // istemci t3'te yanıtı alır. Ofset = ((t1 - t0) + (t2 - t3)) / 2.
-// İstemci 8–12 örnek toplar, düşük RTT'li yarıyı seçer, medyan ofseti kullanır
-// ve her 1–2 dakikada bir yeniler. Cihazda daima MONOTON saat kullanılır.
+// İstemci 8–12 örnek toplar, en iyi RTT'nin +10 ms bandındaki örneklerin
+// ofset medyanını kullanır (bandın dışı asimetrik gecikme taşır) ve her
+// 1–2 dakikada bir yeniler; kalitesiz tur eldeki taze/iyi ofseti ezmez.
+// Cihazda daima MONOTON saat kullanılır.
 
 message ClockSyncRequest {
   // İstemcinin örnek sayacı; yanıt eşleştirmede kullanılır.

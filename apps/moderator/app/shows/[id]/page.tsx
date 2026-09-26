@@ -270,7 +270,12 @@ export default function ShowDetailPage({ params }: { params: Promise<{ id: strin
     try {
       const [up, durationMs] = await Promise.all([uploadAsset(file), audioDurationMs(file)]);
       setAssets((prev) => [{ name: file.name, assetId: up.asset_id, bytes: up.bytes, durationMs }, ...prev]);
-      setNotice(`"${file.name}" yüklendi — sekans kartındaki "Müzik" listesinden seçin.`);
+      // Sunucu format uyarısı (ör. mp3 → geç katılım sesi kayabilir, m4a
+      // önerilir) bilgi satırında gösterilir; yükleme yine de geçerlidir.
+      setNotice(
+        `"${file.name}" yüklendi — sekans kartındaki "Müzik" listesinden seçin.` +
+          (up.warning ? ` UYARI: ${up.warning}` : ""),
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : "yükleme hatası");
     } finally {
