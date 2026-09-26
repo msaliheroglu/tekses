@@ -95,10 +95,14 @@ class PackageStore {
     }
 
     // Ses varlıkları da odaya girerken iner (karar: ön yükleme) ve addaki
-    // özetle doğrulanır; kue anında ağ gerekmez.
+    // özetle doğrulanır; kue anında ağ gerekmez. Sunucu asset_base_url
+    // verdiyse (R2/CDN, F3.3) dosyalar oradan çekilir — 60k telefon VM'yi
+    // değil CDN'i yorar; özet doğrulaması kaynaktan bağımsız aynıdır.
+    final assetBase =
+        (body['asset_base_url'] as String? ?? '').replaceAll(RegExp(r'/+$'), '');
     var assetPaths = const <String, String>{};
     if (manifest != null) {
-      assetPaths = await _downloadAssets(controlBase, manifest);
+      assetPaths = await _downloadAssets(controlBase, assetBase, manifest);
     }
 
     return JoinInfo(
@@ -112,8 +116,15 @@ class PackageStore {
     );
   }
 
+  /// Bir varlığın indirme adresi: taban (CDN) verilmişse oradan, yoksa
+  /// control-api'nin /assets ucundan.
+  static Uri assetUri(Uri controlBase, String assetBase, String id) =>
+      assetBase.isEmpty
+          ? controlBase.resolve('/assets/$id')
+          : Uri.parse('$assetBase/$id');
+
   Future<Map<String, String>> _downloadAssets(
-      Uri controlBase, ShowManifest manifest) async {
+      Uri controlBase, String assetBase, ShowManifest manifest) async {
     final ids = <String>{};
     for (final seq in manifest.sequences) {
       for (final lane in seq.cueLanes) {
@@ -143,7 +154,7 @@ class PackageStore {
         }
       }
       final resp = await _client
-          .get(controlBase.resolve('/assets/$id'))
+          .get(assetUri(controlBase, assetBase, id))
           .timeout(const Duration(minutes: 2));
       if (resp.statusCode != 200) {
         throw PackageStoreException(

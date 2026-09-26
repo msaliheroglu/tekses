@@ -55,16 +55,38 @@ func main() {
 		log.Warn("depolama: bellek içi — veriler süreçle birlikte silinir (TEKSES_DATABASE_URL ayarlayın)")
 	}
 
-	packagesDir := os.Getenv("TEKSES_PACKAGES_DIR")
-	if packagesDir == "" {
-		packagesDir = "data/packages"
+	// Paket/varlık deposu: S3 ucu ayarlıysa R2/S3, değilse yerel dosya
+	// sistemi. İki sürücü aynı düz, içerik adresli anahtarları kullanır;
+	// aralarında geçiş dosyaları kovaya kopyalamaktan ibarettir.
+	var packages blob.Store
+	if endpoint := os.Getenv("TEKSES_BLOB_S3_ENDPOINT"); endpoint != "" {
+		bucket := os.Getenv("TEKSES_BLOB_S3_BUCKET")
+		if bucket == "" {
+			log.Error("TEKSES_BLOB_S3_ENDPOINT ayarlı ama TEKSES_BLOB_S3_BUCKET boş")
+			os.Exit(1)
+		}
+		s3, err := blob.NewS3(endpoint, bucket,
+			os.Getenv("TEKSES_BLOB_S3_ACCESS_KEY_ID"),
+			os.Getenv("TEKSES_BLOB_S3_SECRET_KEY"))
+		if err != nil {
+			log.Error("s3 deposu kurulamadı", "hata", err)
+			os.Exit(1)
+		}
+		packages = s3
+		log.Info("paket deposu: s3/r2", "uç", endpoint, "kova", bucket)
+	} else {
+		packagesDir := os.Getenv("TEKSES_PACKAGES_DIR")
+		if packagesDir == "" {
+			packagesDir = "data/packages"
+		}
+		fsStore, err := blob.NewFS(packagesDir)
+		if err != nil {
+			log.Error("paket deposu açılamadı", "hata", err)
+			os.Exit(1)
+		}
+		packages = fsStore
+		log.Info("paket deposu: dosya sistemi", "dizin", packagesDir)
 	}
-	packages, err := blob.NewFS(packagesDir)
-	if err != nil {
-		log.Error("paket deposu açılamadı", "hata", err)
-		os.Exit(1)
-	}
-	log.Info("paket deposu", "dizin", packagesDir)
 
 	// Deneysel söz çıkarma: sesten zamanlı taslak üreten dış komut
 	// (ör. deploy/transcribe-whisper.sh). Ayarsızsa uç 501 döner.
@@ -81,6 +103,14 @@ func main() {
 	}
 
 	srv := api.New(log, st, packages, transcriber, internalToken)
+	// Kovanın herkese açık tabanı (R2 özel alan adı / CDN): ayarlıysa
+	// telefonlara mutlak paket/varlık URL'leri döner ve indirme VM'ye
+	// uğramaz. S3 deposu olmadan da çalışır (ör. FS + ayrı yansıtma) ama
+	// olağan eşleşme S3 + taban birlikte.
+	if base := os.Getenv("TEKSES_ASSET_PUBLIC_BASE"); base != "" {
+		srv.SetAssetPublicBase(base)
+		log.Info("varlık indirmeleri herkese açık tabandan", "taban", base)
+	}
 
 	httpSrv := &http.Server{
 		Addr:              *addr,

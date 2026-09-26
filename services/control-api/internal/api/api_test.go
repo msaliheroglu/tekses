@@ -485,3 +485,82 @@ func TestAuthRequired(t *testing.T) {
 		t.Fatalf("Content-Type'sız POST durumu = %d, beklenen 415", resp.StatusCode)
 	}
 }
+
+// Herkese açık kova tabanı (R2/CDN) ayarlıyken join yanıtı asset_base_url
+// taşır ve paket/varlık URL'leri MUTLAK olur — telefonlar dosyaları VM'den
+// değil CDN'den çeker.
+func TestAssetPublicBaseURLs(t *testing.T) {
+	log := slog.New(slog.NewTextHandler(testWriter{t}, &slog.HandlerOptions{Level: slog.LevelError}))
+	packages, err := blob.NewFS(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := New(log, memstore.New(), packages, "", "ic-sir")
+	srv.SetAssetPublicBase("https://cdn.tekses.example/") // sondaki / kırpılmalı
+	ts := httptest.NewServer(srv.Handler())
+	t.Cleanup(ts.Close)
+	c := &client{t: t, base: ts.URL}
+	c.register("CDN Org", "cdn@ornek.com")
+
+	var event struct {
+		ID string `json:"id"`
+	}
+	c.do(http.MethodPost, "/api/v1/events", map[string]string{"name": "Final"}, &event)
+	var room struct {
+		ID       string `json:"id"`
+		JoinCode string `json:"join_code"`
+	}
+	c.do(http.MethodPost, "/api/v1/events/"+event.ID+"/rooms", map[string]string{"name": "Tribün"}, &room)
+	var show struct {
+		ID string `json:"id"`
+	}
+	c.do(http.MethodPost, "/api/v1/shows", map[string]string{"title": "Set"}, &show)
+	var ver struct {
+		ID     string `json:"id"`
+		SHA256 string `json:"sha256"`
+	}
+	if status := c.do(http.MethodPost, "/api/v1/shows/"+show.ID+"/versions", json.RawMessage(testManifest), &ver); status != http.StatusCreated {
+		t.Fatalf("yayınlama durumu = %d", status)
+	}
+	if status := c.do(http.MethodPost, "/api/v1/rooms/"+room.ID+"/activate",
+		map[string]string{"show_version_id": ver.ID}, nil); status != http.StatusOK {
+		t.Fatal("etkinleştirilemedi")
+	}
+
+	anon := &client{t: t, base: ts.URL}
+	var join struct {
+		AssetBaseURL string `json:"asset_base_url"`
+		ShowVersion  struct {
+			ManifestURL string `json:"manifest_url"`
+		} `json:"show_version"`
+	}
+	if status := anon.do(http.MethodGet, "/api/v1/join/"+room.JoinCode, nil, &join); status != http.StatusOK {
+		t.Fatal("katılım başarısız")
+	}
+	if join.AssetBaseURL != "https://cdn.tekses.example" {
+		t.Fatalf("asset_base_url = %q", join.AssetBaseURL)
+	}
+	if want := "https://cdn.tekses.example/" + ver.SHA256 + ".json"; join.ShowVersion.ManifestURL != want {
+		t.Fatalf("manifest_url = %q, beklenen %q", join.ShowVersion.ManifestURL, want)
+	}
+
+	// Varlık yükleme yanıtı da mutlak URL döner.
+	req, _ := http.NewRequest(http.MethodPost, ts.URL+"/api/v1/assets", bytes.NewReader([]byte("sahte-mp3")))
+	req.Header.Set("Content-Type", "audio/mpeg")
+	req.Header.Set("Authorization", "Bearer "+c.token)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var up struct {
+		AssetID string `json:"asset_id"`
+		URL     string `json:"url"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&up); err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if want := "https://cdn.tekses.example/" + up.AssetID; up.URL != want {
+		t.Fatalf("varlık url = %q, beklenen %q", up.URL, want)
+	}
+}

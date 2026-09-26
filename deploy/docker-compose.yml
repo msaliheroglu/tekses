@@ -34,6 +34,13 @@ services:
       # Servisler arası iç uç sırrı (gateway → /internal/runs). Boş bırakılırsa
       # kalıcı Run kaydı kapalı kalır; eski .env'li kurulum kırılmaz.
       TEKSES_INTERNAL_TOKEN: ${TEKSES_INTERNAL_TOKEN:-}
+      # Paket/varlık deposu R2/S3 (F3.3, docs/dagitim.md §8). Hepsi boşsa
+      # yerel disk (packages birimi) kullanılır; eski kurulum kırılmaz.
+      TEKSES_BLOB_S3_ENDPOINT: ${TEKSES_BLOB_S3_ENDPOINT:-}
+      TEKSES_BLOB_S3_BUCKET: ${TEKSES_BLOB_S3_BUCKET:-}
+      TEKSES_BLOB_S3_ACCESS_KEY_ID: ${TEKSES_BLOB_S3_ACCESS_KEY_ID:-}
+      TEKSES_BLOB_S3_SECRET_KEY: ${TEKSES_BLOB_S3_SECRET_KEY:-}
+      TEKSES_ASSET_PUBLIC_BASE: ${TEKSES_ASSET_PUBLIC_BASE:-}
     volumes:
       - packages:/data/packages
     depends_on:

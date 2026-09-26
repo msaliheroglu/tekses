@@ -294,9 +294,18 @@ gerektirenler.
   katılım ekranı uyarısı anahtara yönlendiriyor. Fener ısıl incelemesi:
   kod sınırı bilinçli yok (sahne ortası kesinti daha kötü), tasarım kılavuzu
   dokümanda; BLACKOUT/HOLD feneri zaten söndürüyor. analyze temiz, 29 test.
-- [ ] **F3.3 R2 varlık deposu sürücüsü:** F2.5'ten devir — varlıklar
-  Cloudflare R2'ye (S3 API), /assets CDN'den; VM diski büyük paketlerde
-  darboğaz olmasın.
+- [x] **F3.3 R2 varlık deposu sürücüsü — kod TAMAM (2026-09-26):**
+  packages/blob'a S3 sürücüsü (minio-go; anahtar düzeni FS ile birebir,
+  içerik türü uzantıdan — kova CDN'den herkese açık servis edilebilsin;
+  sahte S3 ucuyla testli, aws-chunked gövde dahil). control-api env ile
+  seçer (TEKSES_BLOB_S3_*; boşsa FS, eski kurulum kırılmaz).
+  TEKSES_ASSET_PUBLIC_BASE ayarlıysa join yanıtı asset_base_url + mutlak
+  manifest_url döner; telefon paketi ve ses dosyalarını CDN'den indirir
+  (özet doğrulaması aynı; testli iki tarafta da). Kurulum: docs/dagitim.md
+  §8; compose + .env.example güncel. **Kullanıcı doğrulaması:** R2 kovası +
+  API anahtarı + özel alan adı kullanıcının Cloudflare hesabında açılmalı
+  (§8 adımları), sonra VM'de control-api yeniden derlenip telefonla katılım
+  denenmeli.
 - [ ] **F3.4 Yeniden bağlanma fırtınası + 100k tam koşum:** loadgen'e kopma/
   yeniden bağlanma senaryosu; 100k koşumu ayrı yük makinesiyle (VM,
   kullanıcıyla birlikte).
