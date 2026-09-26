@@ -55,6 +55,14 @@ import UIKit
               let uptimeTarget = args["uptimeMs"] as? NSNumber,
               let player = self.players[id]
         else { result(FlutterError(code: "args", message: "bilinmeyen id ya da uptimeMs yok", details: nil)); return }
+        // seekMs > 0: geç katılan telefon çoktan başlamış parçaya ortasından
+        // girer. Konum süreyi aşıyorsa parça bitmiştir, çalma sessizce atlanır.
+        let seekMs = (args["seekMs"] as? NSNumber).map { Double(truncating: $0) } ?? 0.0
+        if seekMs > 0 {
+          let seekSec = seekMs / 1000.0
+          if seekSec >= player.duration { result(nil); return }
+          player.currentTime = seekSec
+        }
         let delaySec = Double(truncating: uptimeTarget) / 1000.0 - ProcessInfo.processInfo.systemUptime
         if delaySec <= 0 {
           player.play()

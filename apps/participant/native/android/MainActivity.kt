@@ -57,10 +57,27 @@ class MainActivity : FlutterActivity() {
                 "playAt" -> {
                     val id = call.argument<String>("id")
                     val uptimeMs = call.argument<Number>("uptimeMs")?.toLong()
+                    // seekMs > 0: geç katılan telefon çoktan başlamış parçaya
+                    // ortasından girer. Konum süreyi aşıyorsa parça bitmiştir,
+                    // çalma sessizce atlanır.
+                    val seekMs = call.argument<Number>("seekMs")?.toLong() ?: 0L
                     val player = if (id != null) players[id] else null
                     if (player == null || uptimeMs == null) {
                         result.error("args", "bilinmeyen id ya da uptimeMs yok", null)
                         return@setMethodCallHandler
+                    }
+                    if (seekMs > 0 && seekMs >= player.duration) {
+                        result.success(null); return@setMethodCallHandler
+                    }
+                    if (seekMs > 0) {
+                        // API 26+: SEEK_CLOSEST kare hizasına değil örneğe gider
+                        // (varsayılan seekTo en yakın senkron kareye atlayıp
+                        // yüzlerce ms kayabilir).
+                        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                            player.seekTo(seekMs, MediaPlayer.SEEK_CLOSEST)
+                        } else {
+                            player.seekTo(seekMs.toInt())
+                        }
                     }
                     val now = SystemClock.uptimeMillis()
                     if (uptimeMs <= now) player.start()

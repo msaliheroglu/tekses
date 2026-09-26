@@ -265,22 +265,37 @@ gerektirenler.
   (`docker compose up -d --build gateway`) — eski gateway v2 istemciye
   show_activated'ı YOLLAMAZ; sonra yeni APK ile telefonun katılıp kue
   aldığı görülmeli.
-- [ ] **F3.1 Işığa duyarlılık / güvenlik incelemesi:** flashHz ≤ 3 sınırının
+- [~] **F3.1 Geç katılım (kullanıcı isteği 2026-09-26) — kod TAMAM:**
+  koreografi başladıktan sonra odaya giren telefon süren koşuya ortasından
+  yetişir. Gateway oda başına son kueyi tutar (lastrun.go; gözlem noktası
+  dağıtım sink'i olduğundan çok düğümde kendiliğinden tutarlı, STOP/
+  BLACKOUT düşürür + yineleme yarışına mezar taşı, TTL 3 saat) ve yeni
+  katılana welcome'dan sonra tek seferlik yollar. Telefonda: tekrar ilk
+  saat senkronundan önce geldiği için saklanıp ofset çıkınca işlenir;
+  CueScheduler geçmiş fireAt'i zaten hemen ateşler, motor frameAt(elapsed)
+  ile ortadan sürer; SES de ortadan başlar — kanala seekMs eklendi
+  (Android seekTo SEEK_CLOSEST, iOS currentTime; konum süreyi aşarsa parça
+  atlanır). Bilinen sınırlar lastrun.go başlığında (HOLD/SKIP, düğüm
+  yeniden başlaması). **Cihaz doğrulaması bekliyor:** yeni APK +
+  güncellenmiş gateway ile: koreografi sürerken ikinci telefonla katıl,
+  ekranın/sözün KALINAN YERDEN ve müzikle hizalı başladığını gör.
+  MainActivity.kt değişti — APK iş akışı native dosyayı zaten kopyalıyor.
+- [ ] **F3.2 Işığa duyarlılık / güvenlik incelemesi:** flashHz ≤ 3 sınırının
   uçtan uca denetimi (panel/manifest/telefon), katılım ekranında kalıcı
   uyarı, epilepsi güvenli mod (flaşı tek renge indirger), fener ısınma
   sınırı gözden geçirmesi.
-- [ ] **F3.2 R2 varlık deposu sürücüsü:** F2.5'ten devir — varlıklar
+- [ ] **F3.3 R2 varlık deposu sürücüsü:** F2.5'ten devir — varlıklar
   Cloudflare R2'ye (S3 API), /assets CDN'den; VM diski büyük paketlerde
   darboğaz olmasın.
-- [ ] **F3.3 Yeniden bağlanma fırtınası + 100k tam koşum:** loadgen'e kopma/
+- [ ] **F3.4 Yeniden bağlanma fırtınası + 100k tam koşum:** loadgen'e kopma/
   yeniden bağlanma senaryosu; 100k koşumu ayrı yük makinesiyle (VM,
   kullanıcıyla birlikte).
-- [ ] **F3.4 Cihaz sınıfı fener kalibrasyon tablosu:** fener sürücü gecikmesi
+- [ ] **F3.5 Cihaz sınıfı fener kalibrasyon tablosu:** fener sürücü gecikmesi
   cihazdan cihaza değişir; model bazlı ofset tablosu + ölçüm prosedürü.
-- [ ] **F3.5 Tarayıcı katılımcı yedeği (ürünleştirme):** /join denemesi Faz 0
+- [ ] **F3.6 Tarayıcı katılımcı yedeği (ürünleştirme):** /join denemesi Faz 0
   aracı olarak var; ürün kararı gereği söz + ekran rengi kapsamıyla
   resmîleştirilir (iOS Safari'de fener yok).
-- [ ] **F3.6 Analitik** ve **F3.7 Faturalama:** kapsam kullanıcıyla
+- [ ] **F3.7 Analitik** ve **F3.8 Faturalama:** kapsam kullanıcıyla
   netleşince ayrıntılanır.
 
 ## Notlar

@@ -64,6 +64,10 @@ class _ShowScreenState extends State<ShowScreen> {
   List<({String playerId, int atMs})> _audioPlan = const [];
 
   ClockEstimate? _estimate;
+
+  /// İlk saat senkronundan ÖNCE gelen kue (geç katılım tekrarı tek sefer
+  /// gelir, canlı yinelemeler gibi kendini telafi edemez); ofset çıkınca işlenir.
+  CueStartMsg? _cueAwaitingSync;
   String _status = 'başlatılıyor';
 
   /// Ses teşhis satırı: kanal yoksa ya da dosya inmemişse kullanıcı
@@ -98,12 +102,23 @@ class _ShowScreenState extends State<ShowScreen> {
     _client = RealtimeClient(
       uri: widget.serverUri,
       joinCode: widget.joinCode,
-      onEstimate: (est) => setState(() => _estimate = est),
+      onEstimate: (est) {
+        setState(() => _estimate = est);
+        // Senkron beklerken saklanan kue (geç katılım tekrarı) şimdi işlenir.
+        final pending = _cueAwaitingSync;
+        if (pending != null) {
+          _cueAwaitingSync = null;
+          _arbiter.offer(pending, CueSource.websocket);
+        }
+      },
       onCue: (cue) {
-        // Senkron yoksa run kilitlenmez: sunucunun 250 ms arayla yolladığı
-        // tekrarlar, ofset o sırada hazırlanmışsa kueyi kurtarabilsin.
+        // Senkron yoksa run kilitlenmez ama kue SAKLANIR: geç katılım
+        // tekrarı (gateway, welcome'dan hemen sonra TEK sefer yollar) ilk
+        // senkron turundan önce gelir; 250 ms'lik canlı yinelemeler gibi
+        // kendini telafi edemez. İlk ofset çıkınca işlenir.
         if (_estimate == null) {
-          setState(() => _status = 'kue geldi ama saat senkronu yok; tekrar bekleniyor');
+          _cueAwaitingSync = cue;
+          setState(() => _status = 'kue geldi; saat senkronu bekleniyor');
           return;
         }
         _arbiter.offer(cue, CueSource.websocket);
@@ -324,9 +339,14 @@ class _ShowScreenState extends State<ShowScreen> {
     if (!mounted) return;
     // Ses planı ateşleme anında, kesinleşmiş fireLocal üzerinden platforma
     // devredilir; bu andan sonra çalma anını platformun kendi saati tutar.
+    // Geç katılımda (lateByMs > 0) çoktan başlamış parçaya ortasından
+    // girilir; konum parça süresini aşıyorsa platform çalmayı atlar.
     for (final entry in _audioPlan) {
       if (entry.atMs >= lateByMs) {
         _audio.playAtMono(entry.playerId, _fireLocalMs + entry.atMs);
+      } else {
+        _audio.playAtMono(entry.playerId, _fireLocalMs + entry.atMs,
+            seekMs: lateByMs - entry.atMs);
       }
     }
     setState(() => _status = lateByMs > 0
