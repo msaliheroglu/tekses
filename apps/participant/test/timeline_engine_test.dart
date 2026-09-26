@@ -112,4 +112,44 @@ void main() {
       expect(empty.frameAt(0).done, isTrue);
     });
   });
+
+  group('ışığa duyarlı mod (F3.2)', () {
+    test('disableFlash yanıp sönmeyi sabit ışığa indirger', () {
+      final safe = TimelineEngine(sequence, disableFlash: true);
+      // 1250 ms flaşın karanlık yarısıdır (yukarıdaki flash testi);
+      // duyarlı modda ekran yine yanık, renk ve kue kapsamı aynı.
+      expect(safe.frameAt(1250).screenLit, isTrue);
+      expect(safe.frameAt(1250).screenColor, '#FF2A2A');
+      expect(safe.frameAt(500).screenColor, ''); // kue kapsamı değişmez
+      expect(safe.frameAt(5000).screenColor, '');
+    });
+
+    test('gösteri ortasında açılabilir', () {
+      final e = TimelineEngine(sequence);
+      expect(e.frameAt(1250).screenLit, isFalse);
+      e.disableFlash = true;
+      expect(e.frameAt(1250).screenLit, isTrue);
+    });
+
+    test('ProgramEngine çocuk motorlara yayar', () {
+      final manifest = ShowManifest(
+        title: 'x',
+        sequences: [sequence],
+        program: const [ProgramItem(sequenceId: 'seq-1', atOffsetMs: 0)],
+      );
+      final p = ProgramEngine(manifest);
+      expect(p.frameAt(1250).screenLit, isFalse);
+      p.disableFlash = true;
+      expect(p.frameAt(1250).screenLit, isTrue);
+    });
+  });
+
+  group('flashHz kelepçesi (savunma derinliği)', () {
+    test('manifest kuesinde 0..3 dışı değerler kelepçelenir', () {
+      final cue = ShowCue.fromJson({'at_ms': 0, 'flash_hz': 25, 'color': '#FFFFFF'});
+      expect(cue.flashHz, 3);
+      final neg = ShowCue.fromJson({'at_ms': 0, 'flash_hz': -4});
+      expect(neg.flashHz, 0);
+    });
+  });
 }

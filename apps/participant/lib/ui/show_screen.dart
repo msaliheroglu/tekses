@@ -53,6 +53,10 @@ class _ShowScreenState extends State<ShowScreen> {
   /// Ultrasonik yedek: mikrofon dinlemesi kullanıcı eliyle açılır (pil +
   /// izin istemi gerekçesi); durum satırı ne olduğunu her an söyler.
   bool _micOn = false;
+
+  /// Işığa duyarlı mod (F3.2): yanıp sönme sabit ışığa indirgenir; renk,
+  /// süre ve fener kararı aynı kalır. Gösteri ortasında da açılabilir.
+  bool _safeMode = false;
   String _beaconNote = '';
 
   /// Katılım bilgisi: show_activated sinyaliyle yerinde tazelenir (paket +
@@ -168,6 +172,13 @@ class _ShowScreenState extends State<ShowScreen> {
 
   // --- ultrasonik yedek ---
 
+  /// Işığa duyarlı modu açıp kapar; süren koşunun motoru anında güncellenir
+  /// (Faz 0 yükü zaten kare hesabında _safeMode'a bakar).
+  void _toggleSafeMode() {
+    setState(() => _safeMode = !_safeMode);
+    _engine?.disableFlash = _safeMode;
+  }
+
   Future<void> _toggleMic() async {
     if (_micOn) {
       await _listener?.stop();
@@ -269,7 +280,7 @@ class _ShowScreenState extends State<ShowScreen> {
     String statusLabel;
     List<({String sequenceId, int baseMs})> played = const [];
     if (cue.cueId == programCueId && manifest != null && manifest.program.isNotEmpty) {
-      _engine = ProgramEngine(manifest);
+      _engine = ProgramEngine(manifest, disableFlash: _safeMode);
       played = [
         for (final item in manifest.program)
           (sequenceId: item.sequenceId, baseMs: item.atOffsetMs),
@@ -277,7 +288,9 @@ class _ShowScreenState extends State<ShowScreen> {
       statusLabel = 'otomatik program hazır (${manifest.program.length} sekans)';
     } else {
       final sequence = manifest?.sequenceById(cue.cueId);
-      _engine = sequence == null ? null : TimelineEngine(sequence);
+      _engine = sequence == null
+          ? null
+          : TimelineEngine(sequence, disableFlash: _safeMode);
       if (sequence != null) played = [(sequenceId: sequence.id, baseMs: 0)];
       statusLabel = sequence == null
           ? 'kue alındı (${cue.cueId})'
@@ -402,13 +415,14 @@ class _ShowScreenState extends State<ShowScreen> {
         return;
       }
       final bool lit;
-      if (cue.payload.flashHz == 0) {
+      final flashHz = _safeMode ? 0 : cue.payload.flashHz;
+      if (flashHz == 0) {
         lit = true;
       } else {
         // floor(elapsed*hz/500): yarım periyodu (500/hz) yuvarlamadan sayar.
         // Tarayıcı istemcisi ve timeline_engine ile birebir aynı aritmetik;
         // kırpılmış tam sayı periyot (500 ~/ hz) 3 Hz'te ~4 ms/sn faz kaydırır.
-        lit = ((elapsed * cue.payload.flashHz) ~/ 500).isEven;
+        lit = ((elapsed * flashHz) ~/ 500).isEven;
       }
       color = lit ? _parseColor(cue.payload.color) : Colors.black;
       torchWanted = lit && cue.payload.torch;
@@ -569,6 +583,26 @@ class _ShowScreenState extends State<ShowScreen> {
                   _micOn ? 'beacon açık' : 'beacon dinle',
                   style: TextStyle(
                     color: Colors.white.withValues(alpha: _micOn ? 0.8 : 0.4),
+                  ),
+                ),
+              ),
+            ),
+            // Işığa duyarlı mod: yanıp sönmeyi sabit ışığa indirger. Gösteri
+            // ortasında da açılabilir; süren koşu anında etkilenir.
+            Positioned(
+              bottom: 40,
+              left: 12,
+              child: TextButton.icon(
+                onPressed: _toggleSafeMode,
+                icon: Icon(
+                  _safeMode ? Icons.flash_off : Icons.flash_on,
+                  size: 16,
+                  color: Colors.white.withValues(alpha: _safeMode ? 0.8 : 0.4),
+                ),
+                label: Text(
+                  _safeMode ? 'flaş kapalı (duyarlı mod)' : 'ışığa duyarlı mod',
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: _safeMode ? 0.8 : 0.4),
                   ),
                 ),
               ),

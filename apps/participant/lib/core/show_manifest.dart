@@ -139,7 +139,13 @@ class ShowCue {
         atMs: (j['at_ms'] as num?)?.toInt() ?? 0,
         durationMs: (j['duration_ms'] as num?)?.toInt() ?? 0,
         color: j['color'] as String? ?? '',
-        flashHz: (j['flash_hz'] as num?)?.toInt() ?? 0,
+        flashHz: clampFlashHz((j['flash_hz'] as num?)?.toInt() ?? 0),
         assetId: j['asset_id'] as String? ?? '',
       );
 }
+
+/// Işığa duyarlılık sınırı (F3.2, savunma derinliği): sunucular flash_hz'i
+/// zaten 0..3'te doğrular ama telefon gelen veriye GÜVENMEZ — bozuk/eski bir
+/// sunucu ya da kurcalanmış bir manifest hızlı flaşa döndürülemesin.
+/// Aynı sınır packages/manifest (MaxFlashHz) ve gateway'dedir.
+int clampFlashHz(int hz) => hz < 0 ? 0 : (hz > 3 ? 3 : hz);

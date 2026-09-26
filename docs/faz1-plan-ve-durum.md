@@ -285,10 +285,15 @@ gerektirenler.
   başladıktan sonra bitmesi. Düzeltme: ~0,5 sn SONRASININ konumuna atlanıp
   çalma tam o ana zamanlanıyor (atlama çalmadan önce ödenir, parça kısa
   sessiz girişten sonra hizalı girer). İkinci ses denemesi bekleniyor.
-- [ ] **F3.2 Işığa duyarlılık / güvenlik incelemesi:** flashHz ≤ 3 sınırının
-  uçtan uca denetimi (panel/manifest/telefon), katılım ekranında kalıcı
-  uyarı, epilepsi güvenli mod (flaşı tek renge indirger), fener ısınma
-  sınırı gözden geçirmesi.
+- [x] **F3.2 Işığa duyarlılık / güvenlik incelemesi (2026-09-26):** inceleme
+  raporu **docs/isik-guvenligi.md**. Bulgu: sunucular flash_hz'i doğruluyordu
+  ama telefon ve /join tarayıcısı tele/manifeste körü körüne güveniyordu —
+  ikisine de 0..3 kelepçesi eklendi (savunma derinliği; clampFlashHz).
+  Telefona "ışığa duyarlı mod" anahtarı eklendi: yanıp sönme sabit ışığa
+  indirgenir (motor disableFlash + Faz 0 yükü), gösteri ortasında açılabilir;
+  katılım ekranı uyarısı anahtara yönlendiriyor. Fener ısıl incelemesi:
+  kod sınırı bilinçli yok (sahne ortası kesinti daha kötü), tasarım kılavuzu
+  dokümanda; BLACKOUT/HOLD feneri zaten söndürüyor. analyze temiz, 29 test.
 - [ ] **F3.3 R2 varlık deposu sürücüsü:** F2.5'ten devir — varlıklar
   Cloudflare R2'ye (S3 API), /assets CDN'den; VM diski büyük paketlerde
   darboğaz olmasın.

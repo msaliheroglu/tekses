@@ -152,9 +152,18 @@ function cueActiveAt(cue, e) {
   return e >= cue.at_ms && (!cue.duration_ms || e < cue.at_ms + cue.duration_ms);
 }
 
+// Işığa duyarlılık kelepçesi (savunma derinliği): sunucular flash_hz'i
+// 0..3'te doğrular ama istemci gelen veriye güvenmez — telefon uygulaması
+// da aynı kelepçeyi taşır (show_manifest.clampFlashHz).
+function clampFlashHz(hz) {
+  if (!hz || hz < 0) return 0;
+  return hz > 3 ? 3 : hz;
+}
+
 function cueLitAt(cue, e) {
-  if (!cue.flash_hz) return true;
-  return Math.floor(((e - cue.at_ms) * cue.flash_hz) / 500) % 2 === 0;
+  const hz = clampFlashHz(cue.flash_hz);
+  if (!hz) return true;
+  return Math.floor(((e - cue.at_ms) * hz) / 500) % 2 === 0;
 }
 
 function seqFrameAt(seq, e) {
@@ -390,12 +399,13 @@ function applyFrame() {
     return;
   }
   let lit = true;
-  if (p.flash_hz > 0) {
+  const payloadHz = clampFlashHz(p.flash_hz);
+  if (payloadHz > 0) {
     // Faz daima (şimdi − ateşlemeAnı) üzerinden: tüm telefonlar aynı yarımda.
     // floor(elapsed*hz/500): yarım periyodu (500/hz) yuvarlamadan sayar;
     // Dart tarafıyla (show_screen.dart) birebir aynı aritmetik — 3 Hz'te
     // kırpılmış tam sayı periyot kullanılırsa iki istemci ~4 ms/sn açılırdı.
-    lit = Math.floor((elapsed * p.flash_hz) / 500) % 2 === 0;
+    lit = Math.floor((elapsed * payloadHz) / 500) % 2 === 0;
   }
   stage.style.background = lit ? (p.color || "#FFFFFF") : "#000";
 }

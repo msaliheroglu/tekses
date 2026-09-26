@@ -5,6 +5,8 @@ library;
 
 import 'dart:convert';
 
+import 'show_manifest.dart' show clampFlashHz;
+
 const int protocolVersion = 1;
 
 /// v2 = ikili protobuf teli (kue çerçevesi ~56 bayt; JSON ~207). Kodeki
@@ -89,7 +91,9 @@ class CuePayloadMsg {
   static CuePayloadMsg fromJson(Map<String, dynamic> j) => CuePayloadMsg(
         color: j['color'] as String? ?? '#FFFFFF',
         torch: j['torch'] as bool? ?? false,
-        flashHz: (j['flash_hz'] as num?)?.toInt() ?? 0,
+        // Işığa duyarlılık kelepçesi (show_manifest.clampFlashHz ile aynı
+        // sınır): gateway doğrular ama telefon tele güvenmez.
+        flashHz: clampFlashHz((j['flash_hz'] as num?)?.toInt() ?? 0),
         durationMs: (j['duration_ms'] as num?)?.toInt() ?? 3000,
       );
 }
