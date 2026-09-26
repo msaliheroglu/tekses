@@ -229,6 +229,43 @@ func runClient(id int, server string, binary bool, samples int, sampleInterval t
 		return msgType, msg, len(raw), err
 	}
 
+	// syncRound: kurulu bağlantı üzerinde tek saat senkronu turu. Yapay
+	// gecikme, t0 alındıktan sonra (gidiş) ve çerçeve okunduktan sonra
+	// (dönüş) uyunarak asimetrik ağ gecikmesini taklit eder; kestirici düşük
+	// RTT'li örnekleri seçerek bununla başa çıkmak zorundadır. Tur sırasında
+	// gelen başka çerçeveler (erken kue, geç katılım tekrarı) yok sayılır.
+	seqBase := uint32(0)
+	syncRound := func(conn *websocket.Conn) (clocksync.Estimate, error) {
+		var est clocksync.Estimator
+		for i := 1; i <= samples; i++ {
+			seqBase++
+			seq := seqBase
+			t0 := monoMs()
+			sleepJitter(jitter)
+			if err := send(conn, wire.TypeClockSyncRequest, wire.ClockSyncRequest{Seq: seq, ClientMonoMs: t0}); err != nil {
+				return clocksync.Estimate{}, fmt.Errorf("senkron isteği: %w", err)
+			}
+			for {
+				msgType, msg, _, err := readMessage(conn, time.Now().Add(10*time.Second))
+				if err != nil {
+					return clocksync.Estimate{}, fmt.Errorf("senkron yanıtı: %w", err)
+				}
+				if msgType != wire.TypeClockSyncResponse {
+					continue
+				}
+				resp, respOk := msg.(wire.ClockSyncResponse)
+				if !respOk || resp.Seq != seq {
+					continue
+				}
+				sleepJitter(jitter)
+				est.Add(clocksync.Sample{T0: resp.ClientMonoMs, T1: resp.ServerRecvMs, T2: resp.ServerSendMs, T3: monoMs()})
+				break
+			}
+			time.Sleep(sampleInterval)
+		}
+		return est.Estimate()
+	}
+
 	// connectAndSync: bağlan + hello/welcome + saat senkronu turu. Fırtına
 	// üyesi kopuştan sonra aynı yolu bir kez daha yürür.
 	connectAndSync := func() (*websocket.Conn, clocksync.Estimate, error) {
@@ -257,37 +294,7 @@ func runClient(id int, server string, binary bool, samples int, sampleInterval t
 			return nil, clocksync.Estimate{}, fmt.Errorf("welcome beklenirken: tür=%q hata=%v", msgType, err)
 		}
 
-		// Saat senkronu turu. Yapay gecikme, t0 alındıktan sonra (gidiş) ve
-		// çerçeve okunduktan sonra (dönüş) uyunarak asimetrik ağ gecikmesini
-		// taklit eder; kestirici düşük RTT'li örnekleri seçerek bununla başa
-		// çıkmak zorundadır. Tur sırasında gelen başka çerçeveler (erken kue,
-		// geç katılım tekrarı) yok sayılır.
-		var est clocksync.Estimator
-		for seq := uint32(1); int(seq) <= samples; seq++ {
-			t0 := monoMs()
-			sleepJitter(jitter)
-			if err := send(conn, wire.TypeClockSyncRequest, wire.ClockSyncRequest{Seq: seq, ClientMonoMs: t0}); err != nil {
-				return nil, clocksync.Estimate{}, fmt.Errorf("senkron isteği: %w", err)
-			}
-			for {
-				msgType, msg, _, err := readMessage(conn, time.Now().Add(10*time.Second))
-				if err != nil {
-					return nil, clocksync.Estimate{}, fmt.Errorf("senkron yanıtı: %w", err)
-				}
-				if msgType != wire.TypeClockSyncResponse {
-					continue
-				}
-				resp, respOk := msg.(wire.ClockSyncResponse)
-				if !respOk || resp.Seq != seq {
-					continue
-				}
-				sleepJitter(jitter)
-				est.Add(clocksync.Sample{T0: resp.ClientMonoMs, T1: resp.ServerRecvMs, T2: resp.ServerSendMs, T3: monoMs()})
-				break
-			}
-			time.Sleep(sampleInterval)
-		}
-		estimate, err := est.Estimate()
+		estimate, err := syncRound(conn)
 		if err != nil {
 			return nil, clocksync.Estimate{}, err
 		}
@@ -317,6 +324,16 @@ func runClient(id int, server string, binary bool, samples int, sampleInterval t
 		}
 		conn, res.est = conn2, est2
 		res.resyncMs = time.Since(t0).Milliseconds()
+		// Telefonun davranışının aynası (realtime_client): izdiham anında
+		// ölçülen tur kalitesizse (en iyi RTT > 25 ms) ~5 sn sonra taze tur
+		// atılır ve daha iyisi kullanılır. 20k fırtına koşumu bunun eksikliğini
+		// gösterdi: izdihamda ölçülen ofsetler yayılımı 69 ms'e çıkarmıştı.
+		if res.est.BestRTTMs > 25 {
+			time.Sleep(5*time.Second + time.Duration(rand.Int64N(2000))*time.Millisecond)
+			if est3, err := syncRound(conn); err == nil && est3.BestRTTMs < res.est.BestRTTMs {
+				res.est = est3
+			}
+		}
 		storm.done <- res.resyncMs
 	}
 

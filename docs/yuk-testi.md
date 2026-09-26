@@ -139,3 +139,9 @@ Yerel duman referansı (2026-09-26, geliştirme konteyneri): 400 istemci,
 Not: telefondaki gerçek istemci jitter'lı üstel geri çekilmeyle döner
 (0,5–45 sn'ye yayılır); loadgen fırtınayı BİLE BİLE aynı milisaniyeye
 yığar — ölçülen, en kötü durumdur.
+
+İlk VM koşumu (2026-09-26, 20k/10k fırtına): 10000/10000 geri döndü
+(medyan 2,6 sn) ama yayılım 69 ms'e çıktı — fırtına istemcileri ofseti
+izdiham anında ölçüyordu. loadgen ve telefon istemcisi artık kalitesiz
+turu (en iyi RTT > 25 ms) ~5 sn sonra taze turla değiştirir; koşumu
+tekrarlamadan önce imajı yeniden derleyin.

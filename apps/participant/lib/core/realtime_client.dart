@@ -189,14 +189,21 @@ class RealtimeClient {
       return;
     }
     final estimate = _estimator.estimate();
+    var next = resyncEvery;
     if (estimate != null) {
       onEstimate(estimate);
       onStatus(
           'saat senkronu: ofset ${estimate.offsetMs} ms, en iyi RTT ${estimate.bestRttMs} ms');
+      // Ölçüm kalitesi kötüyse (yeniden bağlanma izdihamı, anlık tıkanıklık)
+      // 60 sn o ofsetle yaşanmaz: kısa aralıkla taze tur atılır. 20k'lık
+      // fırtına yük testinin bulgusu (2026-09-26): izdiham anında ölçülen
+      // ofsetler ateşleme yayılımını 69 ms'e çıkardı; sakin turda düzelir.
+      if (estimate.bestRttMs > 25) next = const Duration(seconds: 5);
     } else {
       onStatus('saat senkronu başarısız; yeniden denenecek');
+      next = const Duration(seconds: 5); // başarısız tur 60 sn beklemez
     }
-    // Ofset her 1–2 dakikada bir yenilenir; son iyi değer kullanımda kalır.
-    _resync = Timer(resyncEvery, _startSyncRound);
+    // Ofset olağan durumda 1–2 dakikada bir yenilenir; son iyi değer kullanımda.
+    _resync = Timer(next, _startSyncRound);
   }
 }

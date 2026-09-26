@@ -328,8 +328,15 @@ gerektirenler.
   en kötü durum); yeniden senkron süreleri raporlanır, kue fırtına sonrası
   tetiklenir. Yerel duman: 400 istemci, 200 fırtına — 200/200 döndü
   (medyan 524 ms), kue 400/400, yayılım 8 ms. Koşum kılavuzu
-  docs/yuk-testi.md §4. **Kalan (kullanıcıyla):** VM'de 20k fırtınalı
-  koşum; 100k tam koşum ayrı yük makinesi gerektirir.
+  docs/yuk-testi.md §4. **VM koşumu (2026-09-26, KULLANICI): 20k istemci,
+  10k fırtınada — 10000/10000 geri döndü (medyan 2,6 sn), kimse kue
+  kaçırmadı; AMA yayılım 69 ms'e çıktı.** Kök neden: fırtına istemcileri
+  ofseti tam izdiham anında ölçüyor (RTT p95 28 ms) ve bir daha ölçmüyordu.
+  Düzeltme (telefon + loadgen aynası): senkron turunun en iyi RTT'si
+  25 ms'i aşarsa 60 sn beklenmez, ~5 sn sonra taze tur atılır ve iyisi
+  kullanılır; başarısız tur da 5 sn'de tekrarlanır. **Kalan:** VM'de
+  fırtınalı koşumun TEKRARI (loadgen imajı yeniden derlenerek) — beklenti
+  yayılımın ≤30 ms'e dönmesi; 100k tam koşum ayrı yük makinesi ister.
 - [ ] **F3.5 Cihaz sınıfı fener kalibrasyon tablosu:** fener sürücü gecikmesi
   cihazdan cihaza değişir; model bazlı ofset tablosu + ölçüm prosedürü.
 - [x] **F3.6 Tarayıcı katılımcı yedeği ürünleşti (2026-09-26):** /join artık
