@@ -101,3 +101,30 @@ Tek kopyaya dönmek: `... up -d --scale gateway=1`.
   doğrulayın.
 
 Sonuçlar `docs/faz1-plan-ve-durum.md` F2.4 maddesine işlenir.
+
+## 4. Yeniden bağlanma fırtınası (F3.4)
+
+Stadyumda ağ bir an kesilip gelince on binlerce telefon AYNI saniyede geri
+bağlanır; bu koşum gateway'in o anı yediğini kanıtlar. `-storm`, senkronu
+bitmiş istemcilerin verilen oranını koparır ve `-stormPause` sonra hepsini
+birden (rampasız) geri döndürür; kue fırtına oturduktan sonra tetiklenir.
+
+```bash
+# 20k istemci, yarısı kopup 3 sn sonra hep birden dönüyor:
+go run ./tools/loadgen -n 20000 -wire proto -ramp 2000 \
+  -storm 0.5 -stormPause 3s -cue -adminToken "$TEKSES_ADMIN_TOKEN" \
+  -server wss://<alan>/ws
+```
+
+Rapor iki ek satır verir: `fırtına bitti: X/Y yeniden senkron — süre medyan/
+p95/maks` ve dönemeyenlerin sayısı. Geçer sayılmak için: (1) dönemeyen ~0,
+(2) yeniden senkron p95'i birkaç saniyeyi aşmıyor, (3) ateşleme yayılımı
+fırtınasız koşumla aynı sınıfta (≤30 ms hedefi).
+
+Yerel duman referansı (2026-09-26, geliştirme konteyneri): 400 istemci,
+200'ü fırtınada — 200/200 geri döndü (medyan 524 ms, maks 573 ms), kue
+400/400, yayılım maks−min 8 ms.
+
+Not: telefondaki gerçek istemci jitter'lı üstel geri çekilmeyle döner
+(0,5–45 sn'ye yayılır); loadgen fırtınayı BİLE BİLE aynı milisaniyeye
+yığar — ölçülen, en kötü durumdur.

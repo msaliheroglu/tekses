@@ -321,9 +321,15 @@ gerektirenler.
   API anahtarı + özel alan adı kullanıcının Cloudflare hesabında açılmalı
   (§8 adımları), sonra VM'de control-api yeniden derlenip telefonla katılım
   denenmeli.
-- [ ] **F3.4 Yeniden bağlanma fırtınası + 100k tam koşum:** loadgen'e kopma/
-  yeniden bağlanma senaryosu; 100k koşumu ayrı yük makinesiyle (VM,
-  kullanıcıyla birlikte).
+- [~] **F3.4 Yeniden bağlanma fırtınası + 100k tam koşum — araç HAZIR
+  (2026-09-26):** loadgen'e -storm/-stormPause eklendi: senkronu bitmiş
+  istemcilerin verilen oranı kopar ve süre sonunda HEPSİ BİRDEN döner
+  (rampasız — telefonun jitter'lı geri çekilmesinden bile kötü, bilinçli
+  en kötü durum); yeniden senkron süreleri raporlanır, kue fırtına sonrası
+  tetiklenir. Yerel duman: 400 istemci, 200 fırtına — 200/200 döndü
+  (medyan 524 ms), kue 400/400, yayılım 8 ms. Koşum kılavuzu
+  docs/yuk-testi.md §4. **Kalan (kullanıcıyla):** VM'de 20k fırtınalı
+  koşum; 100k tam koşum ayrı yük makinesi gerektirir.
 - [ ] **F3.5 Cihaz sınıfı fener kalibrasyon tablosu:** fener sürücü gecikmesi
   cihazdan cihaza değişir; model bazlı ofset tablosu + ölçüm prosedürü.
 - [ ] **F3.6 Tarayıcı katılımcı yedeği (ürünleştirme):** /join denemesi Faz 0
