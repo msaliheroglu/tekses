@@ -288,9 +288,18 @@ gerektirenler.
   sabit <1 sn'ye indi ama sıfırlanmadı — kök neden dosya FORMATI: mp3'te
   kesin konum tablosu yok, Android ortadan başlatmayı bit hızından tahmin
   ediyor (m4a örnek hassasiyetinde). Önlem: mp3 yüklemesine API + panel
-  uyarısı eklendi (m4a öner; ffmpeg komutuyla). **Bekleyen doğrulama:**
-  aynı şarkı m4a olarak yüklenip geç katılım denemesi tekrarlanacak —
-  hizalıysa kök neden kesinleşir ve kılavuz 'ses varlıkları m4a' olur.
+  uyarısı eklendi (m4a öner; ffmpeg komutuyla). m4a denemesi (2026-09-26):
+  kayma m4a'da da sürdü → kök neden konum tablosu DEĞİL. Yeni teşhis: ses
+  hattı gecikmesi (start() → hoparlör) cihazdan cihaza 50-300 ms değişir ve
+  hiç telafi edilmiyordu — geç katılıma özgü olmayabilir. Çözüm: native
+  KONUM SERVOSU (Android + iOS): çalma oturduktan ~0,7 sn sonra gerçek
+  konum (currentPosition) beklenenle karşılaştırılır, sapma >80 ms ise
+  hedefe atlanır (en çok 3 deneme; bir kez kısa sıçrama duyulabilir —
+  kalıcı kaymadan iyidir). **Bekleyen doğrulama:** yeni APK ile (1) geç
+  katılım denemesi; (2) AYIRT EDİCİ kontrol: iki telefon da kueden ÖNCE
+  katılıp normal yolda dinlensin — kayma orada da varsa hat gecikmesi
+  hipotezi kesinleşir. Not: ürün sözü akustik birlik değildir (ses PA'dan);
+  servo koro etkisini azaltır, yok etmeyi vaat etmez.
 - [x] **F3.2 Işığa duyarlılık / güvenlik incelemesi (2026-09-26):** inceleme
   raporu **docs/isik-guvenligi.md**. Bulgu: sunucular flash_hz'i doğruluyordu
   ama telefon ve /join tarayıcısı tele/manifeste körü körüne güveniyordu —
