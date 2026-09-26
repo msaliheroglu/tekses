@@ -321,7 +321,7 @@ gerektirenler.
   API anahtarı + özel alan adı kullanıcının Cloudflare hesabında açılmalı
   (§8 adımları), sonra VM'de control-api yeniden derlenip telefonla katılım
   denenmeli.
-- [~] **F3.4 Yeniden bağlanma fırtınası + 100k tam koşum — araç HAZIR
+- [x] **F3.4 Yeniden bağlanma fırtınası (KAPANDI; 100k koşumu isteğe bağlı) — araç HAZIR
   (2026-09-26):** loadgen'e -storm/-stormPause eklendi: senkronu bitmiş
   istemcilerin verilen oranı kopar ve süre sonunda HEPSİ BİRDEN döner
   (rampasız — telefonun jitter'lı geri çekilmesinden bile kötü, bilinçli
@@ -350,8 +350,12 @@ gerektirenler.
   +10 ms BANDINDAKİ örneklerin medyanı — dört gerçekleme birden değişti
   (Go clocksync + Dart clock_sync + join.html + proto sözleşme yorumu),
   iki tarafta da çift tepeli regresyon testi var. Yerel jitter'lı duman:
-  yayılım 22 ms ✓. **Kalan:** VM'de dördüncü koşum; 100k tam koşum ayrı
-  yük makinesi ister.
+  yayılım 22 ms ✓. **Dördüncü VM koşumu (2026-09-26, KULLANICI): BAŞARILI —
+  ≤30 ms hedefi fırtına altında tutuyor. F3.4 KAPANDI.** Üç koşumluk
+  kovalamaca üç ayrı katman hatası yakaladı ve düzeltti: ölçüm zamanlaması
+  (5 sn taze tur) → kabul politikası (kalite kapısı) → kestirim algoritması
+  (RTT bandı). **İsteğe bağlı kalan:** 100k tam koşum — ayrı yük makinesi
+  ister; tek 4-OCPU düğüm ≥40k kanıtlı, 80k = 2 düğüm (F2.6).
 - [ ] **F3.5 Cihaz sınıfı fener kalibrasyon tablosu:** fener sürücü gecikmesi
   cihazdan cihaza değişir; model bazlı ofset tablosu + ölçüm prosedürü.
 - [x] **F3.6 Tarayıcı katılımcı yedeği ürünleşti (2026-09-26):** /join artık
