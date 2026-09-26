@@ -265,7 +265,7 @@ gerektirenler.
   (`docker compose up -d --build gateway`) — eski gateway v2 istemciye
   show_activated'ı YOLLAMAZ; sonra yeni APK ile telefonun katılıp kue
   aldığı görülmeli.
-- [~] **F3.1 Geç katılım (kullanıcı isteği 2026-09-26) — kod TAMAM:**
+- [x] **F3.1 Geç katılım (kullanıcı isteği 2026-09-26, cihazda DOĞRULANDI):**
   koreografi başladıktan sonra odaya giren telefon süren koşuya ortasından
   yetişir. Gateway oda başına son kueyi tutar (lastrun.go; gözlem noktası
   dağıtım sink'i olduğundan çok düğümde kendiliğinden tutarlı, STOP/
@@ -295,11 +295,11 @@ gerektirenler.
   KONUM SERVOSU (Android + iOS): çalma oturduktan ~0,7 sn sonra gerçek
   konum (currentPosition) beklenenle karşılaştırılır, sapma >80 ms ise
   hedefe atlanır (en çok 3 deneme; bir kez kısa sıçrama duyulabilir —
-  kalıcı kaymadan iyidir). **Bekleyen doğrulama:** yeni APK ile (1) geç
-  katılım denemesi; (2) AYIRT EDİCİ kontrol: iki telefon da kueden ÖNCE
-  katılıp normal yolda dinlensin — kayma orada da varsa hat gecikmesi
-  hipotezi kesinleşir. Not: ürün sözü akustik birlik değildir (ses PA'dan);
-  servo koro etkisini azaltır, yok etmeyi vaat etmez.
+  kalıcı kaymadan iyidir). **Cihaz doğrulaması TAMAM (2026-09-26, KULLANICI):
+  servolu APK ile hem geç katılım hem normal yol denemeleri BAŞARILI — ses
+  hizalı.** Kök neden böylece kesinleşti: telafi edilmeyen cihaz ses hattı
+  gecikmesi. Not: ürün sözü akustik birlik değildir (ses PA'dan); servo koro
+  etkisini <80 ms'e indirir, yok etmeyi vaat etmez. F3.1 KAPANDI.
 - [x] **F3.2 Işığa duyarlılık / güvenlik incelemesi (2026-09-26):** inceleme
   raporu **docs/isik-guvenligi.md**. Bulgu: sunucular flash_hz'i doğruluyordu
   ama telefon ve /join tarayıcısı tele/manifeste körü körüne güveniyordu —
