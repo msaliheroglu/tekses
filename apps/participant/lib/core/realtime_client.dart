@@ -50,6 +50,10 @@ class RealtimeClient {
   final _estimator = ClockSyncEstimator();
   final _random = Random();
 
+  /// Kabul edilmiş son ofset ve kabul anı (kalite kapısı için).
+  ClockEstimate? _accepted;
+  int _acceptedAtMs = 0;
+
   WebSocketChannel? _channel;
   StreamSubscription<dynamic>? _sub;
   bool _closed = false;
@@ -191,14 +195,27 @@ class RealtimeClient {
     final estimate = _estimator.estimate();
     var next = resyncEvery;
     if (estimate != null) {
-      onEstimate(estimate);
-      onStatus(
-          'saat senkronu: ofset ${estimate.offsetMs} ms, en iyi RTT ${estimate.bestRttMs} ms');
-      // Ölçüm kalitesi kötüyse (yeniden bağlanma izdihamı, anlık tıkanıklık)
-      // 60 sn o ofsetle yaşanmaz: kısa aralıkla taze tur atılır. 20k'lık
-      // fırtına yük testinin bulgusu (2026-09-26): izdiham anında ölçülen
-      // ofsetler ateşleme yayılımını 69 ms'e çıkardı; sakin turda düzelir.
-      if (estimate.bestRttMs > 25) next = const Duration(seconds: 5);
+      // Kalite kapısı (20k fırtına yük testi bulgusu, 2026-09-26): kopup
+      // dönen istemci ofseti tam yeniden bağlanma İZDİHAMINDA ölçer; o tur,
+      // elindeki taze ve iyi ofseti EZMEMELİ. Eldeki kabul 2 dakikadan yeni
+      // ve belirgin daha kaliteliyse (RTT +10 ms payla) korunur, kısa
+      // aralıkla taze tur denenir. Saat kayması 2 dakikada ihmal düzeyinde.
+      final prev = _accepted;
+      final prevFresh = prev != null && MonoClock.nowMs - _acceptedAtMs < 120000;
+      if (prevFresh && estimate.bestRttMs > prev.bestRttMs + 10) {
+        onStatus('saat senkronu kalitesiz (RTT ${estimate.bestRttMs} ms); '
+            'önceki ofset korunuyor');
+        next = const Duration(seconds: 5);
+      } else {
+        _accepted = estimate;
+        _acceptedAtMs = MonoClock.nowMs;
+        onEstimate(estimate);
+        onStatus(
+            'saat senkronu: ofset ${estimate.offsetMs} ms, en iyi RTT ${estimate.bestRttMs} ms');
+        // Kabul edilen tur yine de kalitesizse (elde daha iyisi yoktu)
+        // 60 sn beklenmez: kısa aralıkla taze tur atılır.
+        if (estimate.bestRttMs > 25) next = const Duration(seconds: 5);
+      }
     } else {
       onStatus('saat senkronu başarısız; yeniden denenecek');
       next = const Duration(seconds: 5); // başarısız tur 60 sn beklemez

@@ -324,10 +324,15 @@ func runClient(id int, server string, binary bool, samples int, sampleInterval t
 		}
 		conn, res.est = conn2, est2
 		res.resyncMs = time.Since(t0).Milliseconds()
-		// Telefonun davranışının aynası (realtime_client): izdiham anında
-		// ölçülen tur kalitesizse (en iyi RTT > 25 ms) ~5 sn sonra taze tur
-		// atılır ve daha iyisi kullanılır. 20k fırtına koşumu bunun eksikliğini
-		// gösterdi: izdihamda ölçülen ofsetler yayılımı 69 ms'e çıkarmıştı.
+		// Kalite kapısı (telefonun aynası, realtime_client): kopmadan önceki
+		// ofset taze ve daha kaliteliyse, izdihamda ölçülen tur onu EZMEZ
+		// (saat kayması bu ölçekte ihmal). İkinci 20k koşumu bunun eksiğini
+		// gösterdi: 5 sn'lik taze tur bile kuyruğu tam toplamıyordu çünkü
+		// zaten iyi olan ofset önce kalitesiziyle değiştiriliyordu.
+		if preStorm := estimate; preStorm.BestRTTMs+10 < res.est.BestRTTMs {
+			res.est = preStorm
+		}
+		// Elde iyi ofset yoksa telefon gibi kısa aralıkla taze tur atılır.
 		if res.est.BestRTTMs > 25 {
 			time.Sleep(5*time.Second + time.Duration(rand.Int64N(2000))*time.Millisecond)
 			if est3, err := syncRound(conn); err == nil && est3.BestRTTMs < res.est.BestRTTMs {
@@ -335,6 +340,14 @@ func runClient(id int, server string, binary bool, samples int, sampleInterval t
 			}
 		}
 		storm.done <- res.resyncMs
+	} else if res.est.BestRTTMs > 25 {
+		// Sabit istemciler de telefonun davranışını taklit eder: rampa
+		// sırasındaki ilk tur kalitesizse kısa aralıkla taze tur atılır
+		// (telefon bunu 5 sn'lik yeniden senkronla kendiliğinden yapar).
+		time.Sleep(5*time.Second + time.Duration(rand.Int64N(2000))*time.Millisecond)
+		if est3, err := syncRound(conn); err == nil && est3.BestRTTMs < res.est.BestRTTMs {
+			res.est = est3
+		}
 	}
 
 	// Kue bekle; tekrarlar run_id ile tekilleştirilir, ilki esas alınır.
@@ -441,6 +454,28 @@ func report(results []clientResult) {
 	fmt.Println()
 	fmt.Println("=== Faz 0 yazılım içi senkron ölçümü ===")
 	fmt.Printf("istemci: %d başarılı / %d toplam (run_id %s)\n", len(ok), len(results), ok[0].runID)
+	// Fırtına koşumunda yayılım grup grup da verilir: kuyruk fırtına
+	// dönüşlerinde mi, sabit istemcilerde mi — teşhis buradan okunur.
+	var stormFires, stableFires []float64
+	for _, r := range ok {
+		if r.resyncMs > 0 {
+			stormFires = append(stormFires, float64(r.fireLocalMs))
+		} else {
+			stableFires = append(stableFires, float64(r.fireLocalMs))
+		}
+	}
+	if len(stormFires) > 0 && len(stableFires) > 0 {
+		sort.Float64s(stormFires)
+		sort.Float64s(stableFires)
+		fmt.Printf("  fırtına grubu  : %d istemci, kendi içinde maks−min %.0f ms, p95−p5 %.0f ms\n",
+			len(stormFires), stormFires[len(stormFires)-1]-stormFires[0],
+			percentile(stormFires, 95)-percentile(stormFires, 5))
+		fmt.Printf("  sabit grup     : %d istemci, kendi içinde maks−min %.0f ms, p95−p5 %.0f ms\n",
+			len(stableFires), stableFires[len(stableFires)-1]-stableFires[0],
+			percentile(stableFires, 95)-percentile(stableFires, 5))
+		fmt.Printf("  gruplar arası  : medyan farkı %.0f ms\n",
+			percentile(stormFires, 50)-percentile(stableFires, 50))
+	}
 	fmt.Printf("kue çerçevesi    : %d bayt\n", ok[0].cueFrameBytes)
 	fmt.Printf("ofset kestirimi  : min %.0f ms, medyan %.0f ms, maks %.0f ms\n", offsets[0], percentile(offsets, 50), offsets[len(offsets)-1])
 	fmt.Printf("en iyi RTT       : medyan %.0f ms, p95 %.0f ms\n", percentile(rtts, 50), percentile(rtts, 95))

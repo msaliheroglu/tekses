@@ -334,9 +334,15 @@ gerektirenler.
   ofseti tam izdiham anında ölçüyor (RTT p95 28 ms) ve bir daha ölçmüyordu.
   Düzeltme (telefon + loadgen aynası): senkron turunun en iyi RTT'si
   25 ms'i aşarsa 60 sn beklenmez, ~5 sn sonra taze tur atılır ve iyisi
-  kullanılır; başarısız tur da 5 sn'de tekrarlanır. **Kalan:** VM'de
-  fırtınalı koşumun TEKRARI (loadgen imajı yeniden derlenerek) — beklenti
-  yayılımın ≤30 ms'e dönmesi; 100k tam koşum ayrı yük makinesi ister.
+  kullanılır; başarısız tur da 5 sn'de tekrarlanır. İkinci VM koşumu
+  (2026-09-26): p95−p5 32→18 ms, σ 11→6 ms düzeldi ama uç değerler kaldı
+  (maks−min 61 ms) — 5 sn'lik taze tur, İYİ ofsetin önce kalitesiziyle
+  ezilmesini önlemiyordu. Ek düzeltme: KALİTE KAPISI (telefon + loadgen) —
+  eldeki kabul 2 dk'dan taze ve belirgin daha kaliteliyse (RTT +10 ms pay)
+  yeni tur onu ezmez, kısa aralıkla taze tur denenir; loadgen'de sabit
+  istemciler de kalitesiz ilk turu tazeler (telefon aynası) ve rapor artık
+  fırtına/sabit grup kırılımı verir. **Kalan:** VM'de üçüncü koşum
+  (imaj yeniden derlenerek); 100k tam koşum ayrı yük makinesi ister.
 - [ ] **F3.5 Cihaz sınıfı fener kalibrasyon tablosu:** fener sürücü gecikmesi
   cihazdan cihaza değişir; model bazlı ofset tablosu + ölçüm prosedürü.
 - [x] **F3.6 Tarayıcı katılımcı yedeği ürünleşti (2026-09-26):** /join artık
