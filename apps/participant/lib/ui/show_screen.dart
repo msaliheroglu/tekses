@@ -345,8 +345,17 @@ class _ShowScreenState extends State<ShowScreen> {
       if (entry.atMs >= lateByMs) {
         _audio.playAtMono(entry.playerId, _fireLocalMs + entry.atMs);
       } else {
-        _audio.playAtMono(entry.playerId, _fireLocalMs + entry.atMs,
-            seekMs: lateByMs - entry.atMs);
+        // Parça çoktan başladı. Konum atlama (seek) EŞZAMANSIZDIR ve
+        // sıkıştırılmış dosyada yüzlerce ms sürebilir; "şimdiki konuma atla
+        // ve hemen çal" bu yüzden hep atlama süresi kadar geride çalar.
+        // Bunun yerine ~yarım saniye SONRASININ konumuna atlanır ve çalma
+        // tam o ana zamanlanır: atlama, çalma başlamadan biter ve parça
+        // kısa sessiz girişten sonra hizalı girer (normal yolun postAtTime
+        // hassasiyetiyle — çıkış hattı gecikmesi de iki yolda aynı kalır).
+        const catchUpMs = 500;
+        final seekMs = (lateByMs - entry.atMs) + catchUpMs;
+        _audio.playAtMono(entry.playerId, _fireLocalMs + entry.atMs + seekMs,
+            seekMs: seekMs);
       }
     }
     setState(() => _status = lateByMs > 0

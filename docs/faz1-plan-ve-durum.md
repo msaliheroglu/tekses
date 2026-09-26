@@ -280,6 +280,11 @@ gerektirenler.
   güncellenmiş gateway ile: koreografi sürerken ikinci telefonla katıl,
   ekranın/sözün KALINAN YERDEN ve müzikle hizalı başladığını gör.
   MainActivity.kt değişti — APK iş akışı native dosyayı zaten kopyalıyor.
+  Cihaz denemesi (2026-09-26, KULLANICI): ekran/söz kalınan yerden doğru
+  girdi; seste hafif gecikme görüldü — neden, eşzamansız seek'in çalma
+  başladıktan sonra bitmesi. Düzeltme: ~0,5 sn SONRASININ konumuna atlanıp
+  çalma tam o ana zamanlanıyor (atlama çalmadan önce ödenir, parça kısa
+  sessiz girişten sonra hizalı girer). İkinci ses denemesi bekleniyor.
 - [ ] **F3.2 Işığa duyarlılık / güvenlik incelemesi:** flashHz ≤ 3 sınırının
   uçtan uca denetimi (panel/manifest/telefon), katılım ekranında kalıcı
   uyarı, epilepsi güvenli mod (flaşı tek renge indirger), fener ısınma
