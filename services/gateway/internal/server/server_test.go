@@ -635,3 +635,92 @@ func TestContentTypeRequired(t *testing.T) {
 		t.Fatalf("text/plain istek durumu = %d, beklenen 415", resp.StatusCode)
 	}
 }
+
+// Geç katılım tekrarı (F3.1): kue yayınlandıktan sonra odaya katılan istemci
+// welcome'dan hemen sonra aynı kueyi almalı; STOP koşuyu hafızadan düşürmeli.
+func TestLateJoinReplay(t *testing.T) {
+	ts, wsURL := newTestServer(t, "")
+
+	// Kue, kimse yokken yayınlanır (hafızaya sink üzerinden düşer).
+	body, _ := json.Marshal(map[string]any{"delayMs": 600, "durationMs": 4000})
+	resp, err := http.Post(ts.URL+"/api/v0/cue", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cueResp struct {
+		RunID string `json:"run_id"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&cueResp); err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+
+	// Geç katılan: welcome + tekrar, aynı run_id.
+	late := dial(t, wsURL)
+	sendMsg(t, late, wire.TypeHello, wire.Hello{ProtocolVersion: wire.ProtocolVersion})
+	if env := readEnvelope(t, late); env.Type != wire.TypeWelcome {
+		t.Fatalf("ilk çerçeve %s, beklenen welcome", env.Type)
+	}
+	env := readEnvelope(t, late)
+	if env.Type != wire.TypeCueStart {
+		t.Fatalf("tekrar türü = %s, beklenen cue_start", env.Type)
+	}
+	var replay wire.CueStart
+	if err := json.Unmarshal(env.Data, &replay); err != nil {
+		t.Fatal(err)
+	}
+	if replay.RunID != cueResp.RunID {
+		t.Fatalf("tekrar run_id = %s, beklenen %s", replay.RunID, cueResp.RunID)
+	}
+
+	// v2 (ikili) geç katılan da almalı.
+	lateBin := dial(t, wsURL)
+	helloBin, err := wire.EncodeBinary(wire.TypeHello, wire.Hello{ProtocolVersion: wire.ProtocolVersionBinary})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := lateBin.WriteMessage(websocket.BinaryMessage, helloBin); err != nil {
+		t.Fatal(err)
+	}
+	_ = lateBin.SetReadDeadline(time.Now().Add(5 * time.Second))
+	if _, _, err := lateBin.ReadMessage(); err != nil { // welcome
+		t.Fatal(err)
+	}
+	_, rawBin, err := lateBin.ReadMessage()
+	if err != nil {
+		t.Fatal(err)
+	}
+	typBin, msgBin, err := wire.DecodeBinary(rawBin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if typBin != wire.TypeCueStart || msgBin.(wire.CueStart).RunID != cueResp.RunID {
+		t.Fatalf("ikili tekrar beklenmedik: %s %+v", typBin, msgBin)
+	}
+
+	// STOP koşuyu düşürür: sonraki katılan yalnız welcome alır. STOP bilerek
+	// yinelemeler (yayın +250/+500 ms) BİTMEDEN verilir: sonradan gelen
+	// yineleme koşuyu hafızaya geri yazmamalı (mezar taşı sınaması).
+	ivBody, _ := json.Marshal(map[string]any{"kind": "STOP", "run_id": cueResp.RunID})
+	respIv, err := http.Post(ts.URL+"/api/v0/intervention", "application/json", bytes.NewReader(ivBody))
+	if err != nil {
+		t.Fatal(err)
+	}
+	respIv.Body.Close()
+	if respIv.StatusCode != http.StatusOK {
+		t.Fatalf("intervention durumu = %d", respIv.StatusCode)
+	}
+	// Tüm yinelemeler geçsin ki "after"ın okuyacağı tek şey tekrar olsun
+	// (canlı yineleme yayını, geç katılım tekrarıyla karışmasın).
+	time.Sleep(700 * time.Millisecond)
+
+	after := dial(t, wsURL)
+	sendMsg(t, after, wire.TypeHello, wire.Hello{ProtocolVersion: wire.ProtocolVersion})
+	if env := readEnvelope(t, after); env.Type != wire.TypeWelcome {
+		t.Fatalf("ilk çerçeve %s, beklenen welcome", env.Type)
+	}
+	_ = after.SetReadDeadline(time.Now().Add(300 * time.Millisecond))
+	if _, _, err := after.ReadMessage(); err == nil {
+		t.Fatal("STOP sonrası katılana tekrar gitti")
+	}
+}
