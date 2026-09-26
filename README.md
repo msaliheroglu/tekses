@@ -47,7 +47,8 @@ curl -X POST http://localhost:8080/api/v0/cue \
 Kurulumsuz deneme (uygulama derlemeden, iPhone + Android):
 
 - Moderatör mini konsolu: bilgisayarda `http://<sunucu-ip>:8080/`
-- Katılımcı deneme sayfası: telefon tarayıcısında `http://<sunucu-ip>:8080/join`
+- Katılımcı deneme sayfası: telefon tarayıcısında `http://<sunucu-ip>:8080/join?dev=1`
+  (`dev=1`: kodsuz Faz 0 denemesi; üretimde sayfa katılım kodu ister)
   (aynı Wi-Fi'de; fener yalnızca Flutter uygulamasında çalışır)
 
 ## Geliştirme

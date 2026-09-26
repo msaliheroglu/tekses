@@ -73,6 +73,7 @@
      katıldıktan sonra sol alttaki "ışığa duyarlı mod"u açın.</p>
   <input id="codeInput" autocomplete="off" autocapitalize="characters"
          spellcheck="false" placeholder="Katılım kodu">
+  <p id="joinErr" hidden style="color:#ff6e6e"></p>
 
   <p id="wlWarn" hidden style="color:#ffb74d">
      ⚠ Bu adres şifresiz (http) olduğu için tarayıcı ekranı otomatik açık
@@ -507,12 +508,52 @@ safeBtn.addEventListener("click", () => {
 
 const codeInput = document.getElementById("codeInput");
 codeInput.value = joinCode;
+const joinErr = document.getElementById("joinErr");
+const joinBtn = document.getElementById("joinBtn");
 
-document.getElementById("joinBtn").addEventListener("click", async () => {
+function showJoinErr(msg) {
+  joinErr.textContent = msg;
+  joinErr.hidden = false;
+}
+
+joinBtn.addEventListener("click", async () => {
+  joinErr.hidden = true;
   // Elle yazılan kod URL'den geleni ezer ve adrese işlenir: sayfa
   // yenilenirse ya da bağlantı paylaşılırsa kod korunur.
-  joinCode = codeInput.value.trim().toUpperCase();
-  if (joinCode) {
+  const code = codeInput.value.trim().toUpperCase();
+  // Kodsuz katılım yalnız ?dev=1 ile (Faz 0 yerel denemesi: gateway'in
+  // varsayılan odası). Seyirci yanlışlıkla boş kodla siyah ekrana düşmesin.
+  if (!code && params.get("dev") !== "1") {
+    showJoinErr("Katılım kodunu girin — biletinizdeki/perdedeki 6 haneli kod.");
+    return;
+  }
+  // Kod, bağlanmadan ÖNCE doğrulanır: geçersiz kodla gateway'e gitmek
+  // sonsuz yeniden bağlanma döngüsüne düşürür (sunucu hello'yu reddeder).
+  if (code) {
+    joinBtn.disabled = true;
+    joinBtn.textContent = "Denetleniyor…";
+    try {
+      const resp = await fetch(controlBase + "/api/v1/join/" + encodeURIComponent(code));
+      if (resp.status === 404) {
+        showJoinErr("Katılım kodu geçersiz — kodu kontrol edip yeniden deneyin.");
+        return;
+      }
+      if (!resp.ok) {
+        showJoinErr("Sunucuya ulaşılamadı (HTTP " + resp.status + "); yeniden deneyin.");
+        return;
+      }
+      const d = await resp.json();
+      if (d && d.show_version && d.show_version.manifest) {
+        showManifest = d.show_version.manifest; // paket hazır; welcome tazeler
+      }
+    } catch {
+      showJoinErr("Sunucuya ulaşılamadı; bağlantınızı kontrol edip yeniden deneyin.");
+      return;
+    } finally {
+      joinBtn.disabled = false;
+      joinBtn.textContent = "Gösteriye katıl";
+    }
+    joinCode = code;
     const u = new URL(location.href);
     u.searchParams.set("code", joinCode);
     history.replaceState(null, "", u);
@@ -521,7 +562,6 @@ document.getElementById("joinBtn").addEventListener("click", async () => {
   safeBtn.classList.remove("hidden");
   await acquireWakeLock(); // kullanıcı jesti gerektirir; o yüzden burada
   try { await document.documentElement.requestFullscreen(); } catch { /* iOS Safari desteklemez */ }
-  loadManifest(); // elle girilen kodun paketi (welcome'daki çağrı da tazeler)
   connect();
 });
 </script>
