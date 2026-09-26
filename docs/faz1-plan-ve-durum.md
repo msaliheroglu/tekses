@@ -260,7 +260,8 @@ gerektirenler.
   bayt ↔ JSON ~207). Çapraz doğrulama: `wire/testdata/golden_frames.txt`
   altın baytları — Go golden_test.go üretir/doğrular, Dart
   wire_binary_test.dart aynı dosyaya karşı bayt-bayt sınar. analyze temiz,
-  25 test. **Kalan doğrulama:** VM'deki gateway yeniden derlenmeli
+  25 test; APK derlemesi YEŞİL (koşum #9, 2026-09-26).
+  **Kalan doğrulama:** VM'deki gateway yeniden derlenmeli
   (`docker compose up -d --build gateway`) — eski gateway v2 istemciye
   show_activated'ı YOLLAMAZ; sonra yeni APK ile telefonun katılıp kue
   aldığı görülmeli.
