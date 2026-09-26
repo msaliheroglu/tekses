@@ -329,6 +329,7 @@ func TestAudioAssetFlow(t *testing.T) {
 	var up struct {
 		AssetID string `json:"asset_id"`
 		URL     string `json:"url"`
+		Warning string `json:"warning"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&up); err != nil {
 		t.Fatal(err)
@@ -336,6 +337,11 @@ func TestAudioAssetFlow(t *testing.T) {
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusCreated || !strings.HasSuffix(up.AssetID, ".mp3") {
 		t.Fatalf("yükleme durumu = %d, asset_id = %q", resp.StatusCode, up.AssetID)
+	}
+	// mp3'te ortadan başlatma isabetsizdir (geç katılım); yanıt m4a öneren
+	// uyarıyı taşımalı (saha bulgusu 2026-09-26).
+	if !strings.Contains(up.Warning, "m4a") {
+		t.Fatalf("mp3 yüklemesi m4a uyarısı taşımıyor: %q", up.Warning)
 	}
 	wantSum := sha256.Sum256(fakeMp3)
 	if up.AssetID != hex.EncodeToString(wantSum[:])+".mp3" {

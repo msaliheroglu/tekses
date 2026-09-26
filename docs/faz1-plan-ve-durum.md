@@ -284,7 +284,13 @@ gerektirenler.
   girdi; seste hafif gecikme görüldü — neden, eşzamansız seek'in çalma
   başladıktan sonra bitmesi. Düzeltme: ~0,5 sn SONRASININ konumuna atlanıp
   çalma tam o ana zamanlanıyor (atlama çalmadan önce ödenir, parça kısa
-  sessiz girişten sonra hizalı girer). İkinci ses denemesi bekleniyor.
+  sessiz girişten sonra hizalı girer). İkinci deneme (2026-09-26): kayma
+  sabit <1 sn'ye indi ama sıfırlanmadı — kök neden dosya FORMATI: mp3'te
+  kesin konum tablosu yok, Android ortadan başlatmayı bit hızından tahmin
+  ediyor (m4a örnek hassasiyetinde). Önlem: mp3 yüklemesine API + panel
+  uyarısı eklendi (m4a öner; ffmpeg komutuyla). **Bekleyen doğrulama:**
+  aynı şarkı m4a olarak yüklenip geç katılım denemesi tekrarlanacak —
+  hizalıysa kök neden kesinleşir ve kılavuz 'ses varlıkları m4a' olur.
 - [x] **F3.2 Işığa duyarlılık / güvenlik incelemesi (2026-09-26):** inceleme
   raporu **docs/isik-guvenligi.md**. Bulgu: sunucular flash_hz'i doğruluyordu
   ama telefon ve /join tarayıcısı tele/manifeste körü körüne güveniyordu —

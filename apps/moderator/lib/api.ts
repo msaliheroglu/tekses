@@ -115,9 +115,11 @@ export async function fetchManifestSummary(showVersionID: string): Promise<Manif
 }
 
 // Ses varlığı yükleme: ham gövde, Content-Type dosyanın ses türü.
+// warning: sunucu format uyarısı dönebilir (ör. mp3'te geç katılım sesi
+// kayabilir — m4a önerilir); editör kullanıcıya gösterir.
 export async function uploadAsset(
   file: File,
-): Promise<{ asset_id: string; url: string; bytes: number }> {
+): Promise<{ asset_id: string; url: string; bytes: number; warning?: string }> {
   const headers: Record<string, string> = {
     "Content-Type": file.type || "audio/mpeg",
   };
@@ -128,7 +130,7 @@ export async function uploadAsset(
   if (!resp.ok) {
     throw new ApiError(resp.status, (data as { error?: string }).error ?? `HTTP ${resp.status}`);
   }
-  return data as { asset_id: string; url: string; bytes: number };
+  return data as { asset_id: string; url: string; bytes: number; warning?: string };
 }
 
 // Deneysel: sesten zamanlı söz taslağı çıkarma (sunucuda TEKSES_TRANSCRIBER

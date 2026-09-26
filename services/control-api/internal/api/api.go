@@ -679,11 +679,19 @@ func (s *Server) handleUploadAsset(w http.ResponseWriter, r *http.Request, _ mod
 	if s.assetPublicBase != "" {
 		assetURL = s.assetPublicBase + "/" + assetID
 	}
-	writeJSON(w, http.StatusCreated, map[string]any{
+	resp := map[string]any{
 		"asset_id": assetID,
 		"url":      assetURL,
 		"bytes":    len(data),
-	})
+	}
+	// mp3'te kesin konum tablosu yoktur: Android ortadan başlatmayı bit
+	// hızından TAHMİN eder ve geç katılan telefonun sesi ~1 sn'ye dek
+	// kayabilir (saha bulgusu, 2026-09-26). m4a örnek hassasiyetindedir.
+	if ext == "mp3" {
+		resp["warning"] = "mp3'te geç katılan telefonun sesi 1 sn'ye dek kayabilir; " +
+			"hassas hizalama için m4a yükleyin (ffmpeg -i sarki.mp3 -c:a aac -b:a 192k sarki.m4a)"
+	}
+	writeJSON(w, http.StatusCreated, resp)
 }
 
 func (s *Server) handleAsset(w http.ResponseWriter, r *http.Request) {
