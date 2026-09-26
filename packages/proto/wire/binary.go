@@ -90,6 +90,15 @@ func EncodeBinary(msgType string, msg any) ([]byte, error) {
 				DurationMs: c.Payload.DurationMs,
 			},
 		}}
+	case TypeShowActivated:
+		sa, ok := msg.(ShowActivated)
+		if !ok {
+			return nil, fmt.Errorf("wire: %s için beklenmeyen gövde %T", msgType, msg)
+		}
+		env.Kind = &teksesv1.Envelope_ShowActivated{ShowActivated: &teksesv1.ShowActivated{
+			RoomId:        sa.RoomID,
+			ShowVersionId: sa.ShowVersionID,
+		}}
 	case TypeIntervention:
 		iv, ok := msg.(Intervention)
 		if !ok {
@@ -155,6 +164,11 @@ func DecodeBinary(raw []byte) (msgType string, msg any, err error) {
 				FlashHz:    p.GetFlashHz(),
 				DurationMs: p.GetDurationMs(),
 			},
+		}, nil
+	case *teksesv1.Envelope_ShowActivated:
+		return TypeShowActivated, ShowActivated{
+			RoomID:        kind.ShowActivated.GetRoomId(),
+			ShowVersionID: kind.ShowActivated.GetShowVersionId(),
 		}, nil
 	case *teksesv1.Envelope_Intervention:
 		name, ok := kindFromProto[kind.Intervention.GetKind()]

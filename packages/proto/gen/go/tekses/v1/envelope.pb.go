@@ -149,6 +149,61 @@ func (x *Welcome) GetRoomId() string {
 	return ""
 }
 
+// Odada yeni gösteri sürümü etkinleştirildi: istemci katılım bilgisini
+// (manifest + varlıklar) yeniden indirmelidir; süren koreografi etkilenmez.
+type ShowActivated struct {
+	state  protoimpl.MessageState `protogen:"open.v1"`
+	RoomId string                 `protobuf:"bytes,1,opt,name=room_id,json=roomId,proto3" json:"room_id,omitempty"`
+	// Etkinleştirilen sürüm (tanılama için; istemci her durumda tazeler).
+	ShowVersionId string `protobuf:"bytes,2,opt,name=show_version_id,json=showVersionId,proto3" json:"show_version_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ShowActivated) Reset() {
+	*x = ShowActivated{}
+	mi := &file_tekses_v1_envelope_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ShowActivated) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ShowActivated) ProtoMessage() {}
+
+func (x *ShowActivated) ProtoReflect() protoreflect.Message {
+	mi := &file_tekses_v1_envelope_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ShowActivated.ProtoReflect.Descriptor instead.
+func (*ShowActivated) Descriptor() ([]byte, []int) {
+	return file_tekses_v1_envelope_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *ShowActivated) GetRoomId() string {
+	if x != nil {
+		return x.RoomId
+	}
+	return ""
+}
+
+func (x *ShowActivated) GetShowVersionId() string {
+	if x != nil {
+		return x.ShowVersionId
+	}
+	return ""
+}
+
 // Sunucu ile istemci arasındaki tek WebSocket çerçevesi.
 // Faz 0'da tel JSON'dur ve bu şemayı alan adlarıyla birebir izler;
 // Faz 1'de ikili protobuf'a (~40 bayt) geçilir.
@@ -162,6 +217,7 @@ type Envelope struct {
 	//	*Envelope_ClockSyncResponse
 	//	*Envelope_CueStart
 	//	*Envelope_Intervention
+	//	*Envelope_ShowActivated
 	Kind          isEnvelope_Kind `protobuf_oneof:"kind"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -169,7 +225,7 @@ type Envelope struct {
 
 func (x *Envelope) Reset() {
 	*x = Envelope{}
-	mi := &file_tekses_v1_envelope_proto_msgTypes[2]
+	mi := &file_tekses_v1_envelope_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -181,7 +237,7 @@ func (x *Envelope) String() string {
 func (*Envelope) ProtoMessage() {}
 
 func (x *Envelope) ProtoReflect() protoreflect.Message {
-	mi := &file_tekses_v1_envelope_proto_msgTypes[2]
+	mi := &file_tekses_v1_envelope_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -194,7 +250,7 @@ func (x *Envelope) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Envelope.ProtoReflect.Descriptor instead.
 func (*Envelope) Descriptor() ([]byte, []int) {
-	return file_tekses_v1_envelope_proto_rawDescGZIP(), []int{2}
+	return file_tekses_v1_envelope_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *Envelope) GetKind() isEnvelope_Kind {
@@ -258,6 +314,15 @@ func (x *Envelope) GetIntervention() *Intervention {
 	return nil
 }
 
+func (x *Envelope) GetShowActivated() *ShowActivated {
+	if x != nil {
+		if x, ok := x.Kind.(*Envelope_ShowActivated); ok {
+			return x.ShowActivated
+		}
+	}
+	return nil
+}
+
 type isEnvelope_Kind interface {
 	isEnvelope_Kind()
 }
@@ -286,6 +351,10 @@ type Envelope_Intervention struct {
 	Intervention *Intervention `protobuf:"bytes,6,opt,name=intervention,proto3,oneof"`
 }
 
+type Envelope_ShowActivated struct {
+	ShowActivated *ShowActivated `protobuf:"bytes,7,opt,name=show_activated,json=showActivated,proto3,oneof"`
+}
+
 func (*Envelope_Hello) isEnvelope_Kind() {}
 
 func (*Envelope_Welcome) isEnvelope_Kind() {}
@@ -297,6 +366,8 @@ func (*Envelope_ClockSyncResponse) isEnvelope_Kind() {}
 func (*Envelope_CueStart) isEnvelope_Kind() {}
 
 func (*Envelope_Intervention) isEnvelope_Kind() {}
+
+func (*Envelope_ShowActivated) isEnvelope_Kind() {}
 
 var File_tekses_v1_envelope_proto protoreflect.FileDescriptor
 
@@ -311,14 +382,18 @@ const file_tekses_v1_envelope_proto_rawDesc = "" +
 	"\aWelcome\x12$\n" +
 	"\x0eserver_time_ms\x18\x01 \x01(\x03R\fserverTimeMs\x12)\n" +
 	"\x10protocol_version\x18\x02 \x01(\rR\x0fprotocolVersion\x12\x17\n" +
-	"\aroom_id\x18\x03 \x01(\tR\x06roomId\"\xfc\x02\n" +
+	"\aroom_id\x18\x03 \x01(\tR\x06roomId\"P\n" +
+	"\rShowActivated\x12\x17\n" +
+	"\aroom_id\x18\x01 \x01(\tR\x06roomId\x12&\n" +
+	"\x0fshow_version_id\x18\x02 \x01(\tR\rshowVersionId\"\xbf\x03\n" +
 	"\bEnvelope\x12(\n" +
 	"\x05hello\x18\x01 \x01(\v2\x10.tekses.v1.HelloH\x00R\x05hello\x12.\n" +
 	"\awelcome\x18\x02 \x01(\v2\x12.tekses.v1.WelcomeH\x00R\awelcome\x12K\n" +
 	"\x12clock_sync_request\x18\x03 \x01(\v2\x1b.tekses.v1.ClockSyncRequestH\x00R\x10clockSyncRequest\x12N\n" +
 	"\x13clock_sync_response\x18\x04 \x01(\v2\x1c.tekses.v1.ClockSyncResponseH\x00R\x11clockSyncResponse\x122\n" +
 	"\tcue_start\x18\x05 \x01(\v2\x13.tekses.v1.CueStartH\x00R\bcueStart\x12=\n" +
-	"\fintervention\x18\x06 \x01(\v2\x17.tekses.v1.InterventionH\x00R\finterventionB\x06\n" +
+	"\fintervention\x18\x06 \x01(\v2\x17.tekses.v1.InterventionH\x00R\fintervention\x12A\n" +
+	"\x0eshow_activated\x18\a \x01(\v2\x18.tekses.v1.ShowActivatedH\x00R\rshowActivatedB\x06\n" +
 	"\x04kindBIZGgithub.com/msaliheroglu/tekses/packages/proto/gen/go/tekses/v1;teksesv1b\x06proto3"
 
 var (
@@ -333,28 +408,30 @@ func file_tekses_v1_envelope_proto_rawDescGZIP() []byte {
 	return file_tekses_v1_envelope_proto_rawDescData
 }
 
-var file_tekses_v1_envelope_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
+var file_tekses_v1_envelope_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
 var file_tekses_v1_envelope_proto_goTypes = []any{
 	(*Hello)(nil),             // 0: tekses.v1.Hello
 	(*Welcome)(nil),           // 1: tekses.v1.Welcome
-	(*Envelope)(nil),          // 2: tekses.v1.Envelope
-	(*ClockSyncRequest)(nil),  // 3: tekses.v1.ClockSyncRequest
-	(*ClockSyncResponse)(nil), // 4: tekses.v1.ClockSyncResponse
-	(*CueStart)(nil),          // 5: tekses.v1.CueStart
-	(*Intervention)(nil),      // 6: tekses.v1.Intervention
+	(*ShowActivated)(nil),     // 2: tekses.v1.ShowActivated
+	(*Envelope)(nil),          // 3: tekses.v1.Envelope
+	(*ClockSyncRequest)(nil),  // 4: tekses.v1.ClockSyncRequest
+	(*ClockSyncResponse)(nil), // 5: tekses.v1.ClockSyncResponse
+	(*CueStart)(nil),          // 6: tekses.v1.CueStart
+	(*Intervention)(nil),      // 7: tekses.v1.Intervention
 }
 var file_tekses_v1_envelope_proto_depIdxs = []int32{
 	0, // 0: tekses.v1.Envelope.hello:type_name -> tekses.v1.Hello
 	1, // 1: tekses.v1.Envelope.welcome:type_name -> tekses.v1.Welcome
-	3, // 2: tekses.v1.Envelope.clock_sync_request:type_name -> tekses.v1.ClockSyncRequest
-	4, // 3: tekses.v1.Envelope.clock_sync_response:type_name -> tekses.v1.ClockSyncResponse
-	5, // 4: tekses.v1.Envelope.cue_start:type_name -> tekses.v1.CueStart
-	6, // 5: tekses.v1.Envelope.intervention:type_name -> tekses.v1.Intervention
-	6, // [6:6] is the sub-list for method output_type
-	6, // [6:6] is the sub-list for method input_type
-	6, // [6:6] is the sub-list for extension type_name
-	6, // [6:6] is the sub-list for extension extendee
-	0, // [0:6] is the sub-list for field type_name
+	4, // 2: tekses.v1.Envelope.clock_sync_request:type_name -> tekses.v1.ClockSyncRequest
+	5, // 3: tekses.v1.Envelope.clock_sync_response:type_name -> tekses.v1.ClockSyncResponse
+	6, // 4: tekses.v1.Envelope.cue_start:type_name -> tekses.v1.CueStart
+	7, // 5: tekses.v1.Envelope.intervention:type_name -> tekses.v1.Intervention
+	2, // 6: tekses.v1.Envelope.show_activated:type_name -> tekses.v1.ShowActivated
+	7, // [7:7] is the sub-list for method output_type
+	7, // [7:7] is the sub-list for method input_type
+	7, // [7:7] is the sub-list for extension type_name
+	7, // [7:7] is the sub-list for extension extendee
+	0, // [0:7] is the sub-list for field type_name
 }
 
 func init() { file_tekses_v1_envelope_proto_init() }
@@ -364,13 +441,14 @@ func file_tekses_v1_envelope_proto_init() {
 	}
 	file_tekses_v1_clock_proto_init()
 	file_tekses_v1_cue_proto_init()
-	file_tekses_v1_envelope_proto_msgTypes[2].OneofWrappers = []any{
+	file_tekses_v1_envelope_proto_msgTypes[3].OneofWrappers = []any{
 		(*Envelope_Hello)(nil),
 		(*Envelope_Welcome)(nil),
 		(*Envelope_ClockSyncRequest)(nil),
 		(*Envelope_ClockSyncResponse)(nil),
 		(*Envelope_CueStart)(nil),
 		(*Envelope_Intervention)(nil),
+		(*Envelope_ShowActivated)(nil),
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
@@ -378,7 +456,7 @@ func file_tekses_v1_envelope_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_tekses_v1_envelope_proto_rawDesc), len(file_tekses_v1_envelope_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   3,
+			NumMessages:   4,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

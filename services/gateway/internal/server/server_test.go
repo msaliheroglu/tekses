@@ -275,6 +275,20 @@ func TestShowActivatedBroadcast(t *testing.T) {
 	connB := dial(t, wsURL)
 	sendMsg(t, connB, wire.TypeHello, wire.Hello{ProtocolVersion: wire.ProtocolVersion})
 	_ = readEnvelope(t, connB)
+	// C aynı odada ama v2 ikili telde: sinyali o da almalı (F3.0'a dek ikili
+	// kodlaması yoktu ve v2 istemciler atlıyordu — gerileme testi).
+	connC := dial(t, wsURL)
+	helloBin, err := wire.EncodeBinary(wire.TypeHello, wire.Hello{
+		ProtocolVersion: wire.ProtocolVersionBinary, JoinCode: "ABC234", ClientKind: "test-bin"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := connC.WriteMessage(websocket.BinaryMessage, helloBin); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := connC.ReadMessage(); err != nil { // welcome
+		t.Fatal(err)
+	}
 
 	body, _ := json.Marshal(map[string]any{"room_id": "room_a", "show_version_id": "sv_1"})
 	resp, err := http.Post(ts.URL+"/api/v0/show-activated", "application/json", bytes.NewReader(body))
@@ -297,6 +311,26 @@ func TestShowActivatedBroadcast(t *testing.T) {
 	if msg.RoomID != "room_a" || msg.ShowVersionID != "sv_1" {
 		t.Fatalf("beklenmeyen gövde: %+v", msg)
 	}
+	// v2 istemci C sinyali İKİLİ çerçeveyle almalı.
+	_ = connC.SetReadDeadline(time.Now().Add(2 * time.Second))
+	mt, rawC, err := connC.ReadMessage()
+	if err != nil {
+		t.Fatalf("v2 istemci show_activated alamadı: %v", err)
+	}
+	if mt != websocket.BinaryMessage {
+		t.Fatalf("v2 istemciye çerçeve türü %d geldi, ikili bekleniyordu", mt)
+	}
+	typC, msgC, err := wire.DecodeBinary(rawC)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if typC != wire.TypeShowActivated {
+		t.Fatalf("C'ye gelen tür = %s, beklenen show_activated", typC)
+	}
+	if sa := msgC.(wire.ShowActivated); sa.RoomID != "room_a" || sa.ShowVersionID != "sv_1" {
+		t.Fatalf("beklenmeyen ikili gövde: %+v", sa)
+	}
+
 	_ = connB.SetReadDeadline(time.Now().Add(300 * time.Millisecond))
 	if _, _, err := connB.ReadMessage(); err == nil {
 		t.Fatal("B başka odanın sinyalini aldı")

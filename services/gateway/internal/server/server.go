@@ -692,9 +692,8 @@ type showActivatedRequest struct {
 // handleShowActivated, odadaki istemcilere "gösteri değişti, paketi tazele"
 // sinyali yayınlar. Panel, control-api'de etkinleştirme başarılı olunca bunu
 // çağırır; böylece telefonların odadan çıkıp yeniden katılması gerekmez.
-// Mesaj şimdilik yalnız v1 JSON telinde taşınır: ikili kodlaması olmayan
-// çerçeveyi v2 istemciler (bugün yalnız loadgen) atlar — SendFrame böyle
-// tasarlandı; proto zarfına eklenmesi sonraki yineleme.
+// Çerçeve iki kodlamada birden yayınlanır (F3.0'dan beri proto zarfında da
+// var); eski gateway'ler yalnız JSON yolluyordu, v2 istemciler atlıyordu.
 func (s *Server) handleShowActivated(w http.ResponseWriter, r *http.Request) {
 	var req showActivatedRequest
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxMessageBytes)).Decode(&req); err != nil {
@@ -705,7 +704,7 @@ func (s *Server) handleShowActivated(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "room_id gerekli"})
 		return
 	}
-	data, err := wire.Encode(wire.TypeShowActivated, wire.ShowActivated{
+	frame, err := s.encodeFrame(wire.TypeShowActivated, wire.ShowActivated{
 		RoomID:        req.RoomID,
 		ShowVersionID: req.ShowVersionID,
 	})
@@ -713,7 +712,7 @@ func (s *Server) handleShowActivated(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "mesaj kodlanamadı"})
 		return
 	}
-	s.cast(req.RoomID, hub.Frame{JSON: data})
+	s.cast(req.RoomID, frame)
 	clients := s.hub.RoomCounts()[req.RoomID]
 	s.log.Info("gösteri etkinleştirme sinyali yayınlandı",
 		"oda", req.RoomID, "sürüm", req.ShowVersionID, "istemci", clients)
