@@ -147,7 +147,10 @@ sıkıştırma). Beacon'a güvenmeden önce mekânda şu test yapılır:
   ekranında "beacon dinle" anahtarı; algı `CueSource.ultrasonic` olarak
   Cue Arbiter'a girer (runId `beacon:<cue>:<ateşleme-saniyesi>`; kurulu WS
   koşusunun ateşlemesi ±2 sn içindeyse beacon yok sayılır; ultrasonik
-  kaynakta ofset=0 — ateşleme anı zaten yereldir). **Cihaz doğrulaması
-  bekliyor:** flutter test + APK derleme (RECORD_AUDIO) + hoparlörden
-  beacon çalma.
+  kaynakta ofset=0 — ateşleme anı zaten yereldir).
+- [x] **Cihaz denemesi (2026-09-26, KULLANICI DOĞRULADI):** yukarıdaki
+  prosedürle telefon beacon'ı yakaladı, koşu kuruldu ve 5 sn geri sayım
+  dolunca koreografi başladı. Uçtan uca zincir (record akışı → isolate
+  çözücü → MonoClock çıpası → Cue Arbiter → ateşleme) gerçek cihazda
+  çalışıyor.
 - [ ] Gerçek PA'da saha ölçümü (yukarıdaki prosedür) — kullanıcıyla.

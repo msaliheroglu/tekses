@@ -227,10 +227,14 @@ adım sırasını izler.
   hatayı görmez, yalnızca `flutter build apk` görür).
   **APK derlemesi YEŞİL (2026-09-23):** analyze + 20 test + release APK,
   "Katılımcı APK" iş akışında geçiyor; RECORD_AUDIO izni manifeste ekleniyor.
-  **Kullanıcı doğrulaması (kalan):** (1) cihaz denemesi — APK'yı Actions
-  artefaktından indir, beacon WAV'ını kablolu hoparlörden çal, "beacon dinle"
-  düğmesiyle yakaladığını gör (adım adım: docs/ultrasonik-beacon.md §Cihaz
-  denemesi); (2) mekân PA saha ölçümü (aynı dosyadaki §PA saha testi).
+  **Cihaz denemesi TAMAM (2026-09-26, KULLANICI DOĞRULADI):** telefon,
+  PC hoparlöründen çalınan beacon.wav'ı yakaladı, koşuyu kurdu (`run
+  beacon:0`) ve 5 sn geri sayım dolunca koreografi başladı. Denemede tek
+  kozmetik kusur çıktı ve düzeltildi: yinelemelerin yok sayılma mesajı,
+  koşu beacon'ın kendisinden kuruluyken de "WS kuesi zaten kurulu"
+  diyordu — artık kaynak ayrılıyor.
+  **Kullanıcı doğrulaması (kalan):** mekân PA saha ölçümü
+  (docs/ultrasonik-beacon.md §PA saha testi).
 
 ## Notlar
 
