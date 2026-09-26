@@ -109,11 +109,22 @@ bağlanır; bu koşum gateway'in o anı yediğini kanıtlar. `-storm`, senkronu
 bitmiş istemcilerin verilen oranını koparır ve `-stormPause` sonra hepsini
 birden (rampasız) geri döndürür; kue fırtına oturduktan sonra tetiklenir.
 
+VM'de Go yoktur; koşum §0-1'deki gibi Docker'la yapılır (imajı `git pull`
+SONRASI yeniden derleyin ki -storm bayrağı imaja girsin):
+
 ```bash
+cd ~/tekses && git pull
+docker build -f tools/loadgen/Dockerfile -t tekses-loadgen .
+cd deploy && TOKEN=$(grep '^TEKSES_ADMIN_TOKEN=' .env | cut -d= -f2-)
+
 # 20k istemci, yarısı kopup 3 sn sonra hep birden dönüyor:
-go run ./tools/loadgen -n 20000 -wire proto -ramp 2000 \
-  -storm 0.5 -stormPause 3s -cue -adminToken "$TEKSES_ADMIN_TOKEN" \
-  -server wss://<alan>/ws
+docker run --rm --network tekses_default \
+  --ulimit nofile=200000:200000 \
+  --sysctl net.ipv4.ip_local_port_range="1024 65000" \
+  tekses-loadgen \
+  -server ws://gateway:8080/ws -wire proto \
+  -n 20000 -ramp 2000 -storm 0.5 -stormPause 3s \
+  -cue -cueDelay 5000 -adminToken "$TOKEN" -waitCue 300s
 ```
 
 Rapor iki ek satır verir: `fırtına bitti: X/Y yeniden senkron — süre medyan/
