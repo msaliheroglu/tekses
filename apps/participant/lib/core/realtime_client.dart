@@ -6,6 +6,7 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 import 'clock_sync.dart';
 import 'messages.dart';
 import 'mono_clock.dart';
+import 'wire_binary.dart';
 
 /// Gateway WebSocket istemcisi.
 ///
@@ -73,8 +74,11 @@ class RealtimeClient {
       onDone: _handleDisconnect,
       cancelOnError: true,
     );
+    // Uygulama v2 ikili telde konuşur (F3.0): hello'nun ikili çerçeve
+    // olması kodeki seçer, gateway yanıtları da ikili döner. Kue çerçevesi
+    // ~56 bayta iner (JSON ~207) — 80k telefonda yayın trafiği ~3,5 kat düşer.
     _send(typeHello, {
-      'protocol_version': protocolVersion,
+      'protocol_version': protocolVersionBinary,
       'join_code': joinCode,
       'client_kind': 'flutter',
     });
@@ -108,11 +112,16 @@ class RealtimeClient {
   }
 
   void _send(String type, Map<String, dynamic> data) {
-    _channel?.sink.add(encodeEnvelope(type, data));
+    _channel?.sink.add(encodeBinaryEnvelope(type, data));
   }
 
   void _onData(dynamic raw) {
-    final env = decodeEnvelope(raw);
+    // İkili çerçeve = protobuf (v2, olağan yol); metin çerçevesi = JSON.
+    // JSON dalı dayanıklılık içindir: gateway hep hello'nun kodeğiyle
+    // yanıtlar ama beklenmedik bir metin çerçevesi bağlantıyı düşürmesin.
+    final env = raw is String
+        ? decodeEnvelope(raw)
+        : (raw is List<int> ? decodeBinaryEnvelope(raw) : null);
     if (env == null) return;
 
     switch (env.type) {

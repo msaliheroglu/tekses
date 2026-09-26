@@ -250,10 +250,20 @@ Yol haritası kalemleri (karar dokümanı §5) + Faz 2'den devreden borçlar.
 Sıra: önce bu ortamda yapılabilen mühendislik işleri, sonra cihaz/saha
 gerektirenler.
 
-- [ ] **F3.0 Dart protobuf teli (v2):** F2.3'ün kalanı — Dart stub'ları
-  üretilir (`buf.gen.dart.yaml` hazır), uygulama hello pazarlığıyla ikili
-  kodeğe geçer (kue çerçevesi 58 bayt ↔ JSON 207; 80k telefonda yayın
-  trafiğini ~3,5 kat düşürür). Gateway zaten iki kodeği konuşuyor.
+- [x] **F3.0 Dart protobuf teli (v2) — kod TAMAM (2026-09-26):** ön koşul
+  olarak show_activated proto zarfına alındı (alan 7) ve gateway onu çift
+  kodlamalı yayınlıyor (v2 istemciler artık canlı paket tazelemeyi
+  kaçırmaz; gerileme testli). Dart stub'ları `lib/gen` altına üretildi
+  (protoc_plugin 25.x → protobuf ^6.1.0 ŞART), `wire_binary.dart` ikili
+  zarfı JSON yolundakiyle aynı (type, data) çiftine indirger,
+  RealtimeClient hello'yu ikili çerçeveyle atarak v2'de konuşur (kue ~56
+  bayt ↔ JSON ~207). Çapraz doğrulama: `wire/testdata/golden_frames.txt`
+  altın baytları — Go golden_test.go üretir/doğrular, Dart
+  wire_binary_test.dart aynı dosyaya karşı bayt-bayt sınar. analyze temiz,
+  25 test. **Kalan doğrulama:** VM'deki gateway yeniden derlenmeli
+  (`docker compose up -d --build gateway`) — eski gateway v2 istemciye
+  show_activated'ı YOLLAMAZ; sonra yeni APK ile telefonun katılıp kue
+  aldığı görülmeli.
 - [ ] **F3.1 Işığa duyarlılık / güvenlik incelemesi:** flashHz ≤ 3 sınırının
   uçtan uca denetimi (panel/manifest/telefon), katılım ekranında kalıcı
   uyarı, epilepsi güvenli mod (flaşı tek renge indirger), fener ısınma

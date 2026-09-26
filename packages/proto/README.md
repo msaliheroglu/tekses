@@ -13,8 +13,13 @@ kodeki belirler:
 
 | Sürüm | Çerçeve | Kodlama | Kim kullanıyor |
 |---|---|---|---|
-| v1 | metin | JSON (proto alan adlarını izler) | Flutter uygulaması, tarayıcı `/join` sayfası |
-| v2 | ikili | protobuf `Envelope` (~58 bayt/kue; JSON ~207) | loadgen (`-wire proto`); Flutter, Dart stub'ları üretilince geçecek |
+| v1 | metin | JSON (proto alan adlarını izler) | tarayıcı `/join` sayfası |
+| v2 | ikili | protobuf `Envelope` (~56 bayt/kue; JSON ~207) | Flutter uygulaması (F3.0'dan beri), loadgen (`-wire proto`) |
+
+İki gerçekleme `wire/testdata/golden_frames.txt` altın baytlarına karşı test
+edilir (Go: `wire/golden_test.go`; Dart: `apps/participant/test/
+wire_binary_test.dart`) — şema değişince dosya `-update` ile tazelenir ve iki
+taraftaki testler birlikte güncellenir.
 
 Go türleri `wire/` paketindedir: JSON yapıları + `Encode/Decode(Message)` ve
 protobuf köprüsü `EncodeBinary/DecodeBinary` (`binary.go`). İki kodek aynı

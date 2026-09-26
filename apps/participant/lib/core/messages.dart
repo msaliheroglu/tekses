@@ -7,6 +7,10 @@ import 'dart:convert';
 
 const int protocolVersion = 1;
 
+/// v2 = ikili protobuf teli (kue çerçevesi ~56 bayt; JSON ~207). Kodeki
+/// hello çerçevesinin BİÇİMİ seçer: metin = JSON, ikili = protobuf.
+const int protocolVersionBinary = 2;
+
 const String typeHello = 'hello';
 const String typeWelcome = 'welcome';
 const String typeClockSyncRequest = 'clock_sync_request';
