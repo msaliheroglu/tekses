@@ -77,8 +77,10 @@ adım sırasını izler.
   senkronu (ofset/RTT görüldü) ve kue denemesi başarılı. Yol boyu düzelen
   saha hataları: analyze hataları (library sırası, eksik import), release
   manifest'te INTERNET izni, ASCII olmayan Windows yolu.
-- [ ] Çoklu telefon + 240 fps kamera ile fiziksel senkron ölçümü (≤30 ms
-  hedefi) — cihazlar toplanınca; kılavuz: docs/faz0-senkron-denemesi.md.
+- [~] Çoklu telefon + 240 fps kamera ile fiziksel senkron ölçümü (≤30 ms
+  hedefi): **2 telefonla YAPILDI (2026-09-26)** — canlı DuckDNS sunucusu,
+  aynı ağda 6 ms, karışık ağda (Wi-Fi + mobil) 3 ms. 5-10 telefonluk tam
+  koşum cihazlar toplanınca; kılavuz: docs/faz0-senkron-denemesi.md.
 - [ ] GitHub Actions koşumlarının gözden geçirilmesi; "Katılımcı APK" iş
   akışının Run workflow düğmesi branch main'e merge edilince görünür.
 
@@ -241,6 +243,34 @@ adım sırasını izler.
   diyordu — artık kaynak ayrılıyor.
   **Kullanıcı doğrulaması (kalan):** mekân PA saha ölçümü
   (docs/ultrasonik-beacon.md §PA saha testi).
+
+## Faz 3 — Sertleştirme
+
+Yol haritası kalemleri (karar dokümanı §5) + Faz 2'den devreden borçlar.
+Sıra: önce bu ortamda yapılabilen mühendislik işleri, sonra cihaz/saha
+gerektirenler.
+
+- [ ] **F3.0 Dart protobuf teli (v2):** F2.3'ün kalanı — Dart stub'ları
+  üretilir (`buf.gen.dart.yaml` hazır), uygulama hello pazarlığıyla ikili
+  kodeğe geçer (kue çerçevesi 58 bayt ↔ JSON 207; 80k telefonda yayın
+  trafiğini ~3,5 kat düşürür). Gateway zaten iki kodeği konuşuyor.
+- [ ] **F3.1 Işığa duyarlılık / güvenlik incelemesi:** flashHz ≤ 3 sınırının
+  uçtan uca denetimi (panel/manifest/telefon), katılım ekranında kalıcı
+  uyarı, epilepsi güvenli mod (flaşı tek renge indirger), fener ısınma
+  sınırı gözden geçirmesi.
+- [ ] **F3.2 R2 varlık deposu sürücüsü:** F2.5'ten devir — varlıklar
+  Cloudflare R2'ye (S3 API), /assets CDN'den; VM diski büyük paketlerde
+  darboğaz olmasın.
+- [ ] **F3.3 Yeniden bağlanma fırtınası + 100k tam koşum:** loadgen'e kopma/
+  yeniden bağlanma senaryosu; 100k koşumu ayrı yük makinesiyle (VM,
+  kullanıcıyla birlikte).
+- [ ] **F3.4 Cihaz sınıfı fener kalibrasyon tablosu:** fener sürücü gecikmesi
+  cihazdan cihaza değişir; model bazlı ofset tablosu + ölçüm prosedürü.
+- [ ] **F3.5 Tarayıcı katılımcı yedeği (ürünleştirme):** /join denemesi Faz 0
+  aracı olarak var; ürün kararı gereği söz + ekran rengi kapsamıyla
+  resmîleştirilir (iOS Safari'de fener yok).
+- [ ] **F3.6 Analitik** ve **F3.7 Faturalama:** kapsam kullanıcıyla
+  netleşince ayrıntılanır.
 
 ## Notlar
 
