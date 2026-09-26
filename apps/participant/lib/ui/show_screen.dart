@@ -194,10 +194,16 @@ class _ShowScreenState extends State<ShowScreen> {
       return;
     }
 
-    // WS kaynağı varken beacon yok sayılır (karar dokümanı §3): süren/kurulu
-    // koşunun ateşlemesi ±2 sn içindeyse bu, aynı kuenin sesli kopyasıdır.
+    // Kurulu koşunun ateşlemesi ±2 sn içindeyse bu algı aynı kuenin
+    // kopyasıdır ve yok sayılır: WS koşusuysa sesli kopya (karar dokümanı
+    // §3, WS kaynağı beacon'a baskın), beacon koşusuysa ~1 sn aralıklı
+    // YİNELEME. Mesaj ikisini ayırır — cihaz denemesinde tek "WS kuesi"
+    // metni yanılttı (WS hiç yokken WS varmış gibi okundu).
     if (_activeCue != null && (fireLocalMs - _fireLocalMs).abs() < 2000) {
-      setState(() => _beaconNote = 'beacon: duyuldu, WS kuesi zaten kurulu');
+      final beaconRun = _activeCue!.runId.startsWith('beacon:');
+      setState(() => _beaconNote = beaconRun
+          ? 'beacon: kue #${det.payload.cueIndex} kuruldu · yineleme duyuldu'
+          : 'beacon: duyuldu, WS kuesi zaten kurulu');
       return;
     }
 
