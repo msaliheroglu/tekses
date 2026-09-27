@@ -397,9 +397,14 @@ parametre taşır, telefon rengini/zamanını (mekân geometrisi + kendi koltuğ
   null). Çapraz doğrulama: packages/manifest/testdata/venue_vectors.json
   altın vektörleri iki tarafta da testli (golden_frames deseni) + Go'da
   el hesabı bağımsız doğrulama.
-- [ ] **F4.1 Koltuk kimliği (katılım):** telefonda blok/sıra/koltuk girişi
-  (+ `?seat=BLOK-SIRA-NO` URL/QR biçimi), /join eşleniği. Koltuk yalnız
-  istemcide tutulur — tel ve sunucu değişmez.
+- [x] **F4.1 Koltuk kimliği (2026-09-27):** telefonun katılım ekranında
+  isteğe bağlı koltuk alanı; biçim bağlanmadan, plana uygunluk paket
+  indikten sonra denetlenir (planda olmayan koltuk katılımı durdurur).
+  /join eşleniği: #seatInput + `?seat=` URL/QR parametresi, JS çözücüsü
+  venue.go'nun portu ve Chromium E2E'de 7 altın vektörle birebir sınanıyor.
+  Gösteri ekranı koltuğu her paket yenilemesinde güncel plana karşı yeniden
+  çözer; durum satırı plan yok / çözülemedi / ✓ ayrımı yapar. Koltuk yalnız
+  istemcide — tel ve sunucu değişmedi. **Cihaz doğrulaması F4.6 provasında.**
 - [ ] **F4.2 Uzamsal efekt motoru:** efekt = f(koltuk konumu, t) → renk saf
   fonksiyonu. İlk küme: dalga (yönlü tarama gecikmesi), gradyan, bitmap
   (görüntü → koltuk pikseli; bayrak bundan), yazı/slogan (raster → kayan
