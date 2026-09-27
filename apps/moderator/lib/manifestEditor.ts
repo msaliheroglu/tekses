@@ -16,19 +16,24 @@ import {
 
 export type EditorLyric = { atMs: number; durationMs: number; text: string };
 
+// packages/manifest Bitmap ile aynı biçim: palet ≤16 renk, karakter = palet
+// indeksi, '.' = kapalı.
+export type EditorBitmap = { palette: string[]; rows: string[] };
+
 export type EditorScreenStep = {
   atMs: number;
   durationMs: number; // 0 = sekans sonuna dek
   color: string; // #rrggbb
   flashHz: number; // 0 = sabit yanar (efekt seçiliyken yok sayılır)
-  // Uzamsal efekt (F4.2): "" = düz renk. Editör dalga ve gradyanı taşır;
-  // bitmap (bayrak/slogan) şimdilik yalnız JSON görünümünde yazılır.
-  effectKind: "" | "wave" | "gradient";
+  // Uzamsal efekt (F4.2): "" = düz renk.
+  effectKind: "" | "wave" | "gradient" | "bitmap";
   effectAxis: "u" | "v" | "w";
   effectReverse: boolean;
   effectPeriodMs: number; // dalga: bir tam süpürme (≥334 ms, sunucu doğrular)
   effectWidth: number; // dalga bandı, 0..1
   effectColor2: string; // dalga arka planı ("" = kapalı) / gradyan bitişi
+  effectScrollMs: number; // bitmap: kaydırma dönemi (0 = sabit; ≥ sütun×334)
+  effectBitmap: EditorBitmap | null; // bitmap: üreticiden (F4.3b) ya da JSON'dan
 };
 
 export function emptyScreenStep(atMs: number): EditorScreenStep {
@@ -43,6 +48,8 @@ export function emptyScreenStep(atMs: number): EditorScreenStep {
     effectPeriodMs: 2000,
     effectWidth: 0.2,
     effectColor2: "",
+    effectScrollMs: 0,
+    effectBitmap: null,
   };
 }
 
@@ -161,7 +168,7 @@ type ManifestEffect = {
   period_ms?: number;
   width?: number;
   color2?: string;
-  bitmap?: unknown;
+  bitmap?: { palette?: string[]; rows?: string[] };
 };
 type ManifestCue = {
   at_ms: number;
@@ -199,17 +206,23 @@ export function toManifest(show: EditorShow): ManifestJson {
           .sort((a, b) => a.atMs - b.atMs)
           .map((st) => {
             const cue: ManifestCue = { at_ms: st.atMs, duration_ms: st.durationMs, color: st.color };
-            if (st.effectKind) {
+            // Bitmap seçilmiş ama henüz üretilmemişse düz renge düşülür
+            // (yayın sunucuda reddedilmesin); arayüz "önce üretin" uyarır.
+            const kind = st.effectKind === "bitmap" && !st.effectBitmap ? "" : st.effectKind;
+            if (kind) {
               // Efekt ve flash_hz birlikte yasak (ışık güvenliği) — efekt kazanır.
-              const eff: ManifestEffect = { kind: st.effectKind };
+              const eff: ManifestEffect = { kind };
               if (st.effectAxis !== "u") eff.axis = st.effectAxis;
               if (st.effectReverse) eff.reverse = true;
-              if (st.effectKind === "wave") {
+              if (kind === "wave") {
                 eff.period_ms = st.effectPeriodMs;
                 eff.width = st.effectWidth;
                 if (st.effectColor2) eff.color2 = st.effectColor2;
-              } else {
+              } else if (kind === "gradient") {
                 eff.color2 = st.effectColor2 || "#000000";
+              } else if (kind === "bitmap" && st.effectBitmap) {
+                if (st.effectScrollMs > 0) eff.period_ms = st.effectScrollMs;
+                eff.bitmap = { palette: st.effectBitmap.palette, rows: st.effectBitmap.rows };
               }
               cue.effect = eff;
             } else if (st.flashHz > 0) {
@@ -298,21 +311,26 @@ export function fromManifest(m: unknown): { show?: EditorShow; reason?: string }
         sq.screen = [];
         for (const c of lane.cues ?? []) {
           const eff = c.effect;
-          if (eff && eff.kind !== "wave" && eff.kind !== "gradient") {
-            // Bitmap (bayrak/slogan) editörde henüz yok; JSON görünümünde kalır.
+          if (eff && eff.kind !== "wave" && eff.kind !== "gradient" && eff.kind !== "bitmap") {
             return { reason: `"${seq.id}" sekansında editörün taşımadığı efekt türü (${eff.kind})` };
           }
+          const isBitmap = eff?.kind === "bitmap";
           sq.screen.push({
             atMs: c.at_ms || 0,
             durationMs: c.duration_ms || 0,
             color: c.color || "#ffffff",
             flashHz: c.flash_hz || 0,
-            effectKind: (eff?.kind as "wave" | "gradient" | undefined) ?? "",
+            effectKind: (eff?.kind as "wave" | "gradient" | "bitmap" | undefined) ?? "",
             effectAxis: eff?.axis === "v" || eff?.axis === "w" ? eff.axis : "u",
             effectReverse: !!eff?.reverse,
-            effectPeriodMs: eff?.period_ms || 2000,
+            effectPeriodMs: (!isBitmap && eff?.period_ms) || 2000,
             effectWidth: eff?.width || 0.2,
             effectColor2: eff?.color2 || "",
+            effectScrollMs: isBitmap ? eff?.period_ms || 0 : 0,
+            effectBitmap:
+              isBitmap && eff?.bitmap
+                ? { palette: eff.bitmap.palette ?? [], rows: eff.bitmap.rows ?? [] }
+                : null,
           });
         }
       } else if (lane.kind === "torch") {

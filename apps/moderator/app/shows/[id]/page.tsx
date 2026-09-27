@@ -27,6 +27,7 @@ import {
   type EditorShow,
   type EditorTorchStep,
 } from "@/lib/manifestEditor";
+import BitmapEffectPanel from "./BitmapEffectPanel";
 import VenueEditor from "./VenueEditor";
 
 // Görsel gösteri editörü: sekans/ses/söz/ekran/fener form ve seçicilerle
@@ -557,7 +558,8 @@ export default function ShowDetailPage({ params }: { params: Promise<{ id: strin
                 <label>Ekran adımları (telefon ekranının rengi)</label>
                 {sq.screen.length === 0 && <p className="muted">Adım yok — ekran karanlık kalır.</p>}
                 {sq.screen.map((st, j) => (
-                  <div className="row" key={j}>
+                  <div key={j}>
+                  <div className="row">
                     <div>
                       <label>Başlangıç</label>
                       <TimeField
@@ -598,6 +600,7 @@ export default function ShowDetailPage({ params }: { params: Promise<{ id: strin
                         <option value="">düz renk</option>
                         <option value="wave">dalga (koltuğa göre)</option>
                         <option value="gradient">gradyan (koltuğa göre)</option>
+                        <option value="bitmap">bayrak/slogan (koltuğa göre)</option>
                       </select>
                     </div>
                     {st.effectKind === "" && (
@@ -688,6 +691,10 @@ export default function ShowDetailPage({ params }: { params: Promise<{ id: strin
                         Sil
                       </button>
                     </div>
+                  </div>
+                  {st.effectKind === "bitmap" && (
+                    <BitmapEffectPanel step={st} onPatch={(patch) => patchScreen(i, j, patch)} />
+                  )}
                   </div>
                 ))}
                 <button
