@@ -111,27 +111,46 @@ Boş bırakılırsa her şey bugünkü gibi VM diskinde çalışır. R2'ye geçi
 paketlerin/ses dosyalarının kalıcılığını VM'den ayırır ve indirmeleri
 CDN'e taşır (R2'de çıkış trafiği ücretsizdir — karar dokümanı §4).
 
-1. **Kova:** Cloudflare panosunda R2 → Create bucket (ör. `tekses`).
-2. **API anahtarı:** R2 → Manage R2 API Tokens → Create API Token,
-   izin "Object Read & Write", kapsam yalnız bu kova. Çıkan
-   Access Key ID / Secret Access Key değerlerini not edin.
-3. **Herkese açık erişim:** kovanın Settings → Public access → **Custom
-   Domains** ile bir alan adı bağlayın (ör. `cdn.ornek.com`; Cloudflare
-   DNS'te olmalı). r2.dev geliştirme URL'si de çalışır ama hız sınırlıdır;
-   etkinlik için özel alan adı kullanın.
-4. `deploy/.env` içine:
+1. **R2'yi etkinleştir:** R2, hesap seviyesindedir (bir alan adının içindeyken
+   görünmez; sol üstten hesap ana sayfasına dönün). Sol menü → **R2 Object
+   Storage**. İlk girişte "Create bucket" YOKTUR — önce **Purchase R2 Plan /
+   Get started** ile R2'yi hesaba ekleyin. Bu adım ücretsiz kota için de bir
+   **ödeme yöntemi** (kart/PayPal) ister; kota (10 GB depolama, 1M yazma +
+   10M okuma/ay) aşılmadıkça tahsilat yapılmaz, çıkış trafiği her durumda
+   ücretsizdir.
+2. **Kova:** artık görünen **Create bucket** → isim `tekses`, konum ipucu
+   **EU** (VM Frankfurt'ta), sınıf Standard.
+3. **API anahtarı:** R2 sayfası → **API → Manage API tokens** → Create API
+   Token, izin "Object Read & Write", kapsam yalnız bu kova. Çıkan Access
+   Key ID / Secret Access Key bir kez gösterilir — hemen not edin. S3 uç
+   noktası (`https://<hesap-id>.r2.cloudflarestorage.com`) aynı ekranda yazar.
+4. **Herkese açık erişim** — üç seçenek (DuckDNS alt alanı Cloudflare'a
+   taşınamadığı için "kendi alan adın Cloudflare DNS'te" şartına dikkat):
+   - **A — public erişim yok (en kolay):** `TEKSES_ASSET_PUBLIC_BASE`'i hiç
+     yazmayın. Dosyalar R2'de durur (kalıcılık ✓) ama telefonlara
+     control-api üzerinden servis edilir; prova için yeterli, CDN kazanımı yok.
+   - **B — r2.dev alt alanı:** kova → Settings → **Public Development URL**
+     (eski adı "Public access / R2.dev subdomain") → Enable → onay kutusuna
+     `allow` yazıp onaylayın; çıkan `https://pub-….r2.dev` adresini
+     `TEKSES_ASSET_PUBLIC_BASE` yapın. Hız sınırlıdır: prova için olur,
+     etkinlik için olmaz.
+   - **C — özel alan adı (etkinlik için şart):** Cloudflare DNS'te duran bir
+     alan adı (ör. Cloudflare Registrar'dan ~10 $/yıl) → kova → Settings →
+     Custom Domains → Connect domain (`cdn.ornek.com`). Gateway/panelin
+     DuckDNS adresi aynen kalır; bu alan adı yalnız dosya indirmedir.
+5. `deploy/.env` içine:
 
    ```
    TEKSES_BLOB_S3_ENDPOINT=https://<hesap-id>.r2.cloudflarestorage.com
    TEKSES_BLOB_S3_BUCKET=tekses
    TEKSES_BLOB_S3_ACCESS_KEY_ID=...
    TEKSES_BLOB_S3_SECRET_KEY=...
-   TEKSES_ASSET_PUBLIC_BASE=https://cdn.ornek.com
+   TEKSES_ASSET_PUBLIC_BASE=https://cdn.ornek.com   # yalnız B/C seçeneğinde
    ```
 
-5. `docker compose up -d --build control-api` — günlükte
+6. `docker compose up -d --build control-api` — günlükte
    `paket deposu: s3/r2` görünmeli.
-6. **Eski dosyaların taşınması** (daha önce yerel diske yayın yapıldıysa):
+7. **Eski dosyaların taşınması** (daha önce yerel diske yayın yapıldıysa):
    anahtar düzeni birebir aynıdır, kopyalamak yeter:
 
    ```bash
@@ -141,7 +160,8 @@ CDN'e taşır (R2'de çıkış trafiği ücretsizdir — karar dokümanı §4).
 
    Taşımak istemezseniz gösteriyi panelden bir kez yeniden yayınlamak da
    dosyaları R2'ye yazar.
-7. Doğrulama: panelden ses yükleyin → yanıttaki `url` CDN tabanlı olmalı;
+8. Doğrulama: panelden gösteriyi bir kez yeniden yayınlayın ve ses yükleyin
+   → yanıttaki `url` CDN tabanlı olmalı (A seçeneğinde control-api tabanlı);
    telefonla katılın → şarkı çalmalı. `TEKSES_ASSET_PUBLIC_BASE`'i kaldırıp
    yalnız S3 değişkenlerini bırakmak da geçerlidir: dosyalar R2'de durur ama
    telefonlara control-api üzerinden (vekil gibi) servis edilir.

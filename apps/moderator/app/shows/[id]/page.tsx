@@ -15,6 +15,7 @@ import {
 import { parseLrc } from "@/lib/lrc";
 import {
   defaultShow,
+  emptyScreenStep,
   emptySequence,
   fmtTime,
   fromManifest,
@@ -26,6 +27,10 @@ import {
   type EditorShow,
   type EditorTorchStep,
 } from "@/lib/manifestEditor";
+import Flow from "../../Flow";
+import BitmapEffectPanel from "./BitmapEffectPanel";
+import VenueEditor from "./VenueEditor";
+import VenuePreview3D from "./VenuePreview3D";
 
 // Görsel gösteri editörü: sekans/ses/söz/ekran/fener form ve seçicilerle
 // düzenlenir; manifest JSON'u yayında lib/manifestEditor üretir. JSON'u elle
@@ -66,6 +71,36 @@ function TimeField({
       }}
       style={bad ? { borderColor: "var(--err)" } : undefined}
     />
+  );
+}
+
+// Efekt yönü: normalize mekân eksenleri (u = enine, v = derinlemesine,
+// w = yükseklik). Ters yön aynı eksenin öbür ucundan başlatır.
+function EffectDirSelect({
+  axis,
+  reverse,
+  onChange,
+}: {
+  axis: "u" | "v" | "w";
+  reverse: boolean;
+  onChange: (axis: "u" | "v" | "w", reverse: boolean) => void;
+}) {
+  const val = axis + (reverse ? "-" : "+");
+  return (
+    <select
+      value={val}
+      onChange={(e) => {
+        const v = e.target.value;
+        onChange(v[0] as "u" | "v" | "w", v[1] === "-");
+      }}
+    >
+      <option value="u+">enine → (u)</option>
+      <option value="u-">enine ← (u ters)</option>
+      <option value="v+">derinlemesine → (v)</option>
+      <option value="v-">derinlemesine ← (v ters)</option>
+      <option value="w+">yukarı (w)</option>
+      <option value="w-">aşağı (w ters)</option>
+    </select>
   );
 }
 
@@ -116,6 +151,9 @@ export default function ShowDetailPage({ params }: { params: Promise<{ id: strin
   const [show, setShow] = useState<EditorShow>(defaultShow);
   const [advanced, setAdvanced] = useState(false);
   const [jsonText, setJsonText] = useState("");
+  // Akordeon: açık sekans kartları (indeksle). Uzun gösterilerde sayfa
+  // kilometrelerce uzamasın — özet başlıkta, ayrıntı tıklayınca.
+  const [openSeqs, setOpenSeqs] = useState<Set<number>>(new Set([0]));
   // LRC/otomatik çıkarmadan gelen sözler: kullanıcı hangi sekansa koyacağını
   // sekans kartındaki düğmeyle seçer.
   const [pendingLyrics, setPendingLyrics] = useState<EditorLyric[] | null>(null);
@@ -154,18 +192,48 @@ export default function ShowDetailPage({ params }: { params: Promise<{ id: strin
     }));
   }
 
+  function patchScreen(i: number, j: number, patch: Partial<EditorScreenStep>) {
+    setShow((s) => ({
+      ...s,
+      sequences: s.sequences.map((sq, ii) =>
+        ii === i
+          ? { ...sq, screen: sq.screen.map((x, k) => (k === j ? { ...x, ...patch } : x)) }
+          : sq,
+      ),
+    }));
+  }
+
+  function toggleSeq(i: number) {
+    setOpenSeqs((s) => {
+      const n = new Set(s);
+      if (n.has(i)) n.delete(i);
+      else n.add(i);
+      return n;
+    });
+  }
+
   function moveSeq(i: number, dir: -1 | 1) {
+    const j = i + dir;
+    if (j < 0 || j >= show.sequences.length) return;
     setShow((s) => {
       const seqs = [...s.sequences];
-      const j = i + dir;
-      if (j < 0 || j >= seqs.length) return s;
       [seqs[i], seqs[j]] = [seqs[j], seqs[i]];
       return { ...s, sequences: seqs };
+    });
+    // Açık/kapalı durumu sekansla birlikte taşınır.
+    setOpenSeqs((s) => {
+      const n = new Set(s);
+      const hadI = n.has(i), hadJ = n.has(j);
+      n.delete(i); n.delete(j);
+      if (hadI) n.add(j);
+      if (hadJ) n.add(i);
+      return n;
     });
   }
 
   function removeSeq(i: number) {
     setShow((s) => ({ ...s, sequences: s.sequences.filter((_, j) => j !== i) }));
+    setOpenSeqs((s) => new Set([...s].filter((k) => k !== i).map((k) => (k > i ? k - 1 : k))));
   }
 
   // --- yayınlama / sürümler ---
@@ -362,10 +430,15 @@ export default function ShowDetailPage({ params }: { params: Promise<{ id: strin
 
   return (
     <>
+      <Flow step={2} />
       <h1>Gösteri düzenle</h1>
+      <p className="muted">
+        Sıra: ses dosyalarını yükle → sözleri getir → (istersen) mekân planı
+        çiz → sekansları düzenle → yayınla → sürümü odada etkinleştir.
+      </p>
 
       <div className="card">
-        <h2>Ses varlıkları</h2>
+        <h2>1 · Ses varlıkları</h2>
         <p className="muted">
           Şarkı dosyasını yükleyin, sonra ilgili sekans kartında &quot;Müzik&quot;
           listesinden seçin. Süre otomatik okunur. Lisans sorumluluğu
@@ -400,7 +473,7 @@ export default function ShowDetailPage({ params }: { params: Promise<{ id: strin
       </div>
 
       <div className="card">
-        <h2>Sözler: LRC içe aktar</h2>
+        <h2>2 · Sözler: LRC içe aktar</h2>
         <p className="muted">
           Senkronlu söz dosyasını (<code>[01:23.45]söz satırı</code> biçimi)
           yapıştırın. En isabetli yol budur — otomatik çıkarma yalnızca taslak üretir.
@@ -446,8 +519,36 @@ export default function ShowDetailPage({ params }: { params: Promise<{ id: strin
           </div>
         ) : (
           <>
-            {show.sequences.map((sq, i) => (
+            <VenueEditor
+              venue={show.venue}
+              onChange={(v) => setShow((s) => ({ ...s, venue: v }))}
+            />
+            {show.venue && <VenuePreview3D show={show} />}
+
+            <h2 style={{ margin: "22px 4px 0" }}>4 · Sekanslar (şarkılar / bölümler)</h2>
+            <p className="muted" style={{ margin: "4px 4px 0" }}>
+              Özet rozetlerde; düzenlemek için başlığa tıklayın.
+            </p>
+            {show.sequences.map((sq, i) => {
+              const open = openSeqs.has(i);
+              return (
               <div className="card" key={i}>
+                <div className="acc-head" onClick={() => toggleSeq(i)}>
+                  <span className={"acc-caret" + (open ? " open" : "")}>▶</span>
+                  <span className="acc-title">{sq.title || "(adsız sekans)"}</span>
+                  <span className="acc-chips">
+                    <span className="chip">{fmtTime(sq.durationMs)}</span>
+                    {sq.audioAssetId && <span className="chip">müzik ✓</span>}
+                    {sq.lyrics.length > 0 && <span className="chip">{sq.lyrics.length} söz</span>}
+                    {sq.screen.length > 0 && <span className="chip">{sq.screen.length} ekran</span>}
+                    {sq.torch.length > 0 && <span className="chip">{sq.torch.length} fener</span>}
+                    <span className={"chip" + (sq.inProgram ? " hot" : "")}>
+                      {sq.inProgram ? "programda" : "program dışı"}
+                    </span>
+                  </span>
+                </div>
+                {open && (
+                <div className="acc-body">
                 <div className="row">
                   <div style={{ flex: "2 1 220px" }}>
                     <label>Sekans başlığı (konsolda bu adla görünür)</label>
@@ -509,7 +610,8 @@ export default function ShowDetailPage({ params }: { params: Promise<{ id: strin
                 <label>Ekran adımları (telefon ekranının rengi)</label>
                 {sq.screen.length === 0 && <p className="muted">Adım yok — ekran karanlık kalır.</p>}
                 {sq.screen.map((st, j) => (
-                  <div className="row" key={j}>
+                  <div key={j}>
+                  <div className="row">
                     <div>
                       <label>Başlangıç</label>
                       <TimeField
@@ -540,14 +642,98 @@ export default function ShowDetailPage({ params }: { params: Promise<{ id: strin
                       />
                     </div>
                     <div>
-                      <label>Flaş</label>
-                      <FlashSelect
-                        hz={st.flashHz}
-                        onChange={(hz) =>
-                          patchSeq(i, { screen: sq.screen.map((x, k) => (k === j ? { ...x, flashHz: hz } : x)) })
+                      <label>Efekt</label>
+                      <select
+                        value={st.effectKind}
+                        onChange={(e) =>
+                          patchScreen(i, j, { effectKind: e.target.value as EditorScreenStep["effectKind"] })
                         }
-                      />
+                      >
+                        <option value="">düz renk</option>
+                        <option value="wave">dalga (koltuğa göre)</option>
+                        <option value="gradient">gradyan (koltuğa göre)</option>
+                        <option value="bitmap">bayrak/slogan (koltuğa göre)</option>
+                      </select>
                     </div>
+                    {st.effectKind === "" && (
+                      <div>
+                        <label>Flaş</label>
+                        <FlashSelect
+                          hz={st.flashHz}
+                          onChange={(hz) => patchScreen(i, j, { flashHz: hz })}
+                        />
+                      </div>
+                    )}
+                    {st.effectKind !== "" && (
+                      <div>
+                        <label>Yön</label>
+                        <EffectDirSelect
+                          axis={st.effectAxis}
+                          reverse={st.effectReverse}
+                          onChange={(axis, reverse) =>
+                            patchScreen(i, j, { effectAxis: axis, effectReverse: reverse })
+                          }
+                        />
+                      </div>
+                    )}
+                    {st.effectKind === "wave" && (
+                      <>
+                        <div>
+                          <label>Süpürme süresi</label>
+                          <TimeField
+                            ms={st.effectPeriodMs}
+                            onChange={(ms) => patchScreen(i, j, { effectPeriodMs: Math.max(334, ms) })}
+                          />
+                        </div>
+                        <div style={{ flex: "0 1 90px" }}>
+                          <label>Bant (%)</label>
+                          <input
+                            type="number"
+                            min={1}
+                            max={100}
+                            value={Math.round(st.effectWidth * 100)}
+                            onChange={(e) => {
+                              const pct = Math.min(100, Math.max(1, Number(e.target.value) || 1));
+                              patchScreen(i, j, { effectWidth: pct / 100 });
+                            }}
+                          />
+                        </div>
+                        <div style={{ flex: "0 0 110px" }}>
+                          <label>Arka plan</label>
+                          <div style={{ display: "flex", gap: 4 }}>
+                            <select
+                              value={st.effectColor2 ? "renk" : ""}
+                              onChange={(e) =>
+                                patchScreen(i, j, { effectColor2: e.target.value ? "#101040" : "" })
+                              }
+                              style={{ flex: 1 }}
+                            >
+                              <option value="">karanlık</option>
+                              <option value="renk">renk</option>
+                            </select>
+                            {st.effectColor2 && (
+                              <input
+                                type="color"
+                                value={st.effectColor2}
+                                style={{ padding: 2, height: 42, width: 44 }}
+                                onChange={(e) => patchScreen(i, j, { effectColor2: e.target.value })}
+                              />
+                            )}
+                          </div>
+                        </div>
+                      </>
+                    )}
+                    {st.effectKind === "gradient" && (
+                      <div style={{ flex: "0 0 90px" }}>
+                        <label>Bitiş rengi</label>
+                        <input
+                          type="color"
+                          value={st.effectColor2 || "#000000"}
+                          style={{ padding: 2, height: 42 }}
+                          onChange={(e) => patchScreen(i, j, { effectColor2: e.target.value })}
+                        />
+                      </div>
+                    )}
                     <div style={{ flex: "0 0 auto" }}>
                       <button
                         type="button"
@@ -558,6 +744,10 @@ export default function ShowDetailPage({ params }: { params: Promise<{ id: strin
                       </button>
                     </div>
                   </div>
+                  {st.effectKind === "bitmap" && (
+                    <BitmapEffectPanel step={st} onPatch={(patch) => patchScreen(i, j, patch)} />
+                  )}
+                  </div>
                 ))}
                 <button
                   type="button"
@@ -565,8 +755,7 @@ export default function ShowDetailPage({ params }: { params: Promise<{ id: strin
                   onClick={() => {
                     const last = sq.screen[sq.screen.length - 1];
                     const at = last ? (last.durationMs > 0 ? last.atMs + last.durationMs : last.atMs) : 0;
-                    const step: EditorScreenStep = { atMs: at, durationMs: 0, color: "#d92b2b", flashHz: 0 };
-                    patchSeq(i, { screen: [...sq.screen, step] });
+                    patchSeq(i, { screen: [...sq.screen, emptyScreenStep(at)] });
                   }}
                 >
                   + Ekran adımı
@@ -689,15 +878,20 @@ export default function ShowDetailPage({ params }: { params: Promise<{ id: strin
                 >
                   + Söz satırı
                 </button>
+                </div>
+                )}
               </div>
-            ))}
+              );
+            })}
 
             <button
               type="button"
               className="secondary"
-              onClick={() =>
-                setShow((s) => ({ ...s, sequences: [...s.sequences, emptySequence(`Şarkı ${s.sequences.length + 1}`)] }))
-              }
+              onClick={() => {
+                // Yeni sekans açık gelir — moderatör hemen düzenlesin.
+                setOpenSeqs((s) => new Set(s).add(show.sequences.length));
+                setShow((s) => ({ ...s, sequences: [...s.sequences, emptySequence(`Şarkı ${s.sequences.length + 1}`)] }));
+              }}
             >
               + Sekans ekle
             </button>
@@ -717,6 +911,7 @@ export default function ShowDetailPage({ params }: { params: Promise<{ id: strin
         )}
 
         <div className="card">
+          <h2>5 · Yayınla</h2>
           <p className="muted">
             Yayınlanan sürüm değişmezdir; telefonlar içeriği SHA-256 ile doğrular.
             Düzeltme gerektiğinde yeni sürüm yayınlayıp odada onu etkinleştirin.
@@ -729,7 +924,12 @@ export default function ShowDetailPage({ params }: { params: Promise<{ id: strin
       {notice && <p className="ok">{notice}</p>}
 
       <div className="card">
-        <h2>Sürümler</h2>
+        <h2>6 · Sürümler & odada etkinleştirme</h2>
+        <p className="muted">
+          Telefonlar odada ETKİN olan sürümü indirir. Aşağıdan odayı seçip
+          istediğiniz sürümü etkinleştirin; eski bir sürümü &quot;Editörde
+          aç&quot; ile geri getirebilirsiniz.
+        </p>
         {rooms.length > 0 && (
           <>
             <label>Etkinleştirilecek oda</label>

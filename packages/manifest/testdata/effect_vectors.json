@@ -1,0 +1,181 @@
+{
+  "cases": [
+    {
+      "name": "dalga bant içinde",
+      "cue_color": "#FF0000",
+      "effect": {
+        "kind": "wave",
+        "period_ms": 2000,
+        "width": 0.2
+      },
+      "u": 0.5,
+      "v": 0.1,
+      "w": 0.1,
+      "since_ms": 1000,
+      "want": "#FF0000"
+    },
+    {
+      "name": "dalga bant dışında (arka plan boş=kapalı)",
+      "cue_color": "#FF0000",
+      "effect": {
+        "kind": "wave",
+        "period_ms": 2000,
+        "width": 0.2
+      },
+      "u": 0.9,
+      "v": 0.1,
+      "w": 0.1,
+      "since_ms": 100,
+      "want": ""
+    },
+    {
+      "name": "dalga sargı: 0.98 ile 0.05 komşu",
+      "cue_color": "#FF0000",
+      "effect": {
+        "kind": "wave",
+        "period_ms": 2000,
+        "width": 0.2
+      },
+      "u": 0.98,
+      "v": 0,
+      "w": 0,
+      "since_ms": 100,
+      "want": "#FF0000"
+    },
+    {
+      "name": "dalga ters yön + arka plan rengi + v ekseni",
+      "cue_color": "#00FF00",
+      "effect": {
+        "kind": "wave",
+        "axis": "v",
+        "reverse": true,
+        "period_ms": 4000,
+        "width": 0.5,
+        "color2": "#101010"
+      },
+      "u": 0,
+      "v": 0.75,
+      "w": 0,
+      "since_ms": 1000,
+      "want": "#00FF00"
+    },
+    {
+      "name": "gradyan çeyrek",
+      "cue_color": "#000000",
+      "effect": {
+        "kind": "gradient",
+        "color2": "#FFFFFF"
+      },
+      "u": 0.25,
+      "v": 0,
+      "w": 0,
+      "since_ms": 999999,
+      "want": "#404040"
+    },
+    {
+      "name": "gradyan w ekseni ters",
+      "cue_color": "#FF0000",
+      "effect": {
+        "kind": "gradient",
+        "axis": "w",
+        "reverse": true,
+        "color2": "#0000FF"
+      },
+      "u": 0,
+      "v": 0,
+      "w": 0.25,
+      "since_ms": 0,
+      "want": "#4000BF"
+    },
+    {
+      "name": "bitmap tepe sol",
+      "cue_color": "#FFFFFF",
+      "effect": {
+        "kind": "bitmap",
+        "bitmap": {
+          "palette": [
+            "#E30A17",
+            "#FFFFFF"
+          ],
+          "rows": [
+            "0000",
+            "111."
+          ]
+        }
+      },
+      "u": 0.1,
+      "v": 0,
+      "w": 0.9,
+      "since_ms": 0,
+      "want": "#E30A17"
+    },
+    {
+      "name": "bitmap alt orta",
+      "cue_color": "#FFFFFF",
+      "effect": {
+        "kind": "bitmap",
+        "bitmap": {
+          "palette": [
+            "#E30A17",
+            "#FFFFFF"
+          ],
+          "rows": [
+            "0000",
+            "111."
+          ]
+        }
+      },
+      "u": 0.5,
+      "v": 0,
+      "w": 0.2,
+      "since_ms": 0,
+      "want": "#FFFFFF"
+    },
+    {
+      "name": "bitmap delik (nokta=kapalı)",
+      "cue_color": "#FFFFFF",
+      "effect": {
+        "kind": "bitmap",
+        "bitmap": {
+          "palette": [
+            "#E30A17",
+            "#FFFFFF"
+          ],
+          "rows": [
+            "0000",
+            "111."
+          ]
+        }
+      },
+      "u": 0.99,
+      "v": 0,
+      "w": 0.2,
+      "since_ms": 0,
+      "want": ""
+    },
+    {
+      "name": "bitmap kaydırma yarım dönem",
+      "cue_color": "#FFFFFF",
+      "effect": {
+        "kind": "bitmap",
+        "period_ms": 1336,
+        "bitmap": {
+          "palette": [
+            "#E30A17",
+            "#FFFFFF"
+          ],
+          "rows": [
+            "0000",
+            "111."
+          ]
+        }
+      },
+      "u": 0.1,
+      "v": 0,
+      "w": 0.2,
+      "since_ms": 668,
+      "want": "#FFFFFF"
+    }
+  ],
+  "comment": "üretici: go test ./packages/manifest -run TestEffectGolden -update"
+}

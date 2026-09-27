@@ -317,10 +317,12 @@ gerektirenler.
   TEKSES_ASSET_PUBLIC_BASE ayarlıysa join yanıtı asset_base_url + mutlak
   manifest_url döner; telefon paketi ve ses dosyalarını CDN'den indirir
   (özet doğrulaması aynı; testli iki tarafta da). Kurulum: docs/dagitim.md
-  §8; compose + .env.example güncel. **Kullanıcı doğrulaması:** R2 kovası +
-  API anahtarı + özel alan adı kullanıcının Cloudflare hesabında açılmalı
-  (§8 adımları), sonra VM'de control-api yeniden derlenip telefonla katılım
-  denenmeli.
+  §8; compose + .env.example güncel. **Kullanıcı doğrulaması (2026-09-27):
+  ÇALIŞTI** — R2 kovası + API anahtarı açıldı, public erişim r2.dev
+  geliştirme URL'siyle (B seçeneği; yeni arayüz adı "Public Development
+  URL"), VM'de control-api yeniden derlendi ve uçtan uca doğrulandı.
+  **Etkinlikten önce kalan:** r2.dev hız sınırlıdır — özel alan adına geçiş
+  (§8 C seçeneği: Cloudflare'da alan adı + kovaya Custom Domain) yapılmalı.
 - [x] **F3.4 Yeniden bağlanma fırtınası (KAPANDI; 100k koşumu isteğe bağlı) — araç HAZIR
   (2026-09-26):** loadgen'e -storm/-stormPause eklendi: senkronu bitmiş
   istemcilerin verilen oranı kopar ve süre sonunda HEPSİ BİRDEN döner
@@ -356,8 +358,10 @@ gerektirenler.
   (5 sn taze tur) → kabul politikası (kalite kapısı) → kestirim algoritması
   (RTT bandı). **İsteğe bağlı kalan:** 100k tam koşum — ayrı yük makinesi
   ister; tek 4-OCPU düğüm ≥40k kanıtlı, 80k = 2 düğüm (F2.6).
-- [ ] **F3.5 Cihaz sınıfı fener kalibrasyon tablosu:** fener sürücü gecikmesi
-  cihazdan cihaza değişir; model bazlı ofset tablosu + ölçüm prosedürü.
+- [ ] **F3.5 Cihaz sınıfı fener kalibrasyon tablosu — BEKLEMEDE (2026-09-27):**
+  fener sürücü gecikmesi cihazdan cihaza değişir; model bazlı ofset tablosu +
+  ölçüm prosedürü. Yeterli sayıda FARKLI model telefon gerekir; kullanıcı
+  telefonları toplayınca haber verecek — o güne dek "devam et" bu adımı atlar.
 - [x] **F3.6 Tarayıcı katılımcı yedeği ürünleşti (2026-09-26):** /join artık
   resmî yedek: kapak ekranına ELLE kod girişi eklendi (URL ?code hâlâ
   çalışır ve elle girilen kod adrese işlenir), ışığa duyarlı mod düğmesi
@@ -367,8 +371,103 @@ gerektirenler.
   katılım + duyarlı modun 2 Hz flaşı bastırması). Kapsam bilinçli: söz +
   ekran rengi; fener/ses yalnız uygulamada. VM'de devreye girmesi gateway
   yeniden derlemesiyle (bekleyen güncelleme adımında zaten var).
-- [ ] **F3.7 Analitik** ve **F3.8 Faturalama:** kapsam kullanıcıyla
-  netleşince ayrıntılanır.
+- [ ] **F3.7 Analitik** ve **F3.8 Faturalama — ERTELENDİ (2026-09-27,
+  kullanıcı kararı):** ürün çekirdeğinde daha öncelikli iş var (Faz 4 koltuk
+  bazlı koreografi + arayüzler); Faz 4'ten sonra ele alınır.
+
+## Faz 4 — Koltuk bazlı koreografi (2026-09-27, kullanıcı isteği)
+
+Hedef: telefonun mekândaki KONUMUNA göre farklı davranması — meksika dalgası,
+tribüne bayrak çizdirmek, kayan slogan yazdırmak. Tasarım ilkesi (karar
+dosyasında): efekt telefonda YEREL hesaplanır — kue yalnız efekt tipi +
+parametre taşır, telefon rengini/zamanını (mekân geometrisi + kendi koltuğu)
+üzerinden türetir. Koltuk başına tel trafiği yok (60k ölçek), "her şey
+önceden iner" ilkesi korunur.
+
+- [x] **F4.0 Mekân modeli + sözleşme (2026-09-27):** manifest'e isteğe bağlı
+  `venue` — blok = sıra×koltuk grid'i + uzamda origin/row_vec/seat_vec
+  (metre; row_vec'in z'si tribün eğimi, kavisli tribün birkaç düz blokla
+  yaklaşıklanır). Koltuk konumu doğrusal; efektler için mekân sınır kutusuna
+  normalize u/v/w (0..1) da döner. Koltuk dizgisi sözleşmesi
+  `BLOK-SIRA-KOLTUK` (tireli blok kimliği sağdan çözülür; harf katlanmaz).
+  Go: packages/manifest/venue.go (doğrulama: benzersiz/boşluksuz kimlik,
+  pozitif grid, sıfır adım vektörü reddi, 500k koltuk sınırı; omitempty —
+  mekânsız manifestlerin kanonik özeti değişmez, testli). Dart:
+  lib/core/venue.dart aynası, telefonda savunmacı çözüm (bilinmeyen koltuk
+  null). Çapraz doğrulama: packages/manifest/testdata/venue_vectors.json
+  altın vektörleri iki tarafta da testli (golden_frames deseni) + Go'da
+  el hesabı bağımsız doğrulama.
+- [x] **F4.1 Koltuk kimliği (2026-09-27):** telefonun katılım ekranında
+  isteğe bağlı koltuk alanı; biçim bağlanmadan, plana uygunluk paket
+  indikten sonra denetlenir (planda olmayan koltuk katılımı durdurur).
+  /join eşleniği: #seatInput + `?seat=` URL/QR parametresi, JS çözücüsü
+  venue.go'nun portu ve Chromium E2E'de 7 altın vektörle birebir sınanıyor.
+  Gösteri ekranı koltuğu her paket yenilemesinde güncel plana karşı yeniden
+  çözer; durum satırı plan yok / çözülemedi / ✓ ayrımı yapar. Koltuk yalnız
+  istemcide — tel ve sunucu değişmedi. **Cihaz doğrulaması F4.6 provasında.**
+- [x] **F4.2 Uzamsal efekt motoru (2026-09-27):** kueye isteğe bağlı
+  `effect` — SAF fonksiyon f(normalize koltuk konumu u/v/w, kue içi süre)
+  → renk; koltuk başına tel trafiği yok. Türler: **wave** (yönlü sargılı
+  tarama bandı; meksika dalgası — period_ms/width/axis/reverse/color2),
+  **gradient** (eksen boyunca renk geçişi), **bitmap** (koltuk=piksel;
+  palet ≤16 + satır dizgileri, '.'=kapalı; period_ms ile kaydırma → kayan
+  yazı/slogan geniş bitmap olarak, metni F4.3 editörü rasterleştirecek).
+  Işık güvenliği doğrulamada: efekt + flash_hz birlikte yasak; dalga
+  dönemi ≥334 ms, kaydırma ≥ sütun×334 ms (koltuk başına ≤3 Hz; MaxFlashHz
+  tutarlılığı testle sabit); gradyan fenerde yasak. Duyarlı mod efekti
+  değerlendirmez, kuenin sabit rengini basar. Koltuksuz istemci mekânın
+  ortası (0.5) sayılır. Üç gerçekleme: Go referans (effect.go) →
+  testdata/effect_vectors.json altın vektörleri → Dart
+  (spatial_effect.dart + motor seatPos) ve /join JS'i birebir doğrulanır
+  (Dart birim testi + Chromium E2E). Fener şeridinde wave/bitmap
+  açık/kapalı verir. **Cihaz doğrulaması F4.6 provasında.**
+- [x] **F4.3 Panel mekân editörü (2B) + efekt yazarlığı (2026-09-27):**
+  gösteri sayfasına "Mekân planı" kartı — üstten SVG görünüş, blok
+  sürükleyerek taşıma (0,5 m ızgara), seçili blokta grid/dönüş/aralık/eğim
+  alanları, koltuk numaralandırma yönü oku, koltuk dizgisi önizlemesi;
+  salon + stadyum (4 tribün) şablonları. Editör modeli (konum+açı+aralık)
+  ↔ manifest venue dönüşümü lib/venueEditor.ts'te; kalıba uymayan elle
+  yazılmış plan nedenle JSON görünümüne düşer. Ekran adımlarına efekt
+  seçici: düz renk / dalga (yön, süpürme, bant, arka plan) / gradyan
+  (yön, bitiş rengi); efektliyken flaş gizli. next build temiz.
+  **Panel doğrulaması kullanıcıda** (VM'de moderator yeniden derlenince).
+- [x] **F4.3b Bayrak/slogan üretici (2026-09-27):** ekran adımında
+  "bayrak/slogan" efekti seçilince üretim paneli açılır. Metin, tarayıcı
+  fontuyla canvas'ta rasterleştirilir (Türkçe karakterler font tablosuz;
+  varsayılan kayar, sütun×400 ms) — görüntü, seçilen cols×rows'a küçültülüp
+  median-cut ile ≤16 renge nicemlenir (yarı saydam '.', palet tekilleşir;
+  varsayılan sabit). Kaydırma süresi ışık güvenliği alt sınırına
+  (sütun×334 ms) kelepçeli; piksel önizleme var. Üretilmemiş bitmap yayında
+  düz renge düşer + panel uyarır. Doğrulama: Chromium'da ŞAMPİYON sloganı
+  + iki renkli bayrak üretildi, çıktı Go manifest.Parse'tan geçti.
+  **Panel doğrulaması kullanıcıda.**
+- [x] **F4.4 3B mekân önizleme/simülasyon (2026-09-27):** mekân planlı
+  gösteride panelde "3B önizleme" kartı — her koltuk bir nokta olan
+  ortografik nokta bulutu (bağımlılıksız canvas; three.js'e bilinçli
+  gerek görülmedi), sürükle-döndür + tekerlek yakınlaştırma, 20k üstünde
+  koltuk örneklemesi. Nokta rengi telefonun o koltukta o an basacağı ekran
+  rengi: lib/effectEval.ts EvalEffect'in 4. gerçeklemesi (10 altın vektörle
+  birebir, scratchpad Chromium koşumuyla sınandı) + ekran şeridi kare
+  kuralları. Sekans seçici, oynat/duraklat, zaman kaydırıcı.
+  **Panel doğrulaması kullanıcıda.**
+- [x] **F4.5 Arayüz cilası — panel (2026-09-27, kullanıcının 4 maddesi):**
+  (1) açık/kurumsal tema: aydınlık zemin, gölgeli beyaz kartlar, yükselme/
+  hover animasyonları (prefers-reduced-motion'a saygılı), yapışkan üst çubuk
+  aktif bölüm vurgulu; sahne yüzeyleri (mekân editörü, 3B) bilinçli koyu.
+  (2) akış netliği: 4 adımlı Flow şeridi her sayfada (Etkinlik&Oda →
+  Tasarla → Yayınla&Etkinleştir → Canlı yönet), ana sayfa akışı anlatan
+  pano, kavram açıklamaları + bölüm numaraları, oda kartından Gösteriler'e
+  bağlantı. (3) akordeon sekans kartları: özet rozetli başlık (süre/müzik/
+  söz/ekran/fener/programda), tıklayınca açılır; taşı/sil'de durum taşınır,
+  yeni sekans açık gelir. (4) canlı konsol: GO sonrası LivePreview kartı —
+  geri sayım, ilerleme, telefon maketi (renk+söz) ve mekân planlı gösteride
+  3B tribün takibi (SeatCloudCanvas ortak bileşeni; effectEval'e program/
+  söz/süre yardımcıları); hedefe göre adlanan GO, alt yazılı müdahale
+  düğmeleri. **Panel doğrulaması kullanıcıda; yeni cila maddeleri geldikçe
+  bu adım yeniden açılır.**
+- [ ] **F4.6 Uçtan uca prova:** birkaç telefon farklı koltuk kimlikleriyle —
+  dalganın sırayla geçtiği kamerayla doğrulanır. (Telefonlar toplanınca;
+  F3.5 fener kalibrasyonuyla aynı oturumda yapılabilir.)
 
 ## Notlar
 

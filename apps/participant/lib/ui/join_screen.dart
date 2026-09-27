@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../core/package_store.dart';
+import '../core/venue.dart';
 import 'show_screen.dart';
 
 /// Katılım ekranı.
@@ -22,6 +23,7 @@ class _JoinScreenState extends State<JoinScreen> {
   final _gatewayController = TextEditingController(text: 'ws://192.168.1.10:8080/ws');
   final _controlController = TextEditingController(text: 'http://192.168.1.10:8090');
   final _codeController = TextEditingController();
+  final _seatController = TextEditingController();
   String? _error;
   bool _busy = false;
 
@@ -30,6 +32,7 @@ class _JoinScreenState extends State<JoinScreen> {
     _gatewayController.dispose();
     _controlController.dispose();
     _codeController.dispose();
+    _seatController.dispose();
     super.dispose();
   }
 
@@ -40,6 +43,20 @@ class _JoinScreenState extends State<JoinScreen> {
       return;
     }
     final code = _codeController.text.trim().toUpperCase();
+
+    // Koltuk kimliği (F4.1): biçim burada, mekân planına uygunluk paket
+    // indikten sonra denetlenir. Harf katlanmaz — plandaki kimlikle birebir
+    // yazılmalı (bilet/QR zaten doğru biçimi taşır).
+    final seatText = _seatController.text.trim();
+    SeatRef? seat;
+    if (seatText.isNotEmpty) {
+      seat = SeatRef.parse(seatText);
+      if (seat == null) {
+        setState(() =>
+            _error = 'Koltuk BLOK-SIRA-KOLTUK biçiminde olmalı (ör. A-12-5)');
+        return;
+      }
+    }
 
     JoinInfo? joinInfo;
     Uri? controlUri;
@@ -66,6 +83,15 @@ class _JoinScreenState extends State<JoinScreen> {
       setState(() => _busy = false);
     }
 
+    // Girilen koltuk mekân planında yoksa yanlış yazım büyük olasılıkla:
+    // sessizce konumsuz oynamak yerine burada durdur, kullanıcı düzeltsin.
+    final venue = joinInfo?.manifest?.venue;
+    if (seat != null && venue != null && venue.resolve(seat) == null) {
+      setState(() => _error =
+          'Koltuk $seat mekân planında yok — biletteki blok/sıra/koltuğu kontrol edin');
+      return;
+    }
+
     if (!mounted) return;
     setState(() => _error = null);
     Navigator.of(context).push(
@@ -76,6 +102,7 @@ class _JoinScreenState extends State<JoinScreen> {
           joinCode: code,
           // Canlı paket yenileme (show_activated) için gerekli.
           controlUri: controlUri,
+          seat: seat,
         ),
       ),
     );
@@ -104,6 +131,16 @@ class _JoinScreenState extends State<JoinScreen> {
                 decoration: const InputDecoration(
                   labelText: 'Katılım kodu',
                   hintText: 'ör. ABC234 (Faz 0 denemesi için boş bırakın)',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _seatController,
+                autocorrect: false,
+                decoration: const InputDecoration(
+                  labelText: 'Koltuk (biletinizde varsa)',
+                  hintText: 'BLOK-SIRA-KOLTUK, ör. A-12-5',
                   border: OutlineInputBorder(),
                 ),
               ),

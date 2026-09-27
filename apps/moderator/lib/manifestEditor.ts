@@ -1,3 +1,10 @@
+import {
+  fromManifestVenue,
+  toManifestVenue,
+  type EditorVenue,
+  type VenueJson,
+} from "./venueEditor";
+
 // Görsel gösteri editörü ↔ manifest JSON dönüşümleri.
 //
 // Editör, manifest şemasının (packages/manifest) kullanıcı dostu bir alt
@@ -9,12 +16,42 @@
 
 export type EditorLyric = { atMs: number; durationMs: number; text: string };
 
+// packages/manifest Bitmap ile aynı biçim: palet ≤16 renk, karakter = palet
+// indeksi, '.' = kapalı.
+export type EditorBitmap = { palette: string[]; rows: string[] };
+
 export type EditorScreenStep = {
   atMs: number;
   durationMs: number; // 0 = sekans sonuna dek
   color: string; // #rrggbb
-  flashHz: number; // 0 = sabit yanar
+  flashHz: number; // 0 = sabit yanar (efekt seçiliyken yok sayılır)
+  // Uzamsal efekt (F4.2): "" = düz renk.
+  effectKind: "" | "wave" | "gradient" | "bitmap";
+  effectAxis: "u" | "v" | "w";
+  effectReverse: boolean;
+  effectPeriodMs: number; // dalga: bir tam süpürme (≥334 ms, sunucu doğrular)
+  effectWidth: number; // dalga bandı, 0..1
+  effectColor2: string; // dalga arka planı ("" = kapalı) / gradyan bitişi
+  effectScrollMs: number; // bitmap: kaydırma dönemi (0 = sabit; ≥ sütun×334)
+  effectBitmap: EditorBitmap | null; // bitmap: üreticiden (F4.3b) ya da JSON'dan
 };
+
+export function emptyScreenStep(atMs: number): EditorScreenStep {
+  return {
+    atMs,
+    durationMs: 0,
+    color: "#d92b2b",
+    flashHz: 0,
+    effectKind: "",
+    effectAxis: "u",
+    effectReverse: false,
+    effectPeriodMs: 2000,
+    effectWidth: 0.2,
+    effectColor2: "",
+    effectScrollMs: 0,
+    effectBitmap: null,
+  };
+}
 
 export type EditorTorchStep = {
   atMs: number;
@@ -37,6 +74,8 @@ export type EditorSequence = {
 export type EditorShow = {
   title: string;
   sequences: EditorSequence[];
+  // Mekân planı (F4.3): null = plansız gösteri (konumdan bağımsız oynar).
+  venue: EditorVenue | null;
 };
 
 // --- süre biçimi: "d:ss.o" (ör. 1:23.5) ↔ ms ---
@@ -102,7 +141,7 @@ export function emptySequence(title: string): EditorSequence {
     gapBeforeMs: 0,
     audioAssetId: "",
     lyrics: [],
-    screen: [{ atMs: 0, durationMs: 0, color: "#d92b2b", flashHz: 0 }],
+    screen: [emptyScreenStep(0)],
     torch: [],
   };
 }
@@ -116,18 +155,28 @@ export function defaultShow(): EditorShow {
     { atMs: 0, durationMs: 5000, text: "Hep beraber!" },
     { atMs: 5000, durationMs: 5000, text: "Tek ses, tek yürek!" },
   ];
-  seq.screen = [{ atMs: 0, durationMs: 0, color: "#d92b2b", flashHz: 2 }];
-  return { title: "Yeni Gösteri", sequences: [seq] };
+  seq.screen = [{ ...emptyScreenStep(0), flashHz: 2 }];
+  return { title: "Yeni Gösteri", sequences: [seq], venue: null };
 }
 
 // --- editör → manifest ---
 
+type ManifestEffect = {
+  kind?: string;
+  axis?: string;
+  reverse?: boolean;
+  period_ms?: number;
+  width?: number;
+  color2?: string;
+  bitmap?: { palette?: string[]; rows?: string[] };
+};
 type ManifestCue = {
   at_ms: number;
   duration_ms: number;
   color?: string;
   flash_hz?: number;
   asset_id?: string;
+  effect?: ManifestEffect;
 };
 type ManifestLane = { id: string; kind: string; cues: ManifestCue[] };
 type ManifestSeq = {
@@ -141,6 +190,7 @@ export type ManifestJson = {
   title: string;
   sequences: ManifestSeq[];
   program?: { sequence_id: string; at_offset_ms: number }[];
+  venue?: VenueJson;
 };
 
 export function toManifest(show: EditorShow): ManifestJson {
@@ -156,7 +206,28 @@ export function toManifest(show: EditorShow): ManifestJson {
           .sort((a, b) => a.atMs - b.atMs)
           .map((st) => {
             const cue: ManifestCue = { at_ms: st.atMs, duration_ms: st.durationMs, color: st.color };
-            if (st.flashHz > 0) cue.flash_hz = st.flashHz;
+            // Bitmap seçilmiş ama henüz üretilmemişse düz renge düşülür
+            // (yayın sunucuda reddedilmesin); arayüz "önce üretin" uyarır.
+            const kind = st.effectKind === "bitmap" && !st.effectBitmap ? "" : st.effectKind;
+            if (kind) {
+              // Efekt ve flash_hz birlikte yasak (ışık güvenliği) — efekt kazanır.
+              const eff: ManifestEffect = { kind };
+              if (st.effectAxis !== "u") eff.axis = st.effectAxis;
+              if (st.effectReverse) eff.reverse = true;
+              if (kind === "wave") {
+                eff.period_ms = st.effectPeriodMs;
+                eff.width = st.effectWidth;
+                if (st.effectColor2) eff.color2 = st.effectColor2;
+              } else if (kind === "gradient") {
+                eff.color2 = st.effectColor2 || "#000000";
+              } else if (kind === "bitmap" && st.effectBitmap) {
+                if (st.effectScrollMs > 0) eff.period_ms = st.effectScrollMs;
+                eff.bitmap = { palette: st.effectBitmap.palette, rows: st.effectBitmap.rows };
+              }
+              cue.effect = eff;
+            } else if (st.flashHz > 0) {
+              cue.flash_hz = st.flashHz;
+            }
             return cue;
           }),
       });
@@ -203,6 +274,7 @@ export function toManifest(show: EditorShow): ManifestJson {
 
   const m: ManifestJson = { title: show.title || "Gösteri", sequences };
   if (program.length > 0) m.program = program;
+  if (show.venue && show.venue.blocks.length > 0) m.venue = toManifestVenue(show.venue);
   return m;
 }
 
@@ -236,15 +308,37 @@ export function fromManifest(m: unknown): { show?: EditorShow; reason?: string }
       if (lane.kind === "screen") {
         if (screenSeen) return { reason: `"${seq.id}" sekansında birden çok ekran şeridi var` };
         screenSeen = true;
-        sq.screen = (lane.cues ?? []).map((c) => ({
-          atMs: c.at_ms || 0,
-          durationMs: c.duration_ms || 0,
-          color: c.color || "#ffffff",
-          flashHz: c.flash_hz || 0,
-        }));
+        sq.screen = [];
+        for (const c of lane.cues ?? []) {
+          const eff = c.effect;
+          if (eff && eff.kind !== "wave" && eff.kind !== "gradient" && eff.kind !== "bitmap") {
+            return { reason: `"${seq.id}" sekansında editörün taşımadığı efekt türü (${eff.kind})` };
+          }
+          const isBitmap = eff?.kind === "bitmap";
+          sq.screen.push({
+            atMs: c.at_ms || 0,
+            durationMs: c.duration_ms || 0,
+            color: c.color || "#ffffff",
+            flashHz: c.flash_hz || 0,
+            effectKind: (eff?.kind as "wave" | "gradient" | "bitmap" | undefined) ?? "",
+            effectAxis: eff?.axis === "v" || eff?.axis === "w" ? eff.axis : "u",
+            effectReverse: !!eff?.reverse,
+            effectPeriodMs: (!isBitmap && eff?.period_ms) || 2000,
+            effectWidth: eff?.width || 0.2,
+            effectColor2: eff?.color2 || "",
+            effectScrollMs: isBitmap ? eff?.period_ms || 0 : 0,
+            effectBitmap:
+              isBitmap && eff?.bitmap
+                ? { palette: eff.bitmap.palette ?? [], rows: eff.bitmap.rows ?? [] }
+                : null,
+          });
+        }
       } else if (lane.kind === "torch") {
         if (torchSeen) return { reason: `"${seq.id}" sekansında birden çok fener şeridi var` };
         torchSeen = true;
+        if ((lane.cues ?? []).some((c) => c.effect)) {
+          return { reason: `"${seq.id}" sekansında efektli fener kuesi var (editör taşımaz)` };
+        }
         sq.torch = (lane.cues ?? []).map((c) => ({
           atMs: c.at_ms || 0,
           durationMs: c.duration_ms || 0,
@@ -281,5 +375,14 @@ export function fromManifest(m: unknown): { show?: EditorShow; reason?: string }
     prevIdx = i;
   }
 
-  return { show: { title: mm.title || "Gösteri", sequences } };
+  // Mekân planı: editör kalıbına uymayan plan (eğik/dik olmayan vektörler)
+  // JSON görünümüne düşürür ki hiçbir bilgi sessizce kaybolmasın.
+  let venue: EditorVenue | null = null;
+  if (mm.venue !== undefined) {
+    const r = fromManifestVenue(mm.venue);
+    if (!r.venue) return { reason: `mekân planı: ${r.reason}` };
+    venue = r.venue;
+  }
+
+  return { show: { title: mm.title || "Gösteri", sequences, venue } };
 }

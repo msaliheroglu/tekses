@@ -5,6 +5,9 @@
 /// sekansın ne zaman başlayacağını CueStart söyler.
 library;
 
+import 'spatial_effect.dart';
+import 'venue.dart';
+
 /// Ayrılmış kue kimliği: bu kimlikle gelen CueStart, manifestin içine gömülü
 /// otomatik programı başlatır (packages/manifest ProgramCueID ile aynı).
 const String programCueId = 'program';
@@ -14,6 +17,7 @@ class ShowManifest {
     required this.title,
     required this.sequences,
     this.program = const [],
+    this.venue,
   });
 
   final String title;
@@ -23,6 +27,10 @@ class ShowManifest {
   /// anında kendi sekansını oynatır. Sunucu tarafı doğrulanmıştır
   /// (artan sırada, üst üste binmez, var olan sekanslara işaret eder).
   final List<ProgramItem> program;
+
+  /// İsteğe bağlı mekân modeli (Faz 4, koltuk bazlı koreografi). Yoksa
+  /// gösteri bugünkü gibi konumdan bağımsız oynar.
+  final Venue? venue;
 
   ShowSequence? sequenceById(String id) {
     for (final seq in sequences) {
@@ -41,6 +49,9 @@ class ShowManifest {
           for (final p in (j['program'] as List? ?? const []))
             ProgramItem.fromJson(p as Map<String, dynamic>),
         ],
+        venue: j['venue'] == null
+            ? null
+            : Venue.fromJson(j['venue'] as Map<String, dynamic>),
       );
 }
 
@@ -124,6 +135,7 @@ class ShowCue {
     required this.color,
     required this.flashHz,
     required this.assetId,
+    this.effect,
   });
 
   final int atMs;
@@ -131,6 +143,11 @@ class ShowCue {
   final String color;
   final int flashHz;
   final String assetId;
+
+  /// İsteğe bağlı uzamsal efekt (F4.2): varsa renk/yanıklık koltuk
+  /// konumundan türetilir; sunucu doğrulaması flash_hz ile birlikteliğini
+  /// zaten reddeder.
+  final EffectSpec? effect;
 
   bool activeAt(int elapsedMs) =>
       elapsedMs >= atMs && (durationMs == 0 || elapsedMs < atMs + durationMs);
@@ -141,6 +158,9 @@ class ShowCue {
         color: j['color'] as String? ?? '',
         flashHz: clampFlashHz((j['flash_hz'] as num?)?.toInt() ?? 0),
         assetId: j['asset_id'] as String? ?? '',
+        effect: j['effect'] == null
+            ? null
+            : EffectSpec.fromJson(j['effect'] as Map<String, dynamic>),
       );
 }
 

@@ -13,6 +13,7 @@ import '../core/package_store.dart';
 import '../core/realtime_client.dart';
 import '../core/show_manifest.dart';
 import '../core/timeline_engine.dart';
+import '../core/venue.dart';
 import '../core/torch_service.dart';
 import '../core/ultrasonic.dart';
 import '../core/ultrasonic_listener.dart';
@@ -29,6 +30,7 @@ class ShowScreen extends StatefulWidget {
     this.joinInfo,
     this.joinCode = '',
     this.controlUri,
+    this.seat,
   });
 
   final Uri serverUri;
@@ -38,6 +40,11 @@ class ShowScreen extends StatefulWidget {
   /// Kodla katılımda control-api adresi: show_activated sinyali gelince
   /// paket buradan yeniden indirilir (null = canlı yenileme yok, Faz 0).
   final Uri? controlUri;
+
+  /// Koltuk kimliği (F4.1): katılım ekranında girildi ve mekân planına
+  /// karşı doğrulandı. Uzamsal efektler (F4.2) konumu bundan çözer;
+  /// koltuk yalnız istemcide yaşar, tele hiç çıkmaz.
+  final SeatRef? seat;
 
   @override
   State<ShowScreen> createState() => _ShowScreenState();
@@ -78,6 +85,11 @@ class _ShowScreenState extends State<ShowScreen> {
   /// SESSİZLİĞİN nedenini ekranda görür (sessizce yutulmasın).
   String _audioNote = '';
 
+  /// Çözülmüş koltuk konumu (F4.1): manifest her tazelendiğinde yeniden
+  /// çözülür (mekân planı değişmiş olabilir). null = koltuk girilmedi,
+  /// planda yok ya da gösteride plan yok — efektler konumdan bağımsız oynar.
+  SeatPos? _seatPos;
+
   CueStartMsg? _activeCue;
   FrameSource? _engine; // cue_id sekansa/programa denk geldiyse dolu
   int _fireLocalMs = 0;
@@ -95,6 +107,7 @@ class _ShowScreenState extends State<ShowScreen> {
     super.initState();
     WakelockPlus.enable();
     _joinInfo = widget.joinInfo;
+    _seatPos = _resolveSeat();
     _torch.init();
     _audio.init().then((_) {
       if (mounted && !_audio.available) {
@@ -147,6 +160,8 @@ class _ShowScreenState extends State<ShowScreen> {
       if (!mounted) return;
       setState(() {
         _joinInfo = info;
+        _seatPos = _resolveSeat();
+        _engine?.seatPos = _seatPos; // süren koşu da güncel konumu kullansın
         _status = info.manifest == null
             ? 'oda güncellendi (aktif gösteri yok)'
             : 'gösteri hazır: ${info.manifest!.title}';
@@ -158,6 +173,16 @@ class _ShowScreenState extends State<ShowScreen> {
     } finally {
       _refreshingJoin = false;
     }
+  }
+
+  /// Koltuğu güncel manifestin mekân planına karşı çözer (F4.1). Katılım
+  /// ekranı ilk planı zaten doğruladı; burası canlı paket yenilemesinde
+  /// planın değişme ihtimalini kapatır.
+  SeatPos? _resolveSeat() {
+    final seat = widget.seat;
+    final venue = _joinInfo?.manifest?.venue;
+    if (seat == null || venue == null) return null;
+    return venue.resolve(seat);
   }
 
   @override
@@ -280,7 +305,7 @@ class _ShowScreenState extends State<ShowScreen> {
     String statusLabel;
     List<({String sequenceId, int baseMs})> played = const [];
     if (cue.cueId == programCueId && manifest != null && manifest.program.isNotEmpty) {
-      _engine = ProgramEngine(manifest, disableFlash: _safeMode);
+      _engine = ProgramEngine(manifest, disableFlash: _safeMode, seatPos: _seatPos);
       played = [
         for (final item in manifest.program)
           (sequenceId: item.sequenceId, baseMs: item.atOffsetMs),
@@ -290,7 +315,7 @@ class _ShowScreenState extends State<ShowScreen> {
       final sequence = manifest?.sequenceById(cue.cueId);
       _engine = sequence == null
           ? null
-          : TimelineEngine(sequence, disableFlash: _safeMode);
+          : TimelineEngine(sequence, disableFlash: _safeMode, seatPos: _seatPos);
       if (sequence != null) played = [(sequenceId: sequence.id, baseMs: 0)];
       statusLabel = sequence == null
           ? 'kue alındı (${cue.cueId})'
@@ -558,6 +583,12 @@ class _ShowScreenState extends State<ShowScreen> {
                         '· örnek ${estimate.usedSamples}'
                         '${_torch.available ? '' : ' · fener yok'}',
                       ),
+                    if (widget.seat != null)
+                      Text(_joinInfo?.manifest?.venue == null
+                          ? 'koltuk ${widget.seat} (gösteride mekân planı yok)'
+                          : _seatPos == null
+                              ? 'koltuk ${widget.seat}: mekân planında çözülemedi'
+                              : 'koltuk ${widget.seat} ✓'),
                     if (_audioNote.isNotEmpty) Text(_audioNote),
                     if (_beaconNote.isNotEmpty) Text(_beaconNote),
                     if (_activeCue != null)

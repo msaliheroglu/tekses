@@ -1,20 +1,21 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   control,
-  fetchManifestSummary,
   gatewayGet,
   gatewayPost,
   listPersistedRuns,
   type ClockStatsResponse,
   type Event,
-  type ManifestSummary,
   type PresenceResponse,
   type Room,
   type RoomClockStats,
   type RunRecord,
 } from "@/lib/api";
+import type { ManifestJson } from "@/lib/manifestEditor";
+import Flow from "../Flow";
+import LivePreview, { type PreviewRun } from "./LivePreview";
 
 type LogLine = { at: string; text: string; isErr?: boolean };
 
@@ -30,7 +31,9 @@ export default function ConsolePage() {
   const [rooms, setRooms] = useState<(Room & { eventName: string })[]>([]);
   const [roomID, setRoomID] = useState("");
   const [cueTarget, setCueTarget] = useState(FLASH_TARGET);
-  const [manifest, setManifest] = useState<ManifestSummary | null>(null);
+  // Aktif gösterinin TAM manifesti: kue seçici + canlı önizleme buradan.
+  const [fullManifest, setFullManifest] = useState<ManifestJson | null>(null);
+  const [preview, setPreview] = useState<PreviewRun | null>(null);
   const [runs, setRuns] = useState<RunRecord[]>([]);
   // Kayıt kaynağı: "kalıcı" (control-api, org kapsamlı, çok düğümde titremez)
   // ya da "düğüm" (gateway halkası; oturumsuz Faz 0 yedeği).
@@ -76,21 +79,31 @@ export default function ConsolePage() {
     const room = rooms.find((r) => r.id === roomID);
     const versionID = room?.active_show_version_id;
     if (!versionID) {
-      setManifest(null);
+      setFullManifest(null);
       return;
     }
     let cancelled = false;
-    fetchManifestSummary(versionID)
-      .then((m) => {
-        if (!cancelled) setManifest(m);
+    control
+      .get<{ manifest: ManifestJson }>(`/api/v1/show-versions/${versionID}`)
+      .then((resp) => {
+        if (!cancelled) setFullManifest(resp.manifest);
       })
       .catch(() => {
-        if (!cancelled) setManifest(null);
+        if (!cancelled) setFullManifest(null);
       });
     return () => {
       cancelled = true;
     };
   }, [roomID, rooms]);
+
+  const manifest = useMemo(
+    () =>
+      fullManifest && {
+        sequences: (fullManifest.sequences ?? []).map((s) => ({ id: s.id, title: s.title || s.id })),
+        hasProgram: (fullManifest.program ?? []).length > 0,
+      },
+    [fullManifest],
+  );
 
   // Telemetri: sayfa açıkken 4 sn'de bir tazelenir (tek zamanlayıcı).
   useEffect(() => {
@@ -167,6 +180,17 @@ export default function ConsolePage() {
         adminToken,
       );
       setLastRunID(resp.run_id);
+      // Önizleme zamanlaması yereldir (GO anı + gecikme); sunucu ateşlemesine
+      // göre ufak kayabilir — takip görünümü, senkron kaynağı değil.
+      setPreview({
+        cueId: cueTarget,
+        fireAtLocal: Date.now() + delayMs,
+        runId: resp.run_id,
+        flash:
+          cueTarget === FLASH_TARGET
+            ? { color: color.toUpperCase(), flashHz, durationMs }
+            : undefined,
+      });
       const label =
         cueTarget === FLASH_TARGET
           ? "flash"
@@ -183,6 +207,8 @@ export default function ConsolePage() {
     try {
       await gatewayPost("/api/v0/intervention", { kind, room_id: roomID, run_id: lastRunID }, adminToken);
       log(`${kind} gönderildi`);
+      // Telefonlarda koşuyu bitiren müdahaleler önizlemeyi de kapatır.
+      if (kind === "STOP" || kind === "BLACKOUT") setPreview(null);
     } catch (err) {
       log(`${kind} hatası: ${err instanceof Error ? err.message : "?"}`, true);
     }
@@ -190,7 +216,13 @@ export default function ConsolePage() {
 
   return (
     <>
+      <Flow step={4} />
       <h1>Canlı Konsol</h1>
+      <p className="muted">
+        Gösteri anının kumandası: odayı seç, ne çalınacağını seç, GO ile
+        başlat. Başlayan koşuyu alttaki önizlemeden izler, gerekirse sağdaki
+        müdahale düğmeleriyle durdurursun.
+      </p>
       <div className="card">
         <div className="row">
           <div>
@@ -265,15 +297,31 @@ export default function ConsolePage() {
           </div>
         </div>
         <button onClick={sendCue} style={{ width: "100%", fontSize: 20, padding: 16 }}>
-          GO — KUE GÖNDER
+          GO — {cueTarget === FLASH_TARGET
+            ? "FLASH GÖNDER"
+            : cueTarget === PROGRAM_CUE_ID
+              ? "OTOMATİK PROGRAMI BAŞLAT"
+              : "SEKANSI BAŞLAT"}
         </button>
         <div className="iv-grid">
-          <button className="iv-hold" onClick={() => intervene("HOLD")}>HOLD</button>
-          <button className="iv-stop" onClick={() => intervene("STOP")}>STOP</button>
-          <button className="iv-blackout" onClick={() => intervene("BLACKOUT")}>BLACKOUT</button>
-          <button className="iv-skip" onClick={() => intervene("SKIP")}>SKIP</button>
+          <button className="iv-hold" onClick={() => intervene("HOLD")}>
+            HOLD<small>beklet — ışıklar donar</small>
+          </button>
+          <button className="iv-stop" onClick={() => intervene("STOP")}>
+            STOP<small>koşuyu bitirir</small>
+          </button>
+          <button className="iv-blackout" onClick={() => intervene("BLACKOUT")}>
+            BLACKOUT<small>her şeyi karartır</small>
+          </button>
+          <button className="iv-skip" onClick={() => intervene("SKIP")}>
+            SKIP<small>bu kueyi atlar</small>
+          </button>
         </div>
       </div>
+
+      {preview && (
+        <LivePreview manifest={fullManifest} run={preview} onDismiss={() => setPreview(null)} />
+      )}
       <div className="card">
         <h2>Kayıt</h2>
         {lines.length === 0 ? (
@@ -375,11 +423,11 @@ function HeatBar({ st }: { st: RoomClockStats }) {
     { n: st.lt30, color: "#b7a11a", label: "10-30 ms" },
     { n: st.lt100, color: "#c26a1d", label: "30-100 ms" },
     { n: st.gte100, color: "#c22222", label: "≥100 ms" },
-    { n: st.no_sample + st.stale, color: "#555", label: "örnek yok/bayat" },
+    { n: st.no_sample + st.stale, color: "#9aa4b5", label: "örnek yok/bayat" },
   ].filter((p) => p.n > 0);
   const total = parts.reduce((a, p) => a + p.n, 0) || 1;
   return (
-    <div style={{ display: "flex", height: 14, borderRadius: 7, overflow: "hidden", background: "#222" }}>
+    <div style={{ display: "flex", height: 14, borderRadius: 7, overflow: "hidden", background: "#e2e8f1" }}>
       {parts.map((p, i) => (
         <div
           key={i}
