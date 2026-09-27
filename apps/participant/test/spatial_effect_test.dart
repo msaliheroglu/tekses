@@ -27,10 +27,77 @@ void main() {
         (c['u'] as num).toDouble(),
         (c['v'] as num).toDouble(),
         (c['w'] as num).toDouble(),
+        c['block'] as String? ?? '',
         (c['since_ms'] as num).toInt(),
       );
       expect(got, c['want'] as String? ?? '', reason: c['name'] as String);
     }
+  });
+
+  test('motor: söz izleyen renk döngüsü satırla birlikte değişir', () {
+    final seq = ShowSequence.fromJson({
+      'id': 's1',
+      'title': 'Marş',
+      'duration_ms': 20000,
+      'lyric_lines': [
+        {'at_ms': 2000, 'duration_ms': 2000, 'text': 'Birinci satır'},
+        {'at_ms': 5000, 'duration_ms': 2000, 'text': 'İkinci satır'},
+      ],
+      'cue_lanes': [
+        {
+          'id': 'l1',
+          'kind': 'screen',
+          'cues': [
+            {
+              'at_ms': 0,
+              'duration_ms': 20000,
+              'color': '#FFFFFF',
+              'effect': {
+                'kind': 'cycle',
+                'colors': ['#FF0000', '#00FF00', '#0000FF'],
+              },
+            },
+          ],
+        },
+      ],
+    });
+    final engine = TimelineEngine(seq);
+    expect(engine.frameAt(1000).screenColor, '#FF0000'); // henüz söz yok
+    expect(engine.frameAt(3000).screenColor, '#00FF00'); // 1. satır başladı
+    expect(engine.frameAt(6000).screenColor, '#0000FF'); // 2. satır başladı
+  });
+
+  test('motor: blok filtresi yalnız kapsamdaki blokta oynar', () {
+    final seq = ShowSequence.fromJson({
+      'id': 's1',
+      'title': 'Tek tribün',
+      'duration_ms': 10000,
+      'cue_lanes': [
+        {
+          'id': 'l1',
+          'kind': 'screen',
+          'cues': [
+            {
+              'at_ms': 0,
+              'duration_ms': 10000,
+              'color': '#FF0000',
+              'effect': {
+                'kind': 'wave',
+                'period_ms': 2000,
+                'width': 1.0,
+                'blocks': ['KUZEY'],
+              },
+            },
+          ],
+        },
+      ],
+    });
+    expect(TimelineEngine(seq, seatBlock: 'KUZEY').frameAt(1000).screenLit,
+        isTrue);
+    expect(
+        TimelineEngine(seq, seatBlock: 'DOGU').frameAt(1000).screenLit, isFalse);
+    // Koltuksuz telefon blok filtreli efektte kapsam dışıdır.
+    expect(TimelineEngine(seq).frameAt(1000).screenLit, isFalse);
   });
 
   // Dalga efektli tek ekran kuesi: koltuğa göre kimi telefon bantta (yanık),

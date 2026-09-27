@@ -9,15 +9,8 @@ import 'package:tekses_participant/core/venue.dart';
 /// iki gerçekleme altın vektör dosyasındaki koltukları AYNI konuma çözmeli.
 /// Dosyanın üreticisi: go test ./packages/manifest -run TestVenueGolden -update
 void main() {
-  test('altın vektörler: Go ile aynı koltuk → aynı konum', () {
-    final j = jsonDecode(
-      File('../../packages/manifest/testdata/venue_vectors.json')
-          .readAsStringSync(),
-    ) as Map<String, dynamic>;
-    final venue = Venue.fromJson(j['venue'] as Map<String, dynamic>);
-    final cases = j['cases'] as List;
+  void checkGolden(Venue venue, List cases) {
     expect(cases, isNotEmpty);
-
     for (final c in cases.cast<Map<String, dynamic>>()) {
       final seat = c['seat'] as String;
       final ref = SeatRef.parse(seat);
@@ -32,6 +25,35 @@ void main() {
         expect(got[i], closeTo(want[i], 1e-9), reason: '$seat bileşen $i');
       }
     }
+  }
+
+  test('altın vektörler: Go ile aynı koltuk → aynı konum (grid + yay)', () {
+    final j = jsonDecode(
+      File('../../packages/manifest/testdata/venue_vectors.json')
+          .readAsStringSync(),
+    ) as Map<String, dynamic>;
+    checkGolden(
+        Venue.fromJson(j['venue'] as Map<String, dynamic>), j['cases'] as List);
+    // Yay (arc) blok: köşe/oval tribün — sıra başına koltuk yarıçapla artar.
+    checkGolden(Venue.fromJson(j['arc_venue'] as Map<String, dynamic>),
+        j['arc_cases'] as List);
+  });
+
+  test('yay bloğunda sıra kapasitesi sıraya göre değişir', () {
+    final j = jsonDecode(
+      File('../../packages/manifest/testdata/venue_vectors.json')
+          .readAsStringSync(),
+    ) as Map<String, dynamic>;
+    final venue = Venue.fromJson(j['arc_venue'] as Map<String, dynamic>);
+    final b = venue.blocks.single;
+    expect(b.seatsInRow(1), 32); // 10 m yarıçap, çeyrek tur, 0.5 m aralık
+    expect(b.seatsInRow(10), 55); // 17.2 m yarıçapta yay uzar
+    expect(venue.resolve(const SeatRef(block: 'KOSE', row: 10, seat: 55)),
+        isNotNull);
+    expect(venue.resolve(const SeatRef(block: 'KOSE', row: 10, seat: 56)),
+        isNull);
+    expect(venue.resolve(const SeatRef(block: 'KOSE', row: 1, seat: 33)),
+        isNull);
   });
 
   test('koltuk dizgisi çözümü: tireli blok, geçersiz biçimler', () {
