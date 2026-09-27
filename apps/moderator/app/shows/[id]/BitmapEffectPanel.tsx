@@ -46,7 +46,7 @@ function BitmapPreview({ bitmap }: { bitmap: EditorBitmap }) {
         maxWidth: 520,
         imageRendering: "pixelated",
         background:
-          "repeating-conic-gradient(#1a1f29 0% 25%, #10141c 0% 50%) 0 0 / 12px 12px",
+          "repeating-conic-gradient(#dbe2ec 0% 25%, #eef2f8 0% 50%) 0 0 / 12px 12px",
         borderRadius: 6,
         display: "block",
       }}
@@ -107,7 +107,7 @@ export default function BitmapEffectPanel({
   }
 
   return (
-    <div style={{ margin: "4px 0 12px", padding: "8px 12px", borderLeft: "3px solid #444" }}>
+    <div style={{ margin: "4px 0 12px", padding: "8px 12px", borderLeft: "3px solid var(--border)" }}>
       <div className="row">
         <div style={{ flex: "2 1 220px" }}>
           <label>Slogan metni</label>

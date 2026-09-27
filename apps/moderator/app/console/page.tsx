@@ -375,11 +375,11 @@ function HeatBar({ st }: { st: RoomClockStats }) {
     { n: st.lt30, color: "#b7a11a", label: "10-30 ms" },
     { n: st.lt100, color: "#c26a1d", label: "30-100 ms" },
     { n: st.gte100, color: "#c22222", label: "≥100 ms" },
-    { n: st.no_sample + st.stale, color: "#555", label: "örnek yok/bayat" },
+    { n: st.no_sample + st.stale, color: "#9aa4b5", label: "örnek yok/bayat" },
   ].filter((p) => p.n > 0);
   const total = parts.reduce((a, p) => a + p.n, 0) || 1;
   return (
-    <div style={{ display: "flex", height: 14, borderRadius: 7, overflow: "hidden", background: "#222" }}>
+    <div style={{ display: "flex", height: 14, borderRadius: 7, overflow: "hidden", background: "#e2e8f1" }}>
       {parts.map((p, i) => (
         <div
           key={i}
