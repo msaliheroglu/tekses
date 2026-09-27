@@ -56,6 +56,20 @@ func testOrgUserSession(t *testing.T, s store.Store) {
 		t.Fatalf("olmayan e-posta hatası = %v", err)
 	}
 
+	// Hesap görünümü okumaları (whoami): kimlikle kullanıcı ve organizasyon.
+	if got, err := s.UserByID(u.ID); err != nil || got.Email != "a@ornek.com" {
+		t.Fatalf("UserByID = %+v, %v", got, err)
+	}
+	if _, err := s.UserByID("usr_yok"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("olmayan kullanıcı hatası = %v", err)
+	}
+	if org, err := s.OrganizationByID("org_a"); err != nil || org.ID != "org_a" || org.Name == "" {
+		t.Fatalf("OrganizationByID = %+v, %v", org, err)
+	}
+	if _, err := s.OrganizationByID("org_yok"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("olmayan org hatası = %v", err)
+	}
+
 	sess := model.Session{Token: "tok1", UserID: u.ID, OrgID: u.OrgID, CreatedAt: now()}
 	if err := s.CreateSession(sess); err != nil {
 		t.Fatal(err)

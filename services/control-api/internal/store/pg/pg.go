@@ -89,6 +89,28 @@ func (s *Store) UserByEmail(email string) (model.User, error) {
 	return u, err
 }
 
+func (s *Store) UserByID(id string) (model.User, error) {
+	var u model.User
+	err := s.pool.QueryRow(bg,
+		`SELECT id, org_id, email, password_hash, created_at FROM users WHERE id = $1`, id).
+		Scan(&u.ID, &u.OrgID, &u.Email, &u.PasswordHash, &u.CreatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return model.User{}, store.ErrNotFound
+	}
+	return u, err
+}
+
+func (s *Store) OrganizationByID(id string) (model.Organization, error) {
+	var o model.Organization
+	err := s.pool.QueryRow(bg,
+		`SELECT id, name, created_at FROM organizations WHERE id = $1`, id).
+		Scan(&o.ID, &o.Name, &o.CreatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return model.Organization{}, store.ErrNotFound
+	}
+	return o, err
+}
+
 func (s *Store) CreateSession(sess model.Session) error {
 	_, err := s.pool.Exec(bg,
 		`INSERT INTO sessions (token, user_id, org_id, created_at) VALUES ($1, $2, $3, $4)`,

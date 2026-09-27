@@ -238,8 +238,19 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 
 // handleWhoami, geçerli oturumun sahibini döndürür. Asıl işlevi gateway'in
 // yönetici uçlarında panel oturumunu doğrulamasıdır: 200 = geçerli oturum.
+// handleWhoami: oturum doğrulama (gateway kullanır) + panelin hesap sayfası.
+// Kullanıcı/org kayıtları okunamazsa kimlikler yine döner — doğrulama işlevi
+// zenginleştirmeye rehin olmaz.
 func (s *Server) handleWhoami(w http.ResponseWriter, _ *http.Request, sess model.Session) {
-	writeJSON(w, http.StatusOK, map[string]any{"user_id": sess.UserID, "org_id": sess.OrgID})
+	resp := map[string]any{"user_id": sess.UserID, "org_id": sess.OrgID}
+	if u, err := s.store.UserByID(sess.UserID); err == nil {
+		resp["email"] = u.Email
+		resp["member_since"] = u.CreatedAt
+	}
+	if org, err := s.store.OrganizationByID(sess.OrgID); err == nil {
+		resp["organization"] = org.Name
+	}
+	writeJSON(w, http.StatusOK, resp)
 }
 
 type loginRequest struct {
