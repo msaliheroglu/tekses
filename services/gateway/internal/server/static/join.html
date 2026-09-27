@@ -242,6 +242,69 @@ function updateSeatPos() {
   renderStatus();
 }
 
+// --- uzamsal efektler (F4.2) ---
+// Referans packages/manifest/effect.go; aritmetik üç gerçeklemede birebirdir
+// (Dart eşleniği spatial_effect.dart) ve testdata/effect_vectors.json altın
+// vektörlerine karşı E2E'de sınanır. Değiştirirken üçünü birden değiştir.
+
+function effectAxisPos(eff, u, v, w) {
+  let p = u;
+  if (eff.axis === "v") p = v;
+  if (eff.axis === "w") p = w;
+  return eff.reverse ? 1 - p : p;
+}
+
+function lerpColor(c1, c2, t) {
+  const ch = (c, i) => parseInt(c.slice(i, i + 2), 16);
+  const hex2 = (x) => x.toString(16).padStart(2, "0").toUpperCase();
+  return "#" +
+    hex2(Math.round(ch(c1, 1) + (ch(c2, 1) - ch(c1, 1)) * t)) +
+    hex2(Math.round(ch(c1, 3) + (ch(c2, 3) - ch(c1, 3)) * t)) +
+    hex2(Math.round(ch(c1, 5) + (ch(c2, 5) - ch(c1, 5)) * t));
+}
+
+// Efektin (u,v,w) konumuna kue başlangıcından sinceMs sonra basacağı renk;
+// "" = kapalı. Bozuk/bilinmeyen efekt de "" (savunmacı; doğrulama sunucuda).
+function evalEffect(eff, cueColor, u, v, w, sinceMs) {
+  if (eff.kind === "wave") {
+    if (!eff.period_ms || eff.period_ms <= 0) return "";
+    const p = effectAxisPos(eff, u, v, w);
+    const front = (sinceMs % eff.period_ms) / eff.period_ms;
+    let d = Math.abs(p - front);
+    if (d > 0.5) d = 1 - d; // süpürme sargılıdır: 0.95 ile 0.05 komşudur
+    return d <= (eff.width || 0) / 2 ? cueColor : (eff.color2 || "");
+  }
+  if (eff.kind === "gradient") {
+    if (!eff.color2 || eff.color2.length !== 7 || cueColor.length !== 7) return "";
+    return lerpColor(cueColor, eff.color2, effectAxisPos(eff, u, v, w));
+  }
+  if (eff.kind === "bitmap") {
+    const b = eff.bitmap;
+    if (!b || !b.rows || !b.rows.length || !b.rows[0].length) return "";
+    const cols = b.rows[0].length;
+    let p = effectAxisPos(eff, u, v, w);
+    if (eff.period_ms > 0) {
+      // Kaydırma: desen p ekseninde sola akar, dönem başına bir tam tur.
+      p += (sinceMs % eff.period_ms) / eff.period_ms;
+      if (p >= 1) p -= 1;
+    }
+    let col = Math.floor(p * cols);
+    if (col >= cols) col = cols - 1; // p=1 ucu son sütuna yapışır
+    if (col < 0) col = 0;
+    const nrows = b.rows.length;
+    let rowIdx = Math.floor((1 - w) * nrows); // ilk satır = tepe (w=1)
+    if (rowIdx >= nrows) rowIdx = nrows - 1;
+    if (rowIdx < 0) rowIdx = 0;
+    const row = b.rows[rowIdx];
+    if (col >= row.length) return "";
+    if (row[col] === ".") return "";
+    const idx = parseInt(row[col], 16);
+    if (!Number.isInteger(idx) || idx >= (b.palette || []).length) return "";
+    return b.palette[idx];
+  }
+  return "";
+}
+
 const IDLE_FRAME = { done: false, lyric: "", nextLyric: "", screenColor: "", screenLit: false };
 const DONE_FRAME = { done: true, lyric: "", nextLyric: "", screenColor: "", screenLit: false };
 
@@ -283,7 +346,25 @@ function seqFrameAt(seq, e) {
     if (lane.kind !== "screen") continue; // torch/audio tarayıcıda yok
     let activeCue = null;
     for (const c of lane.cues || []) if (cueActiveAt(c, e)) activeCue = c;
-    if (activeCue) { screenColor = activeCue.color || ""; screenLit = cueLitAt(activeCue, e); }
+    if (activeCue) {
+      const eff = activeCue.effect;
+      if (!eff) {
+        screenColor = activeCue.color || "";
+        screenLit = cueLitAt(activeCue, e);
+      } else if (safeMode) {
+        // Duyarlı mod: efekt değerlendirilmez, kue rengi sabit yanar.
+        screenColor = activeCue.color || "";
+        screenLit = true;
+      } else {
+        // Koltuksuz tarayıcı mekânın ortası sayılır (telefonla aynı kural).
+        const pu = seatPos ? seatPos.u : 0.5;
+        const pv = seatPos ? seatPos.v : 0.5;
+        const pw = seatPos ? seatPos.w : 0.5;
+        const c = evalEffect(eff, activeCue.color || "", pu, pv, pw, e - activeCue.at_ms);
+        screenColor = c;
+        screenLit = c !== "";
+      }
+    }
   }
   return { done: false, lyric, nextLyric, screenColor, screenLit };
 }
