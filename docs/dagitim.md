@@ -129,8 +129,9 @@ CDN'e taşır (R2'de çıkış trafiği ücretsizdir — karar dokümanı §4).
    - **A — public erişim yok (en kolay):** `TEKSES_ASSET_PUBLIC_BASE`'i hiç
      yazmayın. Dosyalar R2'de durur (kalıcılık ✓) ama telefonlara
      control-api üzerinden servis edilir; prova için yeterli, CDN kazanımı yok.
-   - **B — r2.dev alt alanı:** kova → Settings → Public access → R2.dev
-     subdomain → Allow; çıkan `https://pub-….r2.dev` adresini
+   - **B — r2.dev alt alanı:** kova → Settings → **Public Development URL**
+     (eski adı "Public access / R2.dev subdomain") → Enable → onay kutusuna
+     `allow` yazıp onaylayın; çıkan `https://pub-….r2.dev` adresini
      `TEKSES_ASSET_PUBLIC_BASE` yapın. Hız sınırlıdır: prova için olur,
      etkinlik için olmaz.
    - **C — özel alan adı (etkinlik için şart):** Cloudflare DNS'te duran bir
