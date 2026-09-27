@@ -224,6 +224,17 @@ func TestManifestVenueValidation(t *testing.T) {
 		t.Fatal("mekân çözülmedi")
 	}
 
+	// Landmark (saha/sahne) isteğe bağlıdır ve geçerli biçimde kabul edilir.
+	m2, err := Parse(venueManifestJSON(`{"blocks": [
+		{"id": "A", "rows": 1, "seats_per_row": 1}],
+		"landmark": {"kind": "pitch", "x": 0, "y": 0, "w": 105, "d": 68}}`))
+	if err != nil {
+		t.Fatalf("landmark'lı mekân reddedildi: %v", err)
+	}
+	if m2.Venue.Landmark == nil || m2.Venue.Landmark.Kind != LandmarkPitch {
+		t.Fatal("landmark çözülmedi")
+	}
+
 	bad := []struct {
 		name, venue string
 	}{
@@ -243,6 +254,12 @@ func TestManifestVenueValidation(t *testing.T) {
 		{"koltuk üst sınırı", `{"blocks": [
 			{"id": "A", "rows": 1000, "seats_per_row": 1000,
 			 "row_vec": {"y": 0.8}, "seat_vec": {"x": 0.5}}]}`},
+		{"geçersiz landmark türü", `{"blocks": [
+			{"id": "A", "rows": 1, "seats_per_row": 1}],
+			"landmark": {"kind": "pool", "x": 0, "y": 0, "w": 10, "d": 5}}`},
+		{"landmark boyutsuz", `{"blocks": [
+			{"id": "A", "rows": 1, "seats_per_row": 1}],
+			"landmark": {"kind": "pitch", "x": 0, "y": 0, "w": 0, "d": 5}}`},
 	}
 	for _, c := range bad {
 		if _, err := Parse(venueManifestJSON(c.venue)); err == nil {

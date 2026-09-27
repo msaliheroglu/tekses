@@ -38,6 +38,25 @@ var blockIDRe = regexp.MustCompile(`^\S{1,64}$`)
 type Venue struct {
 	Name   string  `json:"name,omitempty"`
 	Blocks []Block `json:"blocks"`
+	// Landmark, sahanın/sahnenin yeridir — panel editörü ve 3B önizleme
+	// İÇİN görsel bağlamdır (izleyen mekânda nerede olduğunu anlasın);
+	// telefon koreografisi bunu KULLANMAZ (normalize eksenler yalnız
+	// koltuklardan türetilir, işaret eklemek u/v/w'yi değiştirmez).
+	Landmark *Landmark `json:"landmark,omitempty"`
+}
+
+// Landmark türleri.
+const (
+	LandmarkPitch = "pitch" // saha (stadyum)
+	LandmarkStage = "stage" // sahne (salon/konser)
+)
+
+type Landmark struct {
+	Kind string  `json:"kind"` // pitch | stage
+	X    float64 `json:"x"`    // merkez (metre)
+	Y    float64 `json:"y"`
+	W    float64 `json:"w"` // genişlik (x ekseni)
+	D    float64 `json:"d"` // derinlik (y ekseni)
 }
 
 type Block struct {
@@ -138,6 +157,14 @@ func (m Manifest) validateVenue() error {
 	}
 	if totalSeats > maxVenueSeats {
 		return fmt.Errorf("venue: toplam koltuk %d üst sınırı (%d) aşıyor", totalSeats, maxVenueSeats)
+	}
+	if lm := v.Landmark; lm != nil {
+		if lm.Kind != LandmarkPitch && lm.Kind != LandmarkStage {
+			return fmt.Errorf("venue.landmark: kind %q geçersiz (pitch|stage)", lm.Kind)
+		}
+		if lm.W <= 0 || lm.D <= 0 || lm.W > 2000 || lm.D > 2000 {
+			return fmt.Errorf("venue.landmark: w/d 0..2000 m aralığında pozitif olmalı")
+		}
 	}
 	return nil
 }
