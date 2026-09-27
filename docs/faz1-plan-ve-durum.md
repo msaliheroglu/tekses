@@ -477,6 +477,27 @@ parametre taşır, telefon rengini/zamanını (mekân geometrisi + kendi koltuğ
   hazır ayarlı sekans üretir. (7) Önizleme kartı plansız gösteride de
   çalışır (telefon maketi; planlıysa + 3B tribün). (8) Genel sadeleştirme
   bu maddelerin toplamı. **Panel doğrulaması kullanıcıda.**
+  **3. tur (2026-09-27, kullanıcının 8 maddesi — efekt/mekân modeli
+  büyüdü, 4 gerçekleme birlikte):** (1) Meksika dalgası artık DOĞRUsal
+  değil: efekt eksenlerine `ring` eklendi — mekân merkezi etrafında açı
+  payı, dalga/kayan yazı tribünden tribüne sırayla turlar (reverse = saat
+  yönü); sihirbaz varsayılanı. (2) Efektlere `blocks` filtresi: yalnız
+  seçilen bloklar oynar (tek tribün koreografisi; venue kimlikleriyle
+  doğrulanır, koltuksuz istemci kapsam dışı); panelde blok seçici çipleri.
+  (3) Fener dalgası arayüzü: fener adımlarında dalga (yön/hız/bant/blok);
+  sihirbazda 'fenerler de katılsın'. (4) Bitmap çözünürlüğü 'otomatik —
+  tribüne uydur' (pencere kaç koltuk kaplıyorsa o kadar piksel; elle
+  seçenek durur); görüntü oranı zaten korunuyor. (5) `area` yerleştirme
+  penceresi + fareyle yerleştirme tuvali (tribün duvarı düzleştirilir,
+  desen hayaleti taşınır/boyutlanır). (7) `cycle` renk döngüsü: 2..16
+  renk; sabit aralık (≥334 ms) YA DA period=0 = söz satırını izler
+  (motor kuralı: başlamış satır sayısı mod renk — üç motor birebir).
+  (8) Yay (arc) blok türü: koltuklar merkez etrafında yaya dizilir, sıra
+  başına koltuk yarıçapla artar (gerçek oval köşe); stadyum şablonunun
+  köşeleri yay; mekân editöründe düz/yay biçim alanları. Altın vektörler
+  yenilendi (mekân dosyasına arc bölümü; efekt 17 örnek) — Go/Dart/JS/TS
+  dördü birebir; Dart 49 test + Go tümü + E2E + panel build yeşil.
+  **Cihaz/panel doğrulaması kullanıcıda (yeni APK tetiklendi).**
 - [ ] **F4.6 Uçtan uca prova:** birkaç telefon farklı koltuk kimlikleriyle —
   dalganın sırayla geçtiği kamerayla doğrulanır. (Telefonlar toplanınca;
   F3.5 fener kalibrasyonuyla aynı oturumda yapılabilir.)
