@@ -29,6 +29,7 @@ import {
 } from "@/lib/manifestEditor";
 import BitmapEffectPanel from "./BitmapEffectPanel";
 import VenueEditor from "./VenueEditor";
+import VenuePreview3D from "./VenuePreview3D";
 
 // Görsel gösteri editörü: sekans/ses/söz/ekran/fener form ve seçicilerle
 // düzenlenir; manifest JSON'u yayında lib/manifestEditor üretir. JSON'u elle
@@ -494,6 +495,7 @@ export default function ShowDetailPage({ params }: { params: Promise<{ id: strin
               venue={show.venue}
               onChange={(v) => setShow((s) => ({ ...s, venue: v }))}
             />
+            {show.venue && <VenuePreview3D show={show} />}
 
             {show.sequences.map((sq, i) => (
               <div className="card" key={i}>

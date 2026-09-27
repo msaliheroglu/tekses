@@ -210,6 +210,59 @@ export function totalSeats(v: EditorVenue): number {
   return v.blocks.reduce((sum, b) => sum + b.rows * b.seatsPerRow, 0);
 }
 
+// --- 3B önizleme için koltuk noktaları (F4.4) ---
+
+// Dünya konumu (metre) + normalize u/v/w. Normalizasyon packages/manifest
+// Bounds/normAxis aynasıdır: sınır kutusu blok köşelerinden, sıfır genişlikli
+// eksen 0.5. Efekt önizlemesi telefonla aynı u/v/w'yu görmek zorundadır.
+export type SeatPoint = { x: number; y: number; z: number; u: number; v: number; w: number };
+
+function seatWorld3(b: EditorBlock, row: number, seat: number): [number, number, number] {
+  const c = Math.cos(rad(b.rotationDeg));
+  const s = Math.sin(rad(b.rotationDeg));
+  return [
+    b.x + (-s * b.rowStep) * (row - 1) + c * b.seatStep * (seat - 1),
+    b.y + (c * b.rowStep) * (row - 1) + s * b.seatStep * (seat - 1),
+    b.z + b.rake * (row - 1),
+  ];
+}
+
+// maxSeats üstünde her stride'ıncı koltuk örneklenir (çizim bütçesi).
+export function seatPoints(v: EditorVenue, maxSeats: number): { points: SeatPoint[]; stride: number } {
+  let minX = Infinity, minY = Infinity, minZ = Infinity;
+  let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+  for (const b of v.blocks) {
+    for (const row of [1, b.rows]) {
+      for (const seat of [1, b.seatsPerRow]) {
+        const [x, y, z] = seatWorld3(b, row, seat);
+        minX = Math.min(minX, x); maxX = Math.max(maxX, x);
+        minY = Math.min(minY, y); maxY = Math.max(maxY, y);
+        minZ = Math.min(minZ, z); maxZ = Math.max(maxZ, z);
+      }
+    }
+  }
+  const norm = (p: number, lo: number, hi: number) => (hi - lo < 0.001 ? 0.5 : (p - lo) / (hi - lo));
+  const total = totalSeats(v);
+  const stride = Math.max(1, Math.ceil(total / maxSeats));
+  const points: SeatPoint[] = [];
+  let counter = 0;
+  for (const b of v.blocks) {
+    for (let row = 1; row <= b.rows; row++) {
+      for (let seat = 1; seat <= b.seatsPerRow; seat++) {
+        if (counter++ % stride !== 0) continue;
+        const [x, y, z] = seatWorld3(b, row, seat);
+        points.push({
+          x, y, z,
+          u: norm(x, minX, maxX),
+          v: norm(y, minY, maxY),
+          w: norm(z, minZ, maxZ),
+        });
+      }
+    }
+  }
+  return { points, stride };
+}
+
 export function uniqueBlockId(base: string, blocks: EditorBlock[]): string {
   const taken = new Set(blocks.map((b) => b.id));
   if (!taken.has(base)) return base;
