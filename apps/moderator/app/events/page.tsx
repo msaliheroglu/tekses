@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { ApiError, control, type Event } from "@/lib/api";
 import { useRouter } from "next/navigation";
+import Flow from "../Flow";
 
 export default function EventsPage() {
   const router = useRouter();
@@ -41,7 +42,13 @@ export default function EventsPage() {
 
   return (
     <>
+      <Flow step={1} />
       <h1>Etkinlikler</h1>
+      <p className="muted">
+        Etkinlik = gerçek organizasyon (konser, maç). Seyircilerin katılacağı
+        odalar (tribün, salon) etkinliğin içindedir — etkinliğe tıklayıp oda
+        oluşturun; her oda katılım kodu ve QR alır.
+      </p>
       <form className="card" onSubmit={create}>
         <h2>Yeni etkinlik</h2>
         <div className="row">

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { control, type Show } from "@/lib/api";
+import Flow from "../Flow";
 
 export default function ShowsPage() {
   const [shows, setShows] = useState<Show[]>([]);
@@ -36,7 +37,14 @@ export default function ShowsPage() {
 
   return (
     <>
+      <Flow step={2} />
       <h1>Gösteriler</h1>
+      <p className="muted">
+        Gösteri = koreografinin tamamı: sekanslar (şarkılar/bölümler), sözler,
+        ışık adımları, mekân planı ve efektler. Odadan bağımsızdır — aynı
+        gösteri birden çok odada etkinleştirilebilir. Düzenlemek için gösteriye
+        tıklayın.
+      </p>
       <form className="card" onSubmit={create}>
         <h2>Yeni gösteri</h2>
         <label>Başlık</label>
@@ -55,7 +63,7 @@ export default function ShowsPage() {
               {shows.map((s) => (
                 <tr key={s.id}>
                   <td>{s.title}</td>
-                  <td><Link href={`/shows/${s.id}`}>sürümler →</Link></td>
+                  <td><Link href={`/shows/${s.id}`}>düzenle & yayınla →</Link></td>
                 </tr>
               ))}
             </tbody>

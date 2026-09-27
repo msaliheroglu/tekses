@@ -27,6 +27,7 @@ import {
   type EditorShow,
   type EditorTorchStep,
 } from "@/lib/manifestEditor";
+import Flow from "../../Flow";
 import BitmapEffectPanel from "./BitmapEffectPanel";
 import VenueEditor from "./VenueEditor";
 import VenuePreview3D from "./VenuePreview3D";
@@ -150,6 +151,9 @@ export default function ShowDetailPage({ params }: { params: Promise<{ id: strin
   const [show, setShow] = useState<EditorShow>(defaultShow);
   const [advanced, setAdvanced] = useState(false);
   const [jsonText, setJsonText] = useState("");
+  // Akordeon: açık sekans kartları (indeksle). Uzun gösterilerde sayfa
+  // kilometrelerce uzamasın — özet başlıkta, ayrıntı tıklayınca.
+  const [openSeqs, setOpenSeqs] = useState<Set<number>>(new Set([0]));
   // LRC/otomatik çıkarmadan gelen sözler: kullanıcı hangi sekansa koyacağını
   // sekans kartındaki düğmeyle seçer.
   const [pendingLyrics, setPendingLyrics] = useState<EditorLyric[] | null>(null);
@@ -199,18 +203,37 @@ export default function ShowDetailPage({ params }: { params: Promise<{ id: strin
     }));
   }
 
+  function toggleSeq(i: number) {
+    setOpenSeqs((s) => {
+      const n = new Set(s);
+      if (n.has(i)) n.delete(i);
+      else n.add(i);
+      return n;
+    });
+  }
+
   function moveSeq(i: number, dir: -1 | 1) {
+    const j = i + dir;
+    if (j < 0 || j >= show.sequences.length) return;
     setShow((s) => {
       const seqs = [...s.sequences];
-      const j = i + dir;
-      if (j < 0 || j >= seqs.length) return s;
       [seqs[i], seqs[j]] = [seqs[j], seqs[i]];
       return { ...s, sequences: seqs };
+    });
+    // Açık/kapalı durumu sekansla birlikte taşınır.
+    setOpenSeqs((s) => {
+      const n = new Set(s);
+      const hadI = n.has(i), hadJ = n.has(j);
+      n.delete(i); n.delete(j);
+      if (hadI) n.add(j);
+      if (hadJ) n.add(i);
+      return n;
     });
   }
 
   function removeSeq(i: number) {
     setShow((s) => ({ ...s, sequences: s.sequences.filter((_, j) => j !== i) }));
+    setOpenSeqs((s) => new Set([...s].filter((k) => k !== i).map((k) => (k > i ? k - 1 : k))));
   }
 
   // --- yayınlama / sürümler ---
@@ -407,10 +430,15 @@ export default function ShowDetailPage({ params }: { params: Promise<{ id: strin
 
   return (
     <>
+      <Flow step={2} />
       <h1>Gösteri düzenle</h1>
+      <p className="muted">
+        Sıra: ses dosyalarını yükle → sözleri getir → (istersen) mekân planı
+        çiz → sekansları düzenle → yayınla → sürümü odada etkinleştir.
+      </p>
 
       <div className="card">
-        <h2>Ses varlıkları</h2>
+        <h2>1 · Ses varlıkları</h2>
         <p className="muted">
           Şarkı dosyasını yükleyin, sonra ilgili sekans kartında &quot;Müzik&quot;
           listesinden seçin. Süre otomatik okunur. Lisans sorumluluğu
@@ -445,7 +473,7 @@ export default function ShowDetailPage({ params }: { params: Promise<{ id: strin
       </div>
 
       <div className="card">
-        <h2>Sözler: LRC içe aktar</h2>
+        <h2>2 · Sözler: LRC içe aktar</h2>
         <p className="muted">
           Senkronlu söz dosyasını (<code>[01:23.45]söz satırı</code> biçimi)
           yapıştırın. En isabetli yol budur — otomatik çıkarma yalnızca taslak üretir.
@@ -497,8 +525,30 @@ export default function ShowDetailPage({ params }: { params: Promise<{ id: strin
             />
             {show.venue && <VenuePreview3D show={show} />}
 
-            {show.sequences.map((sq, i) => (
+            <h2 style={{ margin: "22px 4px 0" }}>4 · Sekanslar (şarkılar / bölümler)</h2>
+            <p className="muted" style={{ margin: "4px 4px 0" }}>
+              Özet rozetlerde; düzenlemek için başlığa tıklayın.
+            </p>
+            {show.sequences.map((sq, i) => {
+              const open = openSeqs.has(i);
+              return (
               <div className="card" key={i}>
+                <div className="acc-head" onClick={() => toggleSeq(i)}>
+                  <span className={"acc-caret" + (open ? " open" : "")}>▶</span>
+                  <span className="acc-title">{sq.title || "(adsız sekans)"}</span>
+                  <span className="acc-chips">
+                    <span className="chip">{fmtTime(sq.durationMs)}</span>
+                    {sq.audioAssetId && <span className="chip">müzik ✓</span>}
+                    {sq.lyrics.length > 0 && <span className="chip">{sq.lyrics.length} söz</span>}
+                    {sq.screen.length > 0 && <span className="chip">{sq.screen.length} ekran</span>}
+                    {sq.torch.length > 0 && <span className="chip">{sq.torch.length} fener</span>}
+                    <span className={"chip" + (sq.inProgram ? " hot" : "")}>
+                      {sq.inProgram ? "programda" : "program dışı"}
+                    </span>
+                  </span>
+                </div>
+                {open && (
+                <div className="acc-body">
                 <div className="row">
                   <div style={{ flex: "2 1 220px" }}>
                     <label>Sekans başlığı (konsolda bu adla görünür)</label>
@@ -828,15 +878,20 @@ export default function ShowDetailPage({ params }: { params: Promise<{ id: strin
                 >
                   + Söz satırı
                 </button>
+                </div>
+                )}
               </div>
-            ))}
+              );
+            })}
 
             <button
               type="button"
               className="secondary"
-              onClick={() =>
-                setShow((s) => ({ ...s, sequences: [...s.sequences, emptySequence(`Şarkı ${s.sequences.length + 1}`)] }))
-              }
+              onClick={() => {
+                // Yeni sekans açık gelir — moderatör hemen düzenlesin.
+                setOpenSeqs((s) => new Set(s).add(show.sequences.length));
+                setShow((s) => ({ ...s, sequences: [...s.sequences, emptySequence(`Şarkı ${s.sequences.length + 1}`)] }));
+              }}
             >
               + Sekans ekle
             </button>
@@ -856,6 +911,7 @@ export default function ShowDetailPage({ params }: { params: Promise<{ id: strin
         )}
 
         <div className="card">
+          <h2>5 · Yayınla</h2>
           <p className="muted">
             Yayınlanan sürüm değişmezdir; telefonlar içeriği SHA-256 ile doğrular.
             Düzeltme gerektiğinde yeni sürüm yayınlayıp odada onu etkinleştirin.
@@ -868,7 +924,12 @@ export default function ShowDetailPage({ params }: { params: Promise<{ id: strin
       {notice && <p className="ok">{notice}</p>}
 
       <div className="card">
-        <h2>Sürümler</h2>
+        <h2>6 · Sürümler & odada etkinleştirme</h2>
+        <p className="muted">
+          Telefonlar odada ETKİN olan sürümü indirir. Aşağıdan odayı seçip
+          istediğiniz sürümü etkinleştirin; eski bir sürümü &quot;Editörde
+          aç&quot; ile geri getirebilirsiniz.
+        </p>
         {rooms.length > 0 && (
           <>
             <label>Etkinleştirilecek oda</label>

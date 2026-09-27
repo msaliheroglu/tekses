@@ -1,8 +1,10 @@
 "use client";
 
 import { use, useCallback, useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import QRCode from "qrcode";
 import { control, type Event, type Room } from "@/lib/api";
+import Flow from "../../Flow";
 
 // Katılımcı sayfasının telefonlardan erişilen adresi; QR bunu kodlar.
 const GATEWAY_PUBLIC_URL =
@@ -57,6 +59,7 @@ export default function EventDetailPage({ params }: { params: Promise<{ id: stri
 
   return (
     <>
+      <Flow step={1} />
       <h1>{event ? event.name : "…"}</h1>
       {event?.venue && <p className="muted">{event.venue}</p>}
       <form className="card" onSubmit={createRoom}>
@@ -75,7 +78,13 @@ export default function EventDetailPage({ params }: { params: Promise<{ id: stri
             <span className="muted">Katılım adresi: {joinURL(room.join_code)}</span>
             <br />
             <span className="muted">
-              Aktif gösteri sürümü: {room.active_show_version_id || "yok — Gösteriler sayfasından etkinleştirin"}
+              Aktif gösteri sürümü:{" "}
+              {room.active_show_version_id || (
+                <>
+                  yok — <Link href="/shows">Gösteriler</Link> sayfasında bir
+                  sürüm yayınlayıp bu odada etkinleştirin
+                </>
+              )}
             </span>
           </p>
           <RoomQR code={room.join_code} />

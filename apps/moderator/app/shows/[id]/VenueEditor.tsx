@@ -74,7 +74,7 @@ export default function VenueEditor({
   if (!venue) {
     return (
       <div className="card">
-        <h2>Mekân planı (koltuk bazlı koreografi)</h2>
+        <h2>3 · Mekân planı (koltuk bazlı koreografi)</h2>
         <p className="muted">
           Plan eklerseniz seyirciler katılırken koltuklarını girer (bilet
           QR&apos;ı <code>?seat=BLOK-SIRA-KOLTUK</code> da taşıyabilir) ve
@@ -120,7 +120,7 @@ export default function VenueEditor({
 
   return (
     <div className="card">
-      <h2>Mekân planı (koltuk bazlı koreografi)</h2>
+      <h2>3 · Mekân planı (koltuk bazlı koreografi)</h2>
       <p className="muted">
         Üstten görünüş; bloğu sürükleyerek taşıyın, tıklayıp alanlardan
         düzenleyin. Ok, koltuk numaralandırma yönünü (1. koltuk → son)
