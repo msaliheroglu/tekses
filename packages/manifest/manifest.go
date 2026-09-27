@@ -56,6 +56,10 @@ type Manifest struct {
 	// her öğe program başlangıcına göre at_offset_ms anında kendi sekansını
 	// oynatır. Öğeler artan sırada olmalı ve üst üste binmemelidir.
 	Program []ProgramItem `json:"program,omitempty"`
+	// Venue, isteğe bağlı mekân modelidir (Faz 4, koltuk bazlı koreografi;
+	// venue.go). Yokken her şey bugünkü gibi çalışır — omitempty sayesinde
+	// mekânsız manifestlerin kanonik baytları/özetleri de değişmez.
+	Venue *Venue `json:"venue,omitempty"`
 }
 
 type ProgramItem struct {
@@ -198,7 +202,8 @@ func (m Manifest) Validate() error {
 		}
 		prevEnd = item.AtOffsetMs + dur
 	}
-	return nil
+
+	return m.validateVenue()
 }
 
 func validateCue(kind string, c Cue, seqDurationMs int) error {
