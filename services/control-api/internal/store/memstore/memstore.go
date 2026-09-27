@@ -70,6 +70,28 @@ func (m *Memstore) UserByEmail(email string) (model.User, error) {
 	return u, nil
 }
 
+func (m *Memstore) UserByID(id string) (model.User, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	// users e-postayla anahtarlı; kullanıcı sayısı org başına küçük, tarama ucuz.
+	for _, u := range m.users {
+		if u.ID == id {
+			return u, nil
+		}
+	}
+	return model.User{}, store.ErrNotFound
+}
+
+func (m *Memstore) OrganizationByID(id string) (model.Organization, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	o, ok := m.orgs[id]
+	if !ok {
+		return model.Organization{}, store.ErrNotFound
+	}
+	return o, nil
+}
+
 func (m *Memstore) CreateSession(s model.Session) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()

@@ -465,6 +465,18 @@ parametre taşır, telefon rengini/zamanını (mekân geometrisi + kendi koltuğ
   söz/süre yardımcıları); hedefe göre adlanan GO, alt yazılı müdahale
   düğmeleri. **Panel doğrulaması kullanıcıda; yeni cila maddeleri geldikçe
   bu adım yeniden açılır.**
+  **2. tur (2026-09-27, kullanıcının 8 maddesi):** (1) Hesap sayfası —
+  oturum açıkken giriş formu yerine üyelik kartı (whoami e-posta/org/
+  başlangıç ile zenginleştirildi; store'a UserByID/OrganizationByID).
+  (2) Stadyum şablonu tam tur: 4 kenar + 4 köşe tribünü (~30k; blok
+  silerek küçültülür). (3) Bitmap görüntüsü en-boy oranını korur (contain,
+  boşluk '.'). (4) Salon şablonuna sahne. (5) Mekâna landmark (saha/sahne,
+  manifest'te; koreografiyi etkilemez) — 2B editör ve 3B tuval sahayı orta
+  çizgi/yuvarlakla, sahneyi etiketle çizer; blok kontürleri+adları ve kuzey
+  oku eklendi. (6) 'Hazır koreografi ekle — tek tıkla': dalga/slogan/bayrak
+  hazır ayarlı sekans üretir. (7) Önizleme kartı plansız gösteride de
+  çalışır (telefon maketi; planlıysa + 3B tribün). (8) Genel sadeleştirme
+  bu maddelerin toplamı. **Panel doğrulaması kullanıcıda.**
 - [ ] **F4.6 Uçtan uca prova:** birkaç telefon farklı koltuk kimlikleriyle —
   dalganın sırayla geçtiği kamerayla doğrulanır. (Telefonlar toplanınca;
   F3.5 fener kalibrasyonuyla aynı oturumda yapılabilir.)

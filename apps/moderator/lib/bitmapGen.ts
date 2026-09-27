@@ -159,7 +159,15 @@ export function imageToBitmap(
   const ctx = canvas.getContext("2d");
   if (!ctx) return { error: "canvas desteklenmiyor" };
   ctx.imageSmoothingEnabled = true;
-  ctx.drawImage(img, 0, 0, cols, rows);
+  // En-boy oranı KORUNUR (contain): görüntü alana ortalanarak sığdırılır,
+  // artan kenarlar saydam kalır → '.' (kapalı koltuk). Bayrak yamulmaz.
+  const iw = img.naturalWidth || img.width;
+  const ih = img.naturalHeight || img.height;
+  if (!iw || !ih) return { error: "görüntü boyutu okunamadı" };
+  const scale = Math.min(cols / iw, rows / ih);
+  const w = iw * scale;
+  const h = ih * scale;
+  ctx.drawImage(img, (cols - w) / 2, (rows - h) / 2, w, h);
   const data = ctx.getImageData(0, 0, cols, rows).data;
   return { bitmap: rgbaToBitmap(data, cols, rows) };
 }

@@ -127,15 +127,19 @@ export function manifestScreenColorAt(
   return t ? screenColorAt(t.seq, t.seqElapsedMs, u, v, w) : "";
 }
 
-export function manifestLyricAt(m: ManifestJson, cueId: string, elapsedMs: number): string {
-  const t = resolveTarget(m, cueId, elapsedMs);
-  if (!t) return "";
+export function seqLyricAt(seq: SeqJson, elapsedMs: number): string {
+  if (elapsedMs < 0 || elapsedMs >= seq.duration_ms) return "";
   let lyric = "";
-  for (const l of t.seq.lyric_lines ?? []) {
-    const end = l.duration_ms ? l.at_ms + l.duration_ms : t.seq.duration_ms;
-    if (t.seqElapsedMs >= l.at_ms && t.seqElapsedMs < end) lyric = l.text;
+  for (const l of seq.lyric_lines ?? []) {
+    const end = l.duration_ms ? l.at_ms + l.duration_ms : seq.duration_ms;
+    if (elapsedMs >= l.at_ms && elapsedMs < end) lyric = l.text;
   }
   return lyric;
+}
+
+export function manifestLyricAt(m: ManifestJson, cueId: string, elapsedMs: number): string {
+  const t = resolveTarget(m, cueId, elapsedMs);
+  return t ? seqLyricAt(t.seq, t.seqElapsedMs) : "";
 }
 
 // Koşunun toplam süresi (önizleme ilerleme çubuğu): program → son öğenin

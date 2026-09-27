@@ -27,7 +27,7 @@ export default function TopNav() {
         ))}
         <span className="spacer" />
         <Link href="/login" className={path.startsWith("/login") ? "active" : ""}>
-          Oturum
+          Hesap
         </Link>
       </div>
     </nav>

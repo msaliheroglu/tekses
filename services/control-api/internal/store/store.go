@@ -26,6 +26,10 @@ type Store interface {
 	// sahipsiz organizasyon kalmaz.
 	CreateOrgWithUser(org model.Organization, u model.User) error
 	UserByEmail(email string) (model.User, error)
+	// UserByID/OrganizationByID: hesap görünümü (whoami) içindir — oturum
+	// zaten doğrulandığından org daraltması istemez.
+	UserByID(id string) (model.User, error)
+	OrganizationByID(id string) (model.Organization, error)
 	CreateSession(s model.Session) error
 	SessionByToken(token string) (model.Session, error)
 

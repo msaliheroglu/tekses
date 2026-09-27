@@ -1,14 +1,15 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { screenColorAt } from "@/lib/effectEval";
+import { screenColorAt, seqLyricAt } from "@/lib/effectEval";
 import { fmtTime, toManifest, type EditorShow } from "@/lib/manifestEditor";
-import { seatPoints, totalSeats, type SeatPoint } from "@/lib/venueEditor";
-import SeatCloudCanvas from "../../components/SeatCloudCanvas";
+import { blockCorners, seatPoints, totalSeats, type SeatPoint } from "@/lib/venueEditor";
+import SeatCloudCanvas, { type CloudScene } from "../../components/SeatCloudCanvas";
 
-// 3B mekân önizlemesi (F4.4): moderatör, koreografiyi tribüne göstermeden
-// önce görür. Çizim ortak SeatCloudCanvas'ta; nokta rengi telefonun o
-// koltukta o an basacağı ekran rengidir (lib/effectEval — aynı aritmetik).
+// Gösteri önizlemesi (F4.4/F4.5): moderatör koreografiyi yayınlamadan görür.
+// Solda telefon maketi (mekânın ortasındaki koltuk: renk + söz), mekân planı
+// varsa sağda 3B tribün (ortak SeatCloudCanvas; saha/sahne + blok adlarıyla).
+// Renkler telefonla aynı aritmetikten (lib/effectEval).
 
 const MAX_DRAWN_SEATS = 20000;
 
@@ -20,7 +21,21 @@ export default function VenuePreview3D({ show }: { show: EditorShow }) {
   // Manifest ve koltuk bulutu yalnız gösteri değişince yeniden kurulur.
   const manifest = useMemo(() => toManifest(show), [show]);
   const cloud = useMemo(
-    () => (show.venue ? seatPoints(show.venue, MAX_DRAWN_SEATS) : null),
+    () => (show.venue && show.venue.blocks.length > 0 ? seatPoints(show.venue, MAX_DRAWN_SEATS) : null),
+    [show.venue],
+  );
+  const scene = useMemo<CloudScene | undefined>(
+    () =>
+      show.venue
+        ? {
+            landmark: show.venue.landmark,
+            blocks: show.venue.blocks.map((b) => ({
+              label: b.id,
+              corners: blockCorners(b),
+              z: b.z,
+            })),
+          }
+        : undefined,
     [show.venue],
   );
 
@@ -47,16 +62,20 @@ export default function VenuePreview3D({ show }: { show: EditorShow }) {
     return () => cancelAnimationFrame(raf);
   }, [playing, durationMs]);
 
-  if (!show.venue || !cloud || manifest.sequences.length === 0) return null;
+  if (!seq) return null;
+
+  const phoneColor = screenColorAt(seq, timeMs, 0.5, 0.5, 0.5);
+  const phoneLyric = seqLyricAt(seq, timeMs);
 
   return (
     <div className="card">
-      <h2>3B önizleme — tribün böyle görecek</h2>
+      <h2>Önizleme — seyirci böyle görecek</h2>
       <p className="muted">
-        Her nokta bir koltuk; rengi, telefonun o koltukta o an basacağı ekran
-        rengi. Sürükleyerek döndürün, tekerlekle yakınlaştırın.
-        {cloud.stride > 1 &&
+        Solda bir seyirci telefonu (mekânın ortasındaki koltuk)
+        {cloud ? ", sağda tribünün tamamı — sürükleyerek döndürün, tekerlekle yakınlaştırın" : ""}.
+        {cloud && cloud.stride > 1 && show.venue &&
           ` ${totalSeats(show.venue).toLocaleString("tr-TR")} koltuktan her ${cloud.stride}. çizildi.`}
+        {!cloud && " Mekân planı eklerseniz tribünün 3B görünümü de burada oynar."}
       </p>
       <div className="row">
         <div>
@@ -97,10 +116,53 @@ export default function VenuePreview3D({ show }: { show: EditorShow }) {
           />
         </div>
       </div>
-      <SeatCloudCanvas points={cloud.points} timeMs={timeMs} colorFor={colorFor} />
+      <div style={{ display: "flex", gap: 14, flexWrap: "wrap", alignItems: "stretch" }}>
+        <div style={{ flex: "0 0 120px" }}>
+          <div
+            style={{
+              width: 120,
+              height: 224,
+              borderRadius: 18,
+              border: "4px solid #1f2733",
+              background: phoneColor || "#000",
+              transition: "background 80ms linear",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              padding: 10,
+            }}
+          >
+            {phoneLyric && (
+              <span
+                style={{
+                  color: "#fff",
+                  fontWeight: 800,
+                  fontSize: 12,
+                  textAlign: "center",
+                  textShadow: "0 0 6px rgba(0,0,0,.9)",
+                }}
+              >
+                {phoneLyric}
+              </span>
+            )}
+          </div>
+          <p className="muted" style={{ textAlign: "center", margin: "6px 0 0" }}>telefon</p>
+        </div>
+        {cloud && (
+          <div style={{ flex: "1 1 320px", minWidth: 0 }}>
+            <SeatCloudCanvas
+              points={cloud.points}
+              timeMs={timeMs}
+              colorFor={colorFor}
+              scene={scene}
+              height={300}
+            />
+          </div>
+        )}
+      </div>
       <p className="muted">
-        Fener şeridi ve sözler önizlemede yok; ekran renk koreografisi
-        telefonla aynı aritmetikle hesaplanır.
+        Fener şeridi ve zamanlanmış ses önizlemede yok; ekran renk
+        koreografisi telefonla aynı aritmetikle hesaplanır.
       </p>
     </div>
   );

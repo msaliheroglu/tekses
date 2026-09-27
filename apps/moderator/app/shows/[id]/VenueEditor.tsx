@@ -10,8 +10,37 @@ import {
   uniqueBlockId,
   venueBounds,
   type EditorBlock,
+  type EditorLandmark,
   type EditorVenue,
 } from "@/lib/venueEditor";
+
+// Saha/sahne işareti (üstten görünüş): izleyen, blokların neye baktığını
+// görsün. SVG'de dünya y'si ters çevrilir.
+function LandmarkSVG({ lm }: { lm: EditorLandmark }) {
+  const left = lm.x - lm.w / 2;
+  const top = -(lm.y + lm.d / 2);
+  if (lm.kind === "pitch") {
+    return (
+      <g style={{ pointerEvents: "none" }}>
+        <rect x={left} y={top} width={lm.w} height={lm.d} rx={1.5}
+          fill="#12401f" stroke="#2e9e4f" strokeWidth={0.6} />
+        <line x1={lm.x} y1={top} x2={lm.x} y2={top + lm.d} stroke="#2e9e4f" strokeWidth={0.35} />
+        <circle cx={lm.x} cy={-lm.y} r={Math.min(lm.w, lm.d) * 0.135}
+          fill="none" stroke="#2e9e4f" strokeWidth={0.35} />
+      </g>
+    );
+  }
+  return (
+    <g style={{ pointerEvents: "none" }}>
+      <rect x={left} y={top} width={lm.w} height={lm.d} rx={1}
+        fill="#39404f" stroke="#8b93a7" strokeWidth={0.5} />
+      <text x={lm.x} y={-lm.y} fontSize={Math.min(3.4, lm.d * 0.5)} fill="#cdd4e2"
+        textAnchor="middle" dominantBaseline="middle" style={{ userSelect: "none" }}>
+        SAHNE
+      </text>
+    </g>
+  );
+}
 
 // Mekân planı editörü (F4.3): üstten görünüş — bloklar sürüklenerek
 // yerleştirilir, seçili bloğun grid/yön/eğim alanları düzenlenir. Plan,
@@ -133,6 +162,48 @@ export default function VenueEditor({
           <label>Mekân adı</label>
           <input value={venue.name} onChange={(e) => onChange({ ...venue, name: e.target.value })} />
         </div>
+        <div>
+          <label>Saha / sahne işareti</label>
+          <select
+            value={venue.landmark?.kind ?? ""}
+            onChange={(e) => {
+              const kind = e.target.value as "" | "pitch" | "stage";
+              onChange({
+                ...venue,
+                landmark:
+                  kind === ""
+                    ? null
+                    : kind === "pitch"
+                      ? { kind, x: 0, y: 0, w: 105, d: 68 }
+                      : { kind, x: 0, y: -1, w: 16, d: 6 },
+              });
+            }}
+          >
+            <option value="">yok</option>
+            <option value="pitch">saha (yeşil)</option>
+            <option value="stage">sahne</option>
+          </select>
+        </div>
+        {venue.landmark && (
+          <>
+            <div style={{ flex: "0 1 90px" }}>
+              <label>Genişlik (m)</label>
+              <NumField
+                value={venue.landmark.w}
+                min={1}
+                onChange={(w) => onChange({ ...venue, landmark: { ...venue.landmark!, w } })}
+              />
+            </div>
+            <div style={{ flex: "0 1 90px" }}>
+              <label>Derinlik (m)</label>
+              <NumField
+                value={venue.landmark.d}
+                min={1}
+                onChange={(d) => onChange({ ...venue, landmark: { ...venue.landmark!, d } })}
+              />
+            </div>
+          </>
+        )}
         <div style={{ flex: "0 0 auto", alignSelf: "flex-end" }}>
           <button
             type="button"
@@ -174,6 +245,7 @@ export default function VenueEditor({
           drag.current = null;
         }}
       >
+        {venue.landmark && <LandmarkSVG lm={venue.landmark} />}
         {venue.blocks.map((blk, i) => {
           const corners = blockCorners(blk);
           const pts = corners.map(([x, y]) => `${x},${-y}`).join(" ");

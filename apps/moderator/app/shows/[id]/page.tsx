@@ -29,6 +29,7 @@ import {
 } from "@/lib/manifestEditor";
 import Flow from "../../Flow";
 import BitmapEffectPanel from "./BitmapEffectPanel";
+import QuickAdd from "./QuickAdd";
 import VenueEditor from "./VenueEditor";
 import VenuePreview3D from "./VenuePreview3D";
 
@@ -523,7 +524,15 @@ export default function ShowDetailPage({ params }: { params: Promise<{ id: strin
               venue={show.venue}
               onChange={(v) => setShow((s) => ({ ...s, venue: v }))}
             />
-            {show.venue && <VenuePreview3D show={show} />}
+            <VenuePreview3D show={show} />
+
+            <QuickAdd
+              onAdd={(seq) => {
+                setOpenSeqs((s) => new Set(s).add(show.sequences.length));
+                setShow((s) => ({ ...s, sequences: [...s.sequences, seq] }));
+                setNotice(`"${seq.title}" sekansı eklendi — aşağıdaki kartından ince ayar yapabilirsiniz.`);
+              }}
+            />
 
             <h2 style={{ margin: "22px 4px 0" }}>4 · Sekanslar (şarkılar / bölümler)</h2>
             <p className="muted" style={{ margin: "4px 4px 0" }}>
