@@ -50,6 +50,10 @@
     font-size: 20px; text-align: center; letter-spacing: 4px;
     text-transform: uppercase; padding: 12px 16px; width: 240px;
   }
+  #seatInput {
+    border: 1px solid #555; border-radius: 10px; background: #111; color: #fff;
+    font-size: 16px; text-align: center; padding: 10px 16px; width: 240px;
+  }
   #safeBtn {
     position: fixed; bottom: 8px; left: 8px; z-index: 5;
     border: 1px solid #444; border-radius: 8px; background: rgba(0,0,0,0.5);
@@ -73,6 +77,8 @@
      katıldıktan sonra sol alttaki "ışığa duyarlı mod"u açın.</p>
   <input id="codeInput" autocomplete="off" autocapitalize="characters"
          spellcheck="false" placeholder="Katılım kodu">
+  <input id="seatInput" autocomplete="off" autocapitalize="none"
+         spellcheck="false" placeholder="Koltuk (varsa): BLOK-SIRA-KOLTUK">
   <p id="joinErr" hidden style="color:#ff6e6e"></p>
 
   <p id="wlWarn" hidden style="color:#ffb74d">
@@ -123,6 +129,12 @@ function renderStatus() {
     s += "\nofset " + Math.round(estimate.offsetMs) + " ms · RTT " +
          Math.round(estimate.bestRttMs) + " ms · örnek " + estimate.usedSamples;
   }
+  if (seatRef) {
+    const hasVenue = showManifest && showManifest.venue;
+    s += "\nkoltuk " + seatRefStr(seatRef) +
+      (!hasVenue ? " (gösteride mekân planı yok)"
+                 : seatPos ? " ✓" : ": planda çözülemedi");
+  }
   if (active) s += "\nrun " + active.cue.run_id.slice(0, 8);
   statusEl.textContent = s;
 }
@@ -158,9 +170,76 @@ async function loadManifest() {
     const d = await resp.json();
     if (d && d.show_version && d.show_version.manifest) {
       showManifest = d.show_version.manifest;
+      updateSeatPos(); // plan değişmiş olabilir; koltuk yeniden çözülür
       if (!active) setStatus("gösteri yüklendi: " + (showManifest.title || "?"));
     }
   } catch { /* control-api'ye ulaşılamazsa Faz 0 flash'a düşülür */ }
+}
+
+// --- koltuk kimliği (F4.1) ---
+// Matematik ve dizgi kuralı packages/manifest/venue.go ile birebirdir;
+// koltuk yalnız istemcide yaşar, tele hiç çıkmaz. Uzamsal efektler (F4.2)
+// seatPos.u/v/w normalize eksenlerini kullanacak.
+
+let seatRef = null; // {block, row, seat} — katılımda doğrulanır
+let seatPos = null; // {x,y,z,u,v,w} — plan yoksa/koltuk çözülmezse null
+
+// "BLOK-SIRA-KOLTUK": son iki parça sıra/koltuk, blok kimliği tire içerebilir.
+function parseSeatRef(s) {
+  const parts = s.split("-");
+  if (parts.length < 3) return null;
+  const row = Number(parts[parts.length - 2]);
+  const seat = Number(parts[parts.length - 1]);
+  if (!Number.isInteger(row) || row < 1 || !Number.isInteger(seat) || seat < 1) return null;
+  const block = parts.slice(0, -2).join("-");
+  if (!block) return null;
+  return { block, row, seat };
+}
+const seatRefStr = (r) => r.block + "-" + r.row + "-" + r.seat;
+
+function seatWorld(b, row, seat) {
+  const o = b.origin || {}, rv = b.row_vec || {}, sv = b.seat_vec || {};
+  const r = row - 1, s = seat - 1;
+  return {
+    x: (o.x || 0) + (rv.x || 0) * r + (sv.x || 0) * s,
+    y: (o.y || 0) + (rv.y || 0) * r + (sv.y || 0) * s,
+    z: (o.z || 0) + (rv.z || 0) * r + (sv.z || 0) * s,
+  };
+}
+
+// Konum doğrusal olduğundan sınır kutusunun uçları blok köşelerindedir.
+function resolveSeat(venue, ref) {
+  const blocks = (venue && venue.blocks) || [];
+  const blk = blocks.find((b) => b.id === ref.block);
+  if (!blk) return null;
+  if (ref.row < 1 || ref.row > (blk.rows || 0)) return null;
+  if (ref.seat < 1 || ref.seat > (blk.seats_per_row || 0)) return null;
+  const p = seatWorld(blk, ref.row, ref.seat);
+  let first = true;
+  let min = { x: 0, y: 0, z: 0 }, max = { x: 0, y: 0, z: 0 };
+  for (const b of blocks) {
+    for (const row of [1, b.rows || 1]) {
+      for (const seat of [1, b.seats_per_row || 1]) {
+        const c = seatWorld(b, row, seat);
+        if (first) { min = { ...c }; max = { ...c }; first = false; continue; }
+        min.x = Math.min(min.x, c.x); max.x = Math.max(max.x, c.x);
+        min.y = Math.min(min.y, c.y); max.y = Math.max(max.y, c.y);
+        min.z = Math.min(min.z, c.z); max.z = Math.max(max.z, c.z);
+      }
+    }
+  }
+  const norm = (v, lo, hi) => (hi - lo < 0.001 ? 0.5 : (v - lo) / (hi - lo));
+  return {
+    x: p.x, y: p.y, z: p.z,
+    u: norm(p.x, min.x, max.x), v: norm(p.y, min.y, max.y), w: norm(p.z, min.z, max.z),
+  };
+}
+
+function updateSeatPos() {
+  seatPos = seatRef && showManifest && showManifest.venue
+    ? resolveSeat(showManifest.venue, seatRef)
+    : null;
+  renderStatus();
 }
 
 const IDLE_FRAME = { done: false, lyric: "", nextLyric: "", screenColor: "", screenLit: false };
@@ -508,6 +587,9 @@ safeBtn.addEventListener("click", () => {
 
 const codeInput = document.getElementById("codeInput");
 codeInput.value = joinCode;
+// Koltuk QR/bağlantıdan da gelebilir: /join?code=ABC234&seat=A-12-5
+const seatInput = document.getElementById("seatInput");
+seatInput.value = (params.get("seat") || "").trim();
 const joinErr = document.getElementById("joinErr");
 const joinBtn = document.getElementById("joinBtn");
 
@@ -526,6 +608,17 @@ joinBtn.addEventListener("click", async () => {
   if (!code && params.get("dev") !== "1") {
     showJoinErr("Katılım kodunu girin — biletinizdeki/perdedeki 6 haneli kod.");
     return;
+  }
+  // Koltuk isteğe bağlıdır; yazıldıysa biçimi bağlanmadan önce denetlenir.
+  // Harf katlanmaz — plandaki blok kimliğiyle birebir yazılmalı.
+  const seatText = seatInput.value.trim();
+  let seat = null;
+  if (seatText) {
+    seat = parseSeatRef(seatText);
+    if (!seat) {
+      showJoinErr("Koltuk BLOK-SIRA-KOLTUK biçiminde olmalı (ör. A-12-5).");
+      return;
+    }
   }
   // Kod, bağlanmadan ÖNCE doğrulanır: geçersiz kodla gateway'e gitmek
   // sonsuz yeniden bağlanma döngüsüne düşürür (sunucu hello'yu reddeder).
@@ -553,11 +646,23 @@ joinBtn.addEventListener("click", async () => {
       joinBtn.disabled = false;
       joinBtn.textContent = "Gösteriye katıl";
     }
+    // Girilen koltuk plandaysa katıl; planda yoksa yanlış yazım büyük
+    // olasılıkla — sessizce konumsuz oynamak yerine burada durdur.
+    if (seat && showManifest && showManifest.venue &&
+        !resolveSeat(showManifest.venue, seat)) {
+      showJoinErr("Koltuk " + seatRefStr(seat) +
+        " mekân planında yok — biletteki blok/sıra/koltuğu kontrol edin.");
+      return;
+    }
     joinCode = code;
     const u = new URL(location.href);
     u.searchParams.set("code", joinCode);
+    if (seat) u.searchParams.set("seat", seatRefStr(seat));
+    else u.searchParams.delete("seat");
     history.replaceState(null, "", u);
   }
+  seatRef = seat;
+  updateSeatPos();
   document.getElementById("overlay").classList.add("hidden");
   safeBtn.classList.remove("hidden");
   await acquireWakeLock(); // kullanıcı jesti gerektirir; o yüzden burada
