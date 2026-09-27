@@ -421,8 +421,19 @@ parametre taşır, telefon rengini/zamanını (mekân geometrisi + kendi koltuğ
   (spatial_effect.dart + motor seatPos) ve /join JS'i birebir doğrulanır
   (Dart birim testi + Chromium E2E). Fener şeridinde wave/bitmap
   açık/kapalı verir. **Cihaz doğrulaması F4.6 provasında.**
-- [ ] **F4.3 Panel mekân editörü (2B):** blok yerleştirme/boyutlama, koltuk
-  numaralandırma yönleri, stad/salon şablonları.
+- [x] **F4.3 Panel mekân editörü (2B) + efekt yazarlığı (2026-09-27):**
+  gösteri sayfasına "Mekân planı" kartı — üstten SVG görünüş, blok
+  sürükleyerek taşıma (0,5 m ızgara), seçili blokta grid/dönüş/aralık/eğim
+  alanları, koltuk numaralandırma yönü oku, koltuk dizgisi önizlemesi;
+  salon + stadyum (4 tribün) şablonları. Editör modeli (konum+açı+aralık)
+  ↔ manifest venue dönüşümü lib/venueEditor.ts'te; kalıba uymayan elle
+  yazılmış plan nedenle JSON görünümüne düşer. Ekran adımlarına efekt
+  seçici: düz renk / dalga (yön, süpürme, bant, arka plan) / gradyan
+  (yön, bitiş rengi); efektliyken flaş gizli. next build temiz.
+  **Panel doğrulaması kullanıcıda** (VM'de moderator yeniden derlenince).
+- [ ] **F4.3b Bayrak/slogan üretici:** panelde bitmap efekt editörü —
+  görüntüden palet+satır üretimi (bayrak) ve metinden kayan bitmap
+  rasterleştirme (slogan); şimdilik yalnız JSON görünümünde yazılabiliyor.
 - [ ] **F4.4 3B mekân önizleme/simülasyon:** panelde mekânın 3B görünümü
   (three.js), efektin zaman çizelgesinde simülasyonu — moderatör göstermeden
   önce sonucu görür.
