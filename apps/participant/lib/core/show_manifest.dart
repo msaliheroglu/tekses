@@ -5,6 +5,7 @@
 /// sekansın ne zaman başlayacağını CueStart söyler.
 library;
 
+import 'spatial_effect.dart';
 import 'venue.dart';
 
 /// Ayrılmış kue kimliği: bu kimlikle gelen CueStart, manifestin içine gömülü
@@ -134,6 +135,7 @@ class ShowCue {
     required this.color,
     required this.flashHz,
     required this.assetId,
+    this.effect,
   });
 
   final int atMs;
@@ -141,6 +143,11 @@ class ShowCue {
   final String color;
   final int flashHz;
   final String assetId;
+
+  /// İsteğe bağlı uzamsal efekt (F4.2): varsa renk/yanıklık koltuk
+  /// konumundan türetilir; sunucu doğrulaması flash_hz ile birlikteliğini
+  /// zaten reddeder.
+  final EffectSpec? effect;
 
   bool activeAt(int elapsedMs) =>
       elapsedMs >= atMs && (durationMs == 0 || elapsedMs < atMs + durationMs);
@@ -151,6 +158,9 @@ class ShowCue {
         color: j['color'] as String? ?? '',
         flashHz: clampFlashHz((j['flash_hz'] as num?)?.toInt() ?? 0),
         assetId: j['asset_id'] as String? ?? '',
+        effect: j['effect'] == null
+            ? null
+            : EffectSpec.fromJson(j['effect'] as Map<String, dynamic>),
       );
 }
 

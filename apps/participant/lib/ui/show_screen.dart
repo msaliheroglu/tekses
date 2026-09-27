@@ -161,6 +161,7 @@ class _ShowScreenState extends State<ShowScreen> {
       setState(() {
         _joinInfo = info;
         _seatPos = _resolveSeat();
+        _engine?.seatPos = _seatPos; // süren koşu da güncel konumu kullansın
         _status = info.manifest == null
             ? 'oda güncellendi (aktif gösteri yok)'
             : 'gösteri hazır: ${info.manifest!.title}';
@@ -304,7 +305,7 @@ class _ShowScreenState extends State<ShowScreen> {
     String statusLabel;
     List<({String sequenceId, int baseMs})> played = const [];
     if (cue.cueId == programCueId && manifest != null && manifest.program.isNotEmpty) {
-      _engine = ProgramEngine(manifest, disableFlash: _safeMode);
+      _engine = ProgramEngine(manifest, disableFlash: _safeMode, seatPos: _seatPos);
       played = [
         for (final item in manifest.program)
           (sequenceId: item.sequenceId, baseMs: item.atOffsetMs),
@@ -314,7 +315,7 @@ class _ShowScreenState extends State<ShowScreen> {
       final sequence = manifest?.sequenceById(cue.cueId);
       _engine = sequence == null
           ? null
-          : TimelineEngine(sequence, disableFlash: _safeMode);
+          : TimelineEngine(sequence, disableFlash: _safeMode, seatPos: _seatPos);
       if (sequence != null) played = [(sequenceId: sequence.id, baseMs: 0)];
       statusLabel = sequence == null
           ? 'kue alındı (${cue.cueId})'

@@ -8,6 +8,8 @@
 library;
 
 import 'show_manifest.dart';
+import 'spatial_effect.dart';
+import 'venue.dart';
 
 class TimelineFrame {
   const TimelineFrame({
@@ -45,18 +47,27 @@ abstract interface class FrameSource {
   TimelineFrame frameAt(int elapsedMs);
 
   /// Işığa duyarlı mod (F3.2): true iken yanıp sönme SABİT ışığa indirgenir
-  /// (flashHz yok sayılır, kue süresi/rengi aynı kalır). Gösteri ortasında
-  /// açılabilir; bir sonraki kareden itibaren etkilidir.
+  /// (flashHz yok sayılır, kue süresi/rengi aynı kalır; uzamsal efekt kuenin
+  /// sabit rengine döner). Gösteri ortasında açılabilir; bir sonraki
+  /// kareden itibaren etkilidir.
   abstract bool disableFlash;
+
+  /// Çözülmüş koltuk konumu (F4.1/F4.2): uzamsal efektler u/v/w normalize
+  /// eksenlerini kullanır. null = koltuksuz telefon → mekânın ortası
+  /// (0.5) sayılır; herkes katılır, kimse sessizce dışarıda kalmaz.
+  abstract SeatPos? seatPos;
 }
 
 class TimelineEngine implements FrameSource {
-  TimelineEngine(this.sequence, {this.disableFlash = false});
+  TimelineEngine(this.sequence, {this.disableFlash = false, this.seatPos});
 
   final ShowSequence sequence;
 
   @override
   bool disableFlash;
+
+  @override
+  SeatPos? seatPos;
 
   bool _lit(ShowCue cue, int elapsedMs) {
     if (disableFlash || cue.flashHz == 0) return true;
@@ -94,6 +105,8 @@ class TimelineEngine implements FrameSource {
       }
     }
 
+    final u = seatPos?.u ?? 0.5, v = seatPos?.v ?? 0.5, w = seatPos?.w ?? 0.5;
+
     var screenColor = '';
     var screenLit = false;
     var torchOn = false;
@@ -102,10 +115,26 @@ class TimelineEngine implements FrameSource {
       if (cue == null) continue;
       switch (lane.kind) {
         case 'screen':
-          screenColor = cue.color;
-          screenLit = _lit(cue, elapsedMs);
+          final eff = cue.effect;
+          if (eff == null) {
+            screenColor = cue.color;
+            screenLit = _lit(cue, elapsedMs);
+          } else if (disableFlash) {
+            // Duyarlı mod: efekt değerlendirilmez, kue rengi sabit yanar.
+            screenColor = cue.color;
+            screenLit = true;
+          } else {
+            final c = evalEffect(eff, cue.color, u, v, w, elapsedMs - cue.atMs);
+            screenColor = c;
+            screenLit = c.isNotEmpty;
+          }
         case 'torch':
-          torchOn = _lit(cue, elapsedMs);
+          final effT = cue.effect;
+          torchOn = effT == null
+              ? _lit(cue, elapsedMs)
+              : disableFlash ||
+                  evalEffect(effT, '#FFFFFF', u, v, w, elapsedMs - cue.atMs)
+                      .isNotEmpty;
         case 'audio':
           // Zamanlanmış ses Faz 2'de native kanalla gelecek.
           break;
@@ -128,21 +157,24 @@ class TimelineEngine implements FrameSource {
 /// Öğeler arasındaki boşlukta ekran karanlık bekler (done değil); son
 /// öğenin sekansı bitince done olur. Bu da SAFTIR ve birim testlidir.
 class ProgramEngine implements FrameSource {
-  ProgramEngine(ShowManifest manifest, {bool disableFlash = false})
+  ProgramEngine(ShowManifest manifest,
+      {bool disableFlash = false, SeatPos? seatPos})
       : _items = [
           for (final item in manifest.program)
             if (manifest.sequenceById(item.sequenceId) != null)
               (
                 atOffsetMs: item.atOffsetMs,
                 engine: TimelineEngine(manifest.sequenceById(item.sequenceId)!,
-                    disableFlash: disableFlash),
+                    disableFlash: disableFlash, seatPos: seatPos),
               ),
         ],
-        _disableFlash = disableFlash;
+        _disableFlash = disableFlash,
+        _seatPos = seatPos;
 
   final List<({int atOffsetMs, TimelineEngine engine})> _items;
 
   bool _disableFlash;
+  SeatPos? _seatPos;
 
   @override
   bool get disableFlash => _disableFlash;
@@ -152,6 +184,17 @@ class ProgramEngine implements FrameSource {
     _disableFlash = value;
     for (final item in _items) {
       item.engine.disableFlash = value;
+    }
+  }
+
+  @override
+  SeatPos? get seatPos => _seatPos;
+
+  @override
+  set seatPos(SeatPos? value) {
+    _seatPos = value;
+    for (final item in _items) {
+      item.engine.seatPos = value;
     }
   }
 
