@@ -12,16 +12,32 @@
 
 export type EditorBlock = {
   id: string;
+  // "grid" = düz blok; "arc" = yay (köşe/oval tribün — sıra başına koltuk
+  // yarıçapla artar: sahaya yakın az, yukarıda çok).
+  kind: "grid" | "arc";
   rows: number;
-  seatsPerRow: number;
-  x: number; // 1. sıra 1. koltuğun konumu (metre)
+  seatsPerRow: number; // grid
+  x: number; // grid: 1. sıra 1. koltuk; arc: yay MERKEZİ (metre)
   y: number;
   z: number; // taban yüksekliği (metre)
-  rotationDeg: number; // koltuk yönünün +x'ten saat yönü tersine açısı
-  seatStep: number; // koltuk aralığı (m)
-  rowStep: number; // sıra aralığı (m)
+  rotationDeg: number; // grid: koltuk yönünün +x'ten saat yönü tersine açısı
+  seatStep: number; // koltuk aralığı (m; arc'ta yay boyunca)
+  rowStep: number; // sıra aralığı (m; arc'ta yarıçap artışı)
   rake: number; // sıra başına yükselme (m; tribün eğimi)
+  radius: number; // arc: 1. sıranın yarıçapı (m)
+  angleStartDeg: number; // arc: koltuk 1 bu uçta
+  angleEndDeg: number;
 };
+
+// Yayda o sıradaki koltuk sayısı (packages/manifest SeatsInRow aynası).
+export function seatsInRowOf(b: EditorBlock, row: number): number {
+  if (b.kind !== "arc") return b.seatsPerRow;
+  if (b.seatStep <= 0) return 1;
+  const r = b.radius + (row - 1) * b.rowStep;
+  const span = ((b.angleEndDeg - b.angleStartDeg) * Math.PI) / 180;
+  const n = Math.floor((r * span) / b.seatStep) + 1;
+  return n < 1 ? 1 : n;
+}
 
 // Saha/sahne işareti: görsel bağlam (editör + 3B); koreografiyi etkilemez.
 export type EditorLandmark = {
@@ -43,11 +59,19 @@ export type VenueJson = {
   name?: string;
   blocks?: {
     id?: string;
+    kind?: string;
     rows?: number;
     seats_per_row?: number;
     origin?: Vec3Json;
     row_vec?: Vec3Json;
     seat_vec?: Vec3Json;
+    center?: Vec3Json;
+    radius?: number;
+    row_step?: number;
+    rake?: number;
+    angle_start_deg?: number;
+    angle_end_deg?: number;
+    seat_step?: number;
   }[];
   landmark?: { kind?: string; x?: number; y?: number; w?: number; d?: number };
 };
@@ -60,6 +84,7 @@ const mm = (v: number) => Math.round(v * 1000) / 1000;
 export function defaultBlock(id: string): EditorBlock {
   return {
     id,
+    kind: "grid",
     rows: 20,
     seatsPerRow: 30,
     x: 0,
@@ -69,6 +94,9 @@ export function defaultBlock(id: string): EditorBlock {
     seatStep: 0.5,
     rowStep: 0.8,
     rake: 0.4,
+    radius: 12,
+    angleStartDeg: 0,
+    angleEndDeg: 90,
   };
 }
 
@@ -87,6 +115,20 @@ export function toManifestVenue(v: EditorVenue): VenueJson {
         }
       : {}),
     blocks: v.blocks.map((b) => {
+      if (b.kind === "arc") {
+        return {
+          id: b.id,
+          kind: "arc",
+          rows: b.rows,
+          center: { x: mm(b.x), y: mm(b.y), z: mm(b.z) },
+          radius: mm(b.radius),
+          row_step: mm(b.rowStep),
+          rake: mm(b.rake),
+          angle_start_deg: b.angleStartDeg,
+          angle_end_deg: b.angleEndDeg,
+          seat_step: mm(b.seatStep),
+        };
+      }
       const c = Math.cos(rad(b.rotationDeg));
       const s = Math.sin(rad(b.rotationDeg));
       return {
@@ -111,6 +153,23 @@ export function fromManifestVenue(v: unknown): { venue?: EditorVenue; reason?: s
   const blocks: EditorBlock[] = [];
   for (const b of vv.blocks) {
     const id = b.id || "";
+    if (b.kind === "arc") {
+      blocks.push({
+        ...defaultBlock(id),
+        kind: "arc",
+        rows: b.rows ?? 1,
+        x: b.center?.x ?? 0,
+        y: b.center?.y ?? 0,
+        z: b.center?.z ?? 0,
+        radius: b.radius ?? 10,
+        rowStep: b.row_step ?? 0.8,
+        rake: b.rake ?? 0,
+        angleStartDeg: b.angle_start_deg ?? 0,
+        angleEndDeg: b.angle_end_deg ?? 90,
+        seatStep: b.seat_step ?? 0.5,
+      });
+      continue;
+    }
     const sv = { x: b.seat_vec?.x ?? 0, y: b.seat_vec?.y ?? 0, z: b.seat_vec?.z ?? 0 };
     const rv = { x: b.row_vec?.x ?? 0, y: b.row_vec?.y ?? 0, z: b.row_vec?.z ?? 0 };
     if (Math.abs(sv.z) > 1e-6) {
@@ -143,7 +202,7 @@ export function fromManifestVenue(v: unknown): { venue?: EditorVenue; reason?: s
       }
     }
     blocks.push({
-      id,
+      ...defaultBlock(id),
       rows,
       seatsPerRow: seats,
       x: b.origin?.x ?? 0,
@@ -200,6 +259,22 @@ export function stadiumTemplate(): EditorVenue {
     rows,
     seatsPerRow: seats,
   });
+  const arc = (
+    id: string,
+    x: number,
+    y: number,
+    a0: number,
+    a1: number,
+  ): EditorBlock => ({
+    ...defaultBlock(id),
+    kind: "arc",
+    x,
+    y,
+    rows: 45,
+    radius: 20,
+    angleStartDeg: a0,
+    angleEndDeg: a1,
+  });
   return {
     name: "Stadyum",
     blocks: [
@@ -208,11 +283,12 @@ export function stadiumTemplate(): EditorVenue {
       mk("GUNEY", 35, -42, 180, 45, 140),
       mk("DOGU", 60.5, 25, 270, 45, 100),
       mk("BATI", -60.5, -25, 90, 45, 100),
-      // Köşeler: 45° dönük, kenarların uçlarını birleştirir.
-      mk("KUZEYDOGU", 36, 40, -45, 45, 45),
-      mk("KUZEYBATI", -51.5, 24.5, 45, 45, 45),
-      mk("GUNEYDOGU", 51.5, -24.5, 225, 45, 45),
-      mk("GUNEYBATI", -36, -40, 135, 45, 45),
+      // Köşeler: YAY bloklar (gerçek stadyum gibi oval) — kenarların uçlarını
+      // kavisle bağlar; sahaya yakın sırada az, üst sıralarda çok koltuk.
+      arc("KUZEYDOGU", 37, 24, 0, 90),
+      arc("KUZEYBATI", -37, 24, 90, 180),
+      arc("GUNEYBATI", -37, -24, 180, 270),
+      arc("GUNEYDOGU", 37, -24, 270, 360),
     ],
     landmark: { kind: "pitch", x: 0, y: 0, w: 105, d: 68 },
   };
@@ -220,9 +296,33 @@ export function stadiumTemplate(): EditorVenue {
 
 // --- çizim yardımcıları (SVG üstten görünüş) ---
 
-// Blok köşeleri (dünya koordinatında, metre): origin → koltuk ucu → karşı
-// köşe → sıra ucu. Konum doğrusal olduğundan dikdörtgeni bu dördü tanımlar.
+// Blok kontürü (dünya xy, metre): grid'de dört köşe; yayda iç yay → dış yay
+// (geri) örneklenmiş çokgen — SVG/3B çizimi ve sınır kutusu bunu kullanır.
 export function blockCorners(b: EditorBlock): [number, number][] {
+  if (b.kind === "arc") {
+    const span = b.angleEndDeg - b.angleStartDeg;
+    const steps = Math.max(4, Math.ceil(Math.abs(span) / 7.5));
+    // 90° katları da eklenir: sınır kutusu uçları eksen katlarındadır ve
+    // telefonun normalize u/v/w'suyla birebir kalmalıdır (Go boundsSamples).
+    const angles: number[] = [];
+    for (let i = 0; i <= steps; i++) angles.push(b.angleStartDeg + (span * i) / steps);
+    for (let k = Math.ceil(b.angleStartDeg / 90); k * 90 < b.angleEndDeg; k++) {
+      if (k * 90 > b.angleStartDeg) angles.push(k * 90);
+    }
+    angles.sort((a, bb) => a - bb);
+    const rIn = b.radius;
+    const rOut = b.radius + (b.rows - 1) * b.rowStep;
+    const pts: [number, number][] = [];
+    for (const deg of angles) {
+      const th = rad(deg);
+      pts.push([b.x + rIn * Math.cos(th), b.y + rIn * Math.sin(th)]);
+    }
+    for (let i = angles.length - 1; i >= 0; i--) {
+      const th = rad(angles[i]);
+      pts.push([b.x + rOut * Math.cos(th), b.y + rOut * Math.sin(th)]);
+    }
+    return pts;
+  }
   const c = Math.cos(rad(b.rotationDeg));
   const s = Math.sin(rad(b.rotationDeg));
   const seatLen = (b.seatsPerRow - 1) * b.seatStep;
@@ -256,7 +356,12 @@ export function venueBounds(v: EditorVenue): { minX: number; minY: number; maxX:
 }
 
 export function totalSeats(v: EditorVenue): number {
-  return v.blocks.reduce((sum, b) => sum + b.rows * b.seatsPerRow, 0);
+  return v.blocks.reduce((sum, b) => {
+    if (b.kind !== "arc") return sum + b.rows * b.seatsPerRow;
+    let n = 0;
+    for (let row = 1; row <= b.rows; row++) n += seatsInRowOf(b, row);
+    return sum + n;
+  }, 0);
 }
 
 // --- 3B önizleme için koltuk noktaları (F4.4) ---
@@ -264,9 +369,22 @@ export function totalSeats(v: EditorVenue): number {
 // Dünya konumu (metre) + normalize u/v/w. Normalizasyon packages/manifest
 // Bounds/normAxis aynasıdır: sınır kutusu blok köşelerinden, sıfır genişlikli
 // eksen 0.5. Efekt önizlemesi telefonla aynı u/v/w'yu görmek zorundadır.
-export type SeatPoint = { x: number; y: number; z: number; u: number; v: number; w: number };
+export type SeatPoint = {
+  x: number;
+  y: number;
+  z: number;
+  u: number;
+  v: number;
+  w: number;
+  block: string; // blok filtreli efektler için koltuğun bloğu
+};
 
 function seatWorld3(b: EditorBlock, row: number, seat: number): [number, number, number] {
+  if (b.kind === "arc") {
+    const r = b.radius + (row - 1) * b.rowStep;
+    const th = rad(b.angleStartDeg) + ((seat - 1) * b.seatStep) / r;
+    return [b.x + r * Math.cos(th), b.y + r * Math.sin(th), b.z + b.rake * (row - 1)];
+  }
   const c = Math.cos(rad(b.rotationDeg));
   const s = Math.sin(rad(b.rotationDeg));
   return [
@@ -277,17 +395,19 @@ function seatWorld3(b: EditorBlock, row: number, seat: number): [number, number,
 }
 
 // maxSeats üstünde her stride'ıncı koltuk örneklenir (çizim bütçesi).
+// Sınır kutusu blok kontürlerinden (yay dahil) — normalize u/v/w telefonla
+// aynı kalsın diye z uçları da uç sıralardan alınır.
 export function seatPoints(v: EditorVenue, maxSeats: number): { points: SeatPoint[]; stride: number } {
   let minX = Infinity, minY = Infinity, minZ = Infinity;
   let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
   for (const b of v.blocks) {
+    for (const [x, y] of blockCorners(b)) {
+      minX = Math.min(minX, x); maxX = Math.max(maxX, x);
+      minY = Math.min(minY, y); maxY = Math.max(maxY, y);
+    }
     for (const row of [1, b.rows]) {
-      for (const seat of [1, b.seatsPerRow]) {
-        const [x, y, z] = seatWorld3(b, row, seat);
-        minX = Math.min(minX, x); maxX = Math.max(maxX, x);
-        minY = Math.min(minY, y); maxY = Math.max(maxY, y);
-        minZ = Math.min(minZ, z); maxZ = Math.max(maxZ, z);
-      }
+      const z = b.z + b.rake * (row - 1);
+      minZ = Math.min(minZ, z); maxZ = Math.max(maxZ, z);
     }
   }
   const norm = (p: number, lo: number, hi: number) => (hi - lo < 0.001 ? 0.5 : (p - lo) / (hi - lo));
@@ -297,7 +417,8 @@ export function seatPoints(v: EditorVenue, maxSeats: number): { points: SeatPoin
   let counter = 0;
   for (const b of v.blocks) {
     for (let row = 1; row <= b.rows; row++) {
-      for (let seat = 1; seat <= b.seatsPerRow; seat++) {
+      const rowSeats = seatsInRowOf(b, row);
+      for (let seat = 1; seat <= rowSeats; seat++) {
         if (counter++ % stride !== 0) continue;
         const [x, y, z] = seatWorld3(b, row, seat);
         points.push({
@@ -305,6 +426,7 @@ export function seatPoints(v: EditorVenue, maxSeats: number): { points: SeatPoin
           u: norm(x, minX, maxX),
           v: norm(y, minY, maxY),
           w: norm(z, minZ, maxZ),
+          block: b.id,
         });
       }
     }

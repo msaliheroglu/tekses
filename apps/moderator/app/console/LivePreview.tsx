@@ -87,7 +87,9 @@ export default function LivePreview({
 
   const colorFor = useCallback(
     (p: SeatPoint, t: number) =>
-      manifest ? manifestScreenColorAt(manifest, run.cueId, t, p.u, p.v, p.w) : "",
+      manifest
+        ? manifestScreenColorAt(manifest, run.cueId, t, p.u, p.v, p.w, p.block)
+        : "",
     [manifest, run.cueId],
   );
 
