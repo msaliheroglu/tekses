@@ -93,6 +93,9 @@ type Cue struct {
 	Color      string `json:"color,omitempty"`    // screen: #RRGGBB
 	FlashHz    int    `json:"flash_hz,omitempty"` // screen/torch: 0..3
 	AssetID    string `json:"asset_id,omitempty"` // audio: zorunlu
+	// Effect, isteğe bağlı uzamsal efekttir (F4.2, effect.go): screen ve
+	// torch şeritlerinde; flash_hz ile birlikte kullanılamaz.
+	Effect *Effect `json:"effect,omitempty"`
 }
 
 // Parse, ham JSON'u katı biçimde çözer (bilinmeyen alan hatadır: yazım
@@ -213,6 +216,11 @@ func validateCue(kind string, c Cue, seqDurationMs int) error {
 	if c.DurationMs < 0 {
 		return fmt.Errorf("duration_ms negatif olamaz")
 	}
+	// Efektin kendi zamanlaması var; flash_hz ile üst üste binmesi ışık
+	// güvenliği çözümlemesini bozar — ikisi birden yasak.
+	if c.Effect != nil && c.FlashHz != 0 {
+		return fmt.Errorf("effect'li kue flash_hz taşıyamaz")
+	}
 	switch kind {
 	case LaneScreen:
 		if !colorRe.MatchString(c.Color) {
@@ -224,6 +232,11 @@ func validateCue(kind string, c Cue, seqDurationMs int) error {
 		if c.AssetID != "" {
 			return fmt.Errorf("screen kuesi asset_id taşıyamaz")
 		}
+		if c.Effect != nil {
+			if err := c.Effect.validate(kind); err != nil {
+				return err
+			}
+		}
 	case LaneTorch:
 		if c.FlashHz < 0 || c.FlashHz > MaxFlashHz {
 			return fmt.Errorf("flash_hz 0..%d aralığında olmalı (ışığa duyarlılık sınırı)", MaxFlashHz)
@@ -231,12 +244,17 @@ func validateCue(kind string, c Cue, seqDurationMs int) error {
 		if c.Color != "" || c.AssetID != "" {
 			return fmt.Errorf("torch kuesi color/asset_id taşıyamaz")
 		}
+		if c.Effect != nil {
+			if err := c.Effect.validate(kind); err != nil {
+				return err
+			}
+		}
 	case LaneAudio:
 		if c.AssetID == "" {
 			return fmt.Errorf("audio kuesi için asset_id zorunlu")
 		}
-		if c.Color != "" || c.FlashHz != 0 {
-			return fmt.Errorf("audio kuesi color/flash_hz taşıyamaz")
+		if c.Color != "" || c.FlashHz != 0 || c.Effect != nil {
+			return fmt.Errorf("audio kuesi color/flash_hz/effect taşıyamaz")
 		}
 	}
 	return nil
