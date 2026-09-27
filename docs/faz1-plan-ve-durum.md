@@ -431,9 +431,16 @@ parametre taşır, telefon rengini/zamanını (mekân geometrisi + kendi koltuğ
   seçici: düz renk / dalga (yön, süpürme, bant, arka plan) / gradyan
   (yön, bitiş rengi); efektliyken flaş gizli. next build temiz.
   **Panel doğrulaması kullanıcıda** (VM'de moderator yeniden derlenince).
-- [ ] **F4.3b Bayrak/slogan üretici:** panelde bitmap efekt editörü —
-  görüntüden palet+satır üretimi (bayrak) ve metinden kayan bitmap
-  rasterleştirme (slogan); şimdilik yalnız JSON görünümünde yazılabiliyor.
+- [x] **F4.3b Bayrak/slogan üretici (2026-09-27):** ekran adımında
+  "bayrak/slogan" efekti seçilince üretim paneli açılır. Metin, tarayıcı
+  fontuyla canvas'ta rasterleştirilir (Türkçe karakterler font tablosuz;
+  varsayılan kayar, sütun×400 ms) — görüntü, seçilen cols×rows'a küçültülüp
+  median-cut ile ≤16 renge nicemlenir (yarı saydam '.', palet tekilleşir;
+  varsayılan sabit). Kaydırma süresi ışık güvenliği alt sınırına
+  (sütun×334 ms) kelepçeli; piksel önizleme var. Üretilmemiş bitmap yayında
+  düz renge düşer + panel uyarır. Doğrulama: Chromium'da ŞAMPİYON sloganı
+  + iki renkli bayrak üretildi, çıktı Go manifest.Parse'tan geçti.
+  **Panel doğrulaması kullanıcıda.**
 - [ ] **F4.4 3B mekân önizleme/simülasyon:** panelde mekânın 3B görünümü
   (three.js), efektin zaman çizelgesinde simülasyonu — moderatör göstermeden
   önce sonucu görür.
