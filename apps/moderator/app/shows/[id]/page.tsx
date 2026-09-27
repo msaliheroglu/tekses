@@ -523,7 +523,7 @@ export default function ShowDetailPage({ params }: { params: Promise<{ id: strin
               venue={show.venue}
               onChange={(v) => setShow((s) => ({ ...s, venue: v }))}
             />
-            {show.venue && <VenuePreview3D show={show} />}
+            <VenuePreview3D show={show} />
 
             <h2 style={{ margin: "22px 4px 0" }}>4 · Sekanslar (şarkılar / bölümler)</h2>
             <p className="muted" style={{ margin: "4px 4px 0" }}>

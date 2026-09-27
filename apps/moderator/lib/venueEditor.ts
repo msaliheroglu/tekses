@@ -23,7 +23,20 @@ export type EditorBlock = {
   rake: number; // sıra başına yükselme (m; tribün eğimi)
 };
 
-export type EditorVenue = { name: string; blocks: EditorBlock[] };
+// Saha/sahne işareti: görsel bağlam (editör + 3B); koreografiyi etkilemez.
+export type EditorLandmark = {
+  kind: "pitch" | "stage";
+  x: number; // merkez (metre)
+  y: number;
+  w: number; // genişlik (x ekseni)
+  d: number; // derinlik (y ekseni)
+};
+
+export type EditorVenue = {
+  name: string;
+  blocks: EditorBlock[];
+  landmark: EditorLandmark | null;
+};
 
 type Vec3Json = { x?: number; y?: number; z?: number };
 export type VenueJson = {
@@ -36,6 +49,7 @@ export type VenueJson = {
     row_vec?: Vec3Json;
     seat_vec?: Vec3Json;
   }[];
+  landmark?: { kind?: string; x?: number; y?: number; w?: number; d?: number };
 };
 
 const rad = (deg: number) => (deg * Math.PI) / 180;
@@ -61,6 +75,17 @@ export function defaultBlock(id: string): EditorBlock {
 export function toManifestVenue(v: EditorVenue): VenueJson {
   return {
     ...(v.name ? { name: v.name } : {}),
+    ...(v.landmark
+      ? {
+          landmark: {
+            kind: v.landmark.kind,
+            x: mm(v.landmark.x),
+            y: mm(v.landmark.y),
+            w: mm(v.landmark.w),
+            d: mm(v.landmark.d),
+          },
+        }
+      : {}),
     blocks: v.blocks.map((b) => {
       const c = Math.cos(rad(b.rotationDeg));
       const s = Math.sin(rad(b.rotationDeg));
@@ -130,48 +155,66 @@ export function fromManifestVenue(v: unknown): { venue?: EditorVenue; reason?: s
       rake: Math.round(rv.z * 1000) / 1000,
     });
   }
-  return { venue: { name: vv.name || "", blocks } };
+  let landmark: EditorLandmark | null = null;
+  if (vv.landmark && (vv.landmark.kind === "pitch" || vv.landmark.kind === "stage")) {
+    landmark = {
+      kind: vv.landmark.kind,
+      x: vv.landmark.x ?? 0,
+      y: vv.landmark.y ?? 0,
+      w: vv.landmark.w ?? 10,
+      d: vv.landmark.d ?? 5,
+    };
+  }
+  return { venue: { name: vv.name || "", blocks, landmark } };
 }
 
 // --- şablonlar ---
 
-// Salon: sahneye bakan tek dikdörtgen blok.
+// Salon: sahneye bakan tek büyük blok + sahne işareti. Blok bölünebilir,
+// sayılar değiştirilebilir; şablon başlangıç noktasıdır.
 export function hallTemplate(): EditorVenue {
   return {
     name: "Salon",
-    blocks: [{ ...defaultBlock("SALON"), x: -7.5, y: 3, rows: 20, seatsPerRow: 30 }],
+    blocks: [{ ...defaultBlock("SALON"), x: -12.25, y: 4, rows: 30, seatsPerRow: 50 }],
+    landmark: { kind: "stage", x: 0, y: -1, w: 16, d: 6 },
   };
 }
 
-// Stadyum: sahayı (105×68) çevreleyen dört tribün; sıralar sahadan dışarı
-// doğru yükselir. Başlangıç noktasıdır — moderatör sürükleyip uyarlar.
+// Stadyum: sahayı (105×68) çevreleyen 4 kenar + 4 köşe tribünü — tam tur.
+// Büyük stadyuma göre boyutlanmıştır (tek katman ~30k; sıra/koltuk
+// sayılarını artırarak büyütülür). İstenmeyen blok "Bloğu sil" ile
+// çıkarılır (ör. köşesiz stadyum için köşeler silinir).
 export function stadiumTemplate(): EditorVenue {
   const mk = (
     id: string,
     x: number,
     y: number,
     rotationDeg: number,
+    rows: number,
     seats: number,
   ): EditorBlock => ({
     ...defaultBlock(id),
     x,
     y,
     rotationDeg,
-    rows: 20,
+    rows,
     seatsPerRow: seats,
   });
   return {
     name: "Stadyum",
     blocks: [
-      // Kuzey: koltuklar +x yönünde, sıralar +y (sahadan uzağa).
-      mk("KUZEY", -25, 38, 0, 100),
-      // Güney: koltuklar −x, sıralar −y.
-      mk("GUNEY", 25, -38, 180, 100),
-      // Doğu: koltuklar −y, sıralar +x.
-      mk("DOGU", 57, 20, 270, 80),
-      // Batı: koltuklar +y, sıralar −x.
-      mk("BATI", -57, -20, 90, 80),
+      // Kenarlar: ilk sıra sahadan ~8 m; sıralar sahadan dışarı yükselir.
+      mk("KUZEY", -35, 42, 0, 45, 140),
+      mk("GUNEY", 35, -42, 180, 45, 140),
+      mk("DOGU", 60.5, 25, 270, 45, 100),
+      mk("BATI", -60.5, -25, 90, 45, 100),
+      // Köşeler: 45° dönük, kenarların uçlarını birleştirir.
+      mk("KUZEYDOGU", 36, 40, -45, 45, 45),
+      mk("KUZEYBATI", -51.5, 24.5, 45, 45, 45),
+      mk("GUNEYDOGU", 51.5, -24.5, 225, 45, 45),
+      mk("GUNEYBATI", -36, -40, 135, 45, 45),
     ],
+    landmark: { kind: "pitch", x: 0, y: 0, w: 105, d: 68 },
   };
 }
 
@@ -201,6 +244,12 @@ export function venueBounds(v: EditorVenue): { minX: number; minY: number; maxX:
       minX = Math.min(minX, x); maxX = Math.max(maxX, x);
       minY = Math.min(minY, y); maxY = Math.max(maxY, y);
     }
+  }
+  // Saha/sahne de görünür alanda kalmalı (salonun sahnesi blokların dışında).
+  if (v.landmark) {
+    const lm = v.landmark;
+    minX = Math.min(minX, lm.x - lm.w / 2); maxX = Math.max(maxX, lm.x + lm.w / 2);
+    minY = Math.min(minY, lm.y - lm.d / 2); maxY = Math.max(maxY, lm.y + lm.d / 2);
   }
   if (!Number.isFinite(minX)) return { minX: -10, minY: -10, maxX: 10, maxY: 10 };
   return { minX, minY, maxX, maxY };

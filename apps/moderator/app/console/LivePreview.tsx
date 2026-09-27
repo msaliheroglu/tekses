@@ -7,8 +7,8 @@ import {
   manifestScreenColorAt,
 } from "@/lib/effectEval";
 import { fmtTime, type ManifestJson } from "@/lib/manifestEditor";
-import { fromManifestVenue, seatPoints, type SeatPoint } from "@/lib/venueEditor";
-import SeatCloudCanvas from "../components/SeatCloudCanvas";
+import { blockCorners, fromManifestVenue, seatPoints, type SeatPoint } from "@/lib/venueEditor";
+import SeatCloudCanvas, { type CloudScene } from "../components/SeatCloudCanvas";
 
 // Canlı konsol önizlemesi (F4.5): GO'dan sonra moderatör koşuyu buradan
 // izler — telefon maketi ekran rengini + söz satırını, mekân planı varsa
@@ -72,11 +72,17 @@ export default function LivePreview({
     }
   }
 
-  // Mekân planı varsa 3B bulut (plan editör kalıbına uymuyorsa maketle yetinilir).
-  const cloud = useMemo(() => {
+  // Mekân planı varsa 3B bulut + sahne bağlamı (plan editör kalıbına
+  // uymuyorsa maketle yetinilir).
+  const venueView = useMemo(() => {
     if (!manifest?.venue || run.cueId === FLASH) return null;
     const r = fromManifestVenue(manifest.venue);
-    return r.venue ? seatPoints(r.venue, MAX_DRAWN_SEATS) : null;
+    if (!r.venue) return null;
+    const scene: CloudScene = {
+      landmark: r.venue.landmark,
+      blocks: r.venue.blocks.map((b) => ({ label: b.id, corners: blockCorners(b), z: b.z })),
+    };
+    return { cloud: seatPoints(r.venue, MAX_DRAWN_SEATS), scene };
   }, [manifest, run.cueId]);
 
   const colorFor = useCallback(
@@ -157,12 +163,13 @@ export default function LivePreview({
             telefon (orta koltuk)
           </p>
         </div>
-        {cloud && (
+        {venueView && (
           <div style={{ flex: "1 1 320px", minWidth: 0 }}>
             <SeatCloudCanvas
-              points={cloud.points}
+              points={venueView.cloud.points}
               timeMs={Math.max(0, elapsed)}
               colorFor={colorFor}
+              scene={venueView.scene}
               height={252}
             />
             <p className="muted" style={{ margin: "6px 0 0" }}>
