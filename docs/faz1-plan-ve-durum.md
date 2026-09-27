@@ -441,9 +441,15 @@ parametre taşır, telefon rengini/zamanını (mekân geometrisi + kendi koltuğ
   düz renge düşer + panel uyarır. Doğrulama: Chromium'da ŞAMPİYON sloganı
   + iki renkli bayrak üretildi, çıktı Go manifest.Parse'tan geçti.
   **Panel doğrulaması kullanıcıda.**
-- [ ] **F4.4 3B mekân önizleme/simülasyon:** panelde mekânın 3B görünümü
-  (three.js), efektin zaman çizelgesinde simülasyonu — moderatör göstermeden
-  önce sonucu görür.
+- [x] **F4.4 3B mekân önizleme/simülasyon (2026-09-27):** mekân planlı
+  gösteride panelde "3B önizleme" kartı — her koltuk bir nokta olan
+  ortografik nokta bulutu (bağımlılıksız canvas; three.js'e bilinçli
+  gerek görülmedi), sürükle-döndür + tekerlek yakınlaştırma, 20k üstünde
+  koltuk örneklemesi. Nokta rengi telefonun o koltukta o an basacağı ekran
+  rengi: lib/effectEval.ts EvalEffect'in 4. gerçeklemesi (10 altın vektörle
+  birebir, scratchpad Chromium koşumuyla sınandı) + ekran şeridi kare
+  kuralları. Sekans seçici, oynat/duraklat, zaman kaydırıcı.
+  **Panel doğrulaması kullanıcıda.**
 - [ ] **F4.5 Arayüz cilası:** telefon katılım akışı + panel; madde listesi
   kullanıcıdan alınacak.
 - [ ] **F4.6 Uçtan uca prova:** birkaç telefon farklı koltuk kimlikleriyle —
