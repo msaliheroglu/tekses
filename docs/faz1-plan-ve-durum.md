@@ -405,11 +405,22 @@ parametre taşır, telefon rengini/zamanını (mekân geometrisi + kendi koltuğ
   Gösteri ekranı koltuğu her paket yenilemesinde güncel plana karşı yeniden
   çözer; durum satırı plan yok / çözülemedi / ✓ ayrımı yapar. Koltuk yalnız
   istemcide — tel ve sunucu değişmedi. **Cihaz doğrulaması F4.6 provasında.**
-- [ ] **F4.2 Uzamsal efekt motoru:** efekt = f(koltuk konumu, t) → renk saf
-  fonksiyonu. İlk küme: dalga (yönlü tarama gecikmesi), gradyan, bitmap
-  (görüntü → koltuk pikseli; bayrak bundan), yazı/slogan (raster → kayan
-  bitmap). Go referans + Dart/JS aynaları, altın vektör testleri
-  (golden_frames deseni).
+- [x] **F4.2 Uzamsal efekt motoru (2026-09-27):** kueye isteğe bağlı
+  `effect` — SAF fonksiyon f(normalize koltuk konumu u/v/w, kue içi süre)
+  → renk; koltuk başına tel trafiği yok. Türler: **wave** (yönlü sargılı
+  tarama bandı; meksika dalgası — period_ms/width/axis/reverse/color2),
+  **gradient** (eksen boyunca renk geçişi), **bitmap** (koltuk=piksel;
+  palet ≤16 + satır dizgileri, '.'=kapalı; period_ms ile kaydırma → kayan
+  yazı/slogan geniş bitmap olarak, metni F4.3 editörü rasterleştirecek).
+  Işık güvenliği doğrulamada: efekt + flash_hz birlikte yasak; dalga
+  dönemi ≥334 ms, kaydırma ≥ sütun×334 ms (koltuk başına ≤3 Hz; MaxFlashHz
+  tutarlılığı testle sabit); gradyan fenerde yasak. Duyarlı mod efekti
+  değerlendirmez, kuenin sabit rengini basar. Koltuksuz istemci mekânın
+  ortası (0.5) sayılır. Üç gerçekleme: Go referans (effect.go) →
+  testdata/effect_vectors.json altın vektörleri → Dart
+  (spatial_effect.dart + motor seatPos) ve /join JS'i birebir doğrulanır
+  (Dart birim testi + Chromium E2E). Fener şeridinde wave/bitmap
+  açık/kapalı verir. **Cihaz doğrulaması F4.6 provasında.**
 - [ ] **F4.3 Panel mekân editörü (2B):** blok yerleştirme/boyutlama, koltuk
   numaralandırma yönleri, stad/salon şablonları.
 - [ ] **F4.4 3B mekân önizleme/simülasyon:** panelde mekânın 3B görünümü
