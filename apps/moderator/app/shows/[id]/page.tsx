@@ -15,6 +15,7 @@ import {
 import { parseLrc } from "@/lib/lrc";
 import {
   defaultShow,
+  emptyScreenStep,
   emptySequence,
   fmtTime,
   fromManifest,
@@ -26,6 +27,7 @@ import {
   type EditorShow,
   type EditorTorchStep,
 } from "@/lib/manifestEditor";
+import VenueEditor from "./VenueEditor";
 
 // Görsel gösteri editörü: sekans/ses/söz/ekran/fener form ve seçicilerle
 // düzenlenir; manifest JSON'u yayında lib/manifestEditor üretir. JSON'u elle
@@ -66,6 +68,36 @@ function TimeField({
       }}
       style={bad ? { borderColor: "var(--err)" } : undefined}
     />
+  );
+}
+
+// Efekt yönü: normalize mekân eksenleri (u = enine, v = derinlemesine,
+// w = yükseklik). Ters yön aynı eksenin öbür ucundan başlatır.
+function EffectDirSelect({
+  axis,
+  reverse,
+  onChange,
+}: {
+  axis: "u" | "v" | "w";
+  reverse: boolean;
+  onChange: (axis: "u" | "v" | "w", reverse: boolean) => void;
+}) {
+  const val = axis + (reverse ? "-" : "+");
+  return (
+    <select
+      value={val}
+      onChange={(e) => {
+        const v = e.target.value;
+        onChange(v[0] as "u" | "v" | "w", v[1] === "-");
+      }}
+    >
+      <option value="u+">enine → (u)</option>
+      <option value="u-">enine ← (u ters)</option>
+      <option value="v+">derinlemesine → (v)</option>
+      <option value="v-">derinlemesine ← (v ters)</option>
+      <option value="w+">yukarı (w)</option>
+      <option value="w-">aşağı (w ters)</option>
+    </select>
   );
 }
 
@@ -151,6 +183,17 @@ export default function ShowDetailPage({ params }: { params: Promise<{ id: strin
     setShow((s) => ({
       ...s,
       sequences: s.sequences.map((sq, j) => (j === i ? { ...sq, ...patch } : sq)),
+    }));
+  }
+
+  function patchScreen(i: number, j: number, patch: Partial<EditorScreenStep>) {
+    setShow((s) => ({
+      ...s,
+      sequences: s.sequences.map((sq, ii) =>
+        ii === i
+          ? { ...sq, screen: sq.screen.map((x, k) => (k === j ? { ...x, ...patch } : x)) }
+          : sq,
+      ),
     }));
   }
 
@@ -446,6 +489,11 @@ export default function ShowDetailPage({ params }: { params: Promise<{ id: strin
           </div>
         ) : (
           <>
+            <VenueEditor
+              venue={show.venue}
+              onChange={(v) => setShow((s) => ({ ...s, venue: v }))}
+            />
+
             {show.sequences.map((sq, i) => (
               <div className="card" key={i}>
                 <div className="row">
@@ -540,14 +588,97 @@ export default function ShowDetailPage({ params }: { params: Promise<{ id: strin
                       />
                     </div>
                     <div>
-                      <label>Flaş</label>
-                      <FlashSelect
-                        hz={st.flashHz}
-                        onChange={(hz) =>
-                          patchSeq(i, { screen: sq.screen.map((x, k) => (k === j ? { ...x, flashHz: hz } : x)) })
+                      <label>Efekt</label>
+                      <select
+                        value={st.effectKind}
+                        onChange={(e) =>
+                          patchScreen(i, j, { effectKind: e.target.value as EditorScreenStep["effectKind"] })
                         }
-                      />
+                      >
+                        <option value="">düz renk</option>
+                        <option value="wave">dalga (koltuğa göre)</option>
+                        <option value="gradient">gradyan (koltuğa göre)</option>
+                      </select>
                     </div>
+                    {st.effectKind === "" && (
+                      <div>
+                        <label>Flaş</label>
+                        <FlashSelect
+                          hz={st.flashHz}
+                          onChange={(hz) => patchScreen(i, j, { flashHz: hz })}
+                        />
+                      </div>
+                    )}
+                    {st.effectKind !== "" && (
+                      <div>
+                        <label>Yön</label>
+                        <EffectDirSelect
+                          axis={st.effectAxis}
+                          reverse={st.effectReverse}
+                          onChange={(axis, reverse) =>
+                            patchScreen(i, j, { effectAxis: axis, effectReverse: reverse })
+                          }
+                        />
+                      </div>
+                    )}
+                    {st.effectKind === "wave" && (
+                      <>
+                        <div>
+                          <label>Süpürme süresi</label>
+                          <TimeField
+                            ms={st.effectPeriodMs}
+                            onChange={(ms) => patchScreen(i, j, { effectPeriodMs: Math.max(334, ms) })}
+                          />
+                        </div>
+                        <div style={{ flex: "0 1 90px" }}>
+                          <label>Bant (%)</label>
+                          <input
+                            type="number"
+                            min={1}
+                            max={100}
+                            value={Math.round(st.effectWidth * 100)}
+                            onChange={(e) => {
+                              const pct = Math.min(100, Math.max(1, Number(e.target.value) || 1));
+                              patchScreen(i, j, { effectWidth: pct / 100 });
+                            }}
+                          />
+                        </div>
+                        <div style={{ flex: "0 0 110px" }}>
+                          <label>Arka plan</label>
+                          <div style={{ display: "flex", gap: 4 }}>
+                            <select
+                              value={st.effectColor2 ? "renk" : ""}
+                              onChange={(e) =>
+                                patchScreen(i, j, { effectColor2: e.target.value ? "#101040" : "" })
+                              }
+                              style={{ flex: 1 }}
+                            >
+                              <option value="">karanlık</option>
+                              <option value="renk">renk</option>
+                            </select>
+                            {st.effectColor2 && (
+                              <input
+                                type="color"
+                                value={st.effectColor2}
+                                style={{ padding: 2, height: 42, width: 44 }}
+                                onChange={(e) => patchScreen(i, j, { effectColor2: e.target.value })}
+                              />
+                            )}
+                          </div>
+                        </div>
+                      </>
+                    )}
+                    {st.effectKind === "gradient" && (
+                      <div style={{ flex: "0 0 90px" }}>
+                        <label>Bitiş rengi</label>
+                        <input
+                          type="color"
+                          value={st.effectColor2 || "#000000"}
+                          style={{ padding: 2, height: 42 }}
+                          onChange={(e) => patchScreen(i, j, { effectColor2: e.target.value })}
+                        />
+                      </div>
+                    )}
                     <div style={{ flex: "0 0 auto" }}>
                       <button
                         type="button"
@@ -565,8 +696,7 @@ export default function ShowDetailPage({ params }: { params: Promise<{ id: strin
                   onClick={() => {
                     const last = sq.screen[sq.screen.length - 1];
                     const at = last ? (last.durationMs > 0 ? last.atMs + last.durationMs : last.atMs) : 0;
-                    const step: EditorScreenStep = { atMs: at, durationMs: 0, color: "#d92b2b", flashHz: 0 };
-                    patchSeq(i, { screen: [...sq.screen, step] });
+                    patchSeq(i, { screen: [...sq.screen, emptyScreenStep(at)] });
                   }}
                 >
                   + Ekran adımı
