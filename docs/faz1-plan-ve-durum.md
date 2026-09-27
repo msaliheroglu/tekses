@@ -384,10 +384,19 @@ parametre taşır, telefon rengini/zamanını (mekân geometrisi + kendi koltuğ
 üzerinden türetir. Koltuk başına tel trafiği yok (60k ölçek), "her şey
 önceden iner" ilkesi korunur.
 
-- [ ] **F4.0 Mekân modeli + sözleşme:** mekân şeması — blok = sıra×koltuk
-  grid'i + uzamda konum/yön; koltuk → normalize mekân koordinatı (x,y,z)
-  çözümü. Manifest/paket genişletmesi, Go doğrulama + Dart aynası, birim
-  testler. Geriye uyum: mekânsız manifest bugünkü gibi çalışır.
+- [x] **F4.0 Mekân modeli + sözleşme (2026-09-27):** manifest'e isteğe bağlı
+  `venue` — blok = sıra×koltuk grid'i + uzamda origin/row_vec/seat_vec
+  (metre; row_vec'in z'si tribün eğimi, kavisli tribün birkaç düz blokla
+  yaklaşıklanır). Koltuk konumu doğrusal; efektler için mekân sınır kutusuna
+  normalize u/v/w (0..1) da döner. Koltuk dizgisi sözleşmesi
+  `BLOK-SIRA-KOLTUK` (tireli blok kimliği sağdan çözülür; harf katlanmaz).
+  Go: packages/manifest/venue.go (doğrulama: benzersiz/boşluksuz kimlik,
+  pozitif grid, sıfır adım vektörü reddi, 500k koltuk sınırı; omitempty —
+  mekânsız manifestlerin kanonik özeti değişmez, testli). Dart:
+  lib/core/venue.dart aynası, telefonda savunmacı çözüm (bilinmeyen koltuk
+  null). Çapraz doğrulama: packages/manifest/testdata/venue_vectors.json
+  altın vektörleri iki tarafta da testli (golden_frames deseni) + Go'da
+  el hesabı bağımsız doğrulama.
 - [ ] **F4.1 Koltuk kimliği (katılım):** telefonda blok/sıra/koltuk girişi
   (+ `?seat=BLOK-SIRA-NO` URL/QR biçimi), /join eşleniği. Koltuk yalnız
   istemcide tutulur — tel ve sunucu değişmez.
