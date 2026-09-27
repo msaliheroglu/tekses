@@ -317,10 +317,12 @@ gerektirenler.
   TEKSES_ASSET_PUBLIC_BASE ayarlıysa join yanıtı asset_base_url + mutlak
   manifest_url döner; telefon paketi ve ses dosyalarını CDN'den indirir
   (özet doğrulaması aynı; testli iki tarafta da). Kurulum: docs/dagitim.md
-  §8; compose + .env.example güncel. **Kullanıcı doğrulaması:** R2 kovası +
-  API anahtarı + özel alan adı kullanıcının Cloudflare hesabında açılmalı
-  (§8 adımları), sonra VM'de control-api yeniden derlenip telefonla katılım
-  denenmeli.
+  §8; compose + .env.example güncel. **Kullanıcı doğrulaması (2026-09-27):
+  ÇALIŞTI** — R2 kovası + API anahtarı açıldı, public erişim r2.dev
+  geliştirme URL'siyle (B seçeneği; yeni arayüz adı "Public Development
+  URL"), VM'de control-api yeniden derlendi ve uçtan uca doğrulandı.
+  **Etkinlikten önce kalan:** r2.dev hız sınırlıdır — özel alan adına geçiş
+  (§8 C seçeneği: Cloudflare'da alan adı + kovaya Custom Domain) yapılmalı.
 - [x] **F3.4 Yeniden bağlanma fırtınası (KAPANDI; 100k koşumu isteğe bağlı) — araç HAZIR
   (2026-09-26):** loadgen'e -storm/-stormPause eklendi: senkronu bitmiş
   istemcilerin verilen oranı kopar ve süre sonunda HEPSİ BİRDEN döner
