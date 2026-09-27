@@ -358,8 +358,10 @@ gerektirenler.
   (5 sn taze tur) → kabul politikası (kalite kapısı) → kestirim algoritması
   (RTT bandı). **İsteğe bağlı kalan:** 100k tam koşum — ayrı yük makinesi
   ister; tek 4-OCPU düğüm ≥40k kanıtlı, 80k = 2 düğüm (F2.6).
-- [ ] **F3.5 Cihaz sınıfı fener kalibrasyon tablosu:** fener sürücü gecikmesi
-  cihazdan cihaza değişir; model bazlı ofset tablosu + ölçüm prosedürü.
+- [ ] **F3.5 Cihaz sınıfı fener kalibrasyon tablosu — BEKLEMEDE (2026-09-27):**
+  fener sürücü gecikmesi cihazdan cihaza değişir; model bazlı ofset tablosu +
+  ölçüm prosedürü. Yeterli sayıda FARKLI model telefon gerekir; kullanıcı
+  telefonları toplayınca haber verecek — o güne dek "devam et" bu adımı atlar.
 - [x] **F3.6 Tarayıcı katılımcı yedeği ürünleşti (2026-09-26):** /join artık
   resmî yedek: kapak ekranına ELLE kod girişi eklendi (URL ?code hâlâ
   çalışır ve elle girilen kod adrese işlenir), ışığa duyarlı mod düğmesi
@@ -369,8 +371,41 @@ gerektirenler.
   katılım + duyarlı modun 2 Hz flaşı bastırması). Kapsam bilinçli: söz +
   ekran rengi; fener/ses yalnız uygulamada. VM'de devreye girmesi gateway
   yeniden derlemesiyle (bekleyen güncelleme adımında zaten var).
-- [ ] **F3.7 Analitik** ve **F3.8 Faturalama:** kapsam kullanıcıyla
-  netleşince ayrıntılanır.
+- [ ] **F3.7 Analitik** ve **F3.8 Faturalama — ERTELENDİ (2026-09-27,
+  kullanıcı kararı):** ürün çekirdeğinde daha öncelikli iş var (Faz 4 koltuk
+  bazlı koreografi + arayüzler); Faz 4'ten sonra ele alınır.
+
+## Faz 4 — Koltuk bazlı koreografi (2026-09-27, kullanıcı isteği)
+
+Hedef: telefonun mekândaki KONUMUNA göre farklı davranması — meksika dalgası,
+tribüne bayrak çizdirmek, kayan slogan yazdırmak. Tasarım ilkesi (karar
+dosyasında): efekt telefonda YEREL hesaplanır — kue yalnız efekt tipi +
+parametre taşır, telefon rengini/zamanını (mekân geometrisi + kendi koltuğu)
+üzerinden türetir. Koltuk başına tel trafiği yok (60k ölçek), "her şey
+önceden iner" ilkesi korunur.
+
+- [ ] **F4.0 Mekân modeli + sözleşme:** mekân şeması — blok = sıra×koltuk
+  grid'i + uzamda konum/yön; koltuk → normalize mekân koordinatı (x,y,z)
+  çözümü. Manifest/paket genişletmesi, Go doğrulama + Dart aynası, birim
+  testler. Geriye uyum: mekânsız manifest bugünkü gibi çalışır.
+- [ ] **F4.1 Koltuk kimliği (katılım):** telefonda blok/sıra/koltuk girişi
+  (+ `?seat=BLOK-SIRA-NO` URL/QR biçimi), /join eşleniği. Koltuk yalnız
+  istemcide tutulur — tel ve sunucu değişmez.
+- [ ] **F4.2 Uzamsal efekt motoru:** efekt = f(koltuk konumu, t) → renk saf
+  fonksiyonu. İlk küme: dalga (yönlü tarama gecikmesi), gradyan, bitmap
+  (görüntü → koltuk pikseli; bayrak bundan), yazı/slogan (raster → kayan
+  bitmap). Go referans + Dart/JS aynaları, altın vektör testleri
+  (golden_frames deseni).
+- [ ] **F4.3 Panel mekân editörü (2B):** blok yerleştirme/boyutlama, koltuk
+  numaralandırma yönleri, stad/salon şablonları.
+- [ ] **F4.4 3B mekân önizleme/simülasyon:** panelde mekânın 3B görünümü
+  (three.js), efektin zaman çizelgesinde simülasyonu — moderatör göstermeden
+  önce sonucu görür.
+- [ ] **F4.5 Arayüz cilası:** telefon katılım akışı + panel; madde listesi
+  kullanıcıdan alınacak.
+- [ ] **F4.6 Uçtan uca prova:** birkaç telefon farklı koltuk kimlikleriyle —
+  dalganın sırayla geçtiği kamerayla doğrulanır. (Telefonlar toplanınca;
+  F3.5 fener kalibrasyonuyla aynı oturumda yapılabilir.)
 
 ## Notlar
 
