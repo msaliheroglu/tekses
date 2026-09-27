@@ -5,6 +5,7 @@ import {
   blockCorners,
   defaultBlock,
   hallTemplate,
+  seatsInRowOf,
   stadiumTemplate,
   totalSeats,
   uniqueBlockId,
@@ -313,21 +314,50 @@ export default function VenueEditor({
               />
             </div>
             <div>
+              <label>Blok biçimi</label>
+              <select
+                value={sel.kind}
+                onChange={(e) => patchBlock(selected, { kind: e.target.value as "grid" | "arc" })}
+              >
+                <option value="grid">düz (ızgara)</option>
+                <option value="arc">yay / oval (köşe tribünü)</option>
+              </select>
+            </div>
+            <div>
               <label>Sıra sayısı</label>
               <NumField value={sel.rows} min={1} onChange={(v) => patchBlock(selected, { rows: Math.round(v) })} />
             </div>
-            <div>
-              <label>Sıradaki koltuk</label>
-              <NumField
-                value={sel.seatsPerRow}
-                min={1}
-                onChange={(v) => patchBlock(selected, { seatsPerRow: Math.round(v) })}
-              />
-            </div>
-            <div>
-              <label>Dönüş (°)</label>
-              <NumField value={sel.rotationDeg} step={15} onChange={(v) => patchBlock(selected, { rotationDeg: v })} />
-            </div>
+            {sel.kind === "grid" ? (
+              <>
+                <div>
+                  <label>Sıradaki koltuk</label>
+                  <NumField
+                    value={sel.seatsPerRow}
+                    min={1}
+                    onChange={(v) => patchBlock(selected, { seatsPerRow: Math.round(v) })}
+                  />
+                </div>
+                <div>
+                  <label>Dönüş (°)</label>
+                  <NumField value={sel.rotationDeg} step={15} onChange={(v) => patchBlock(selected, { rotationDeg: v })} />
+                </div>
+              </>
+            ) : (
+              <>
+                <div>
+                  <label>1. sıra yarıçapı (m)</label>
+                  <NumField value={sel.radius} min={1} step={0.5} onChange={(v) => patchBlock(selected, { radius: v })} />
+                </div>
+                <div>
+                  <label>Açı başı (°)</label>
+                  <NumField value={sel.angleStartDeg} step={5} onChange={(v) => patchBlock(selected, { angleStartDeg: v })} />
+                </div>
+                <div>
+                  <label>Açı sonu (°)</label>
+                  <NumField value={sel.angleEndDeg} step={5} onChange={(v) => patchBlock(selected, { angleEndDeg: v })} />
+                </div>
+              </>
+            )}
             <div style={{ flex: "0 0 auto", alignSelf: "flex-end" }}>
               <button
                 type="button"
@@ -344,11 +374,11 @@ export default function VenueEditor({
           </div>
           <div className="row">
             <div>
-              <label>Konum x (m)</label>
+              <label>{sel.kind === "arc" ? "Yay merkezi x (m)" : "Konum x (m)"}</label>
               <NumField value={sel.x} step={0.5} onChange={(v) => patchBlock(selected, { x: v })} />
             </div>
             <div>
-              <label>Konum y (m)</label>
+              <label>{sel.kind === "arc" ? "Yay merkezi y (m)" : "Konum y (m)"}</label>
               <NumField value={sel.y} step={0.5} onChange={(v) => patchBlock(selected, { y: v })} />
             </div>
             <div>
@@ -360,7 +390,7 @@ export default function VenueEditor({
               <NumField value={sel.seatStep} step={0.05} min={0.05} onChange={(v) => patchBlock(selected, { seatStep: v })} />
             </div>
             <div>
-              <label>Sıra aralığı (m)</label>
+              <label>{sel.kind === "arc" ? "Sıra başına yarıçap artışı (m)" : "Sıra aralığı (m)"}</label>
               <NumField value={sel.rowStep} step={0.05} min={0.05} onChange={(v) => patchBlock(selected, { rowStep: v })} />
             </div>
             <div>
@@ -371,8 +401,10 @@ export default function VenueEditor({
           <p className="muted">
             Bu bloğun koltuk dizgileri: <code>{sel.id || "?"}-1-1</code> …{" "}
             <code>
-              {sel.id || "?"}-{sel.rows}-{sel.seatsPerRow}
+              {sel.id || "?"}-{sel.rows}-{seatsInRowOf(sel, sel.rows)}
             </code>
+            {sel.kind === "arc" &&
+              ` — yay blokta sıradaki koltuk sayısı değişir: 1. sırada ${seatsInRowOf(sel, 1)}, son sırada ${seatsInRowOf(sel, sel.rows)}.`}
           </p>
         </>
       )}

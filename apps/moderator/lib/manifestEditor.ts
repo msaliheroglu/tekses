@@ -20,20 +20,27 @@ export type EditorLyric = { atMs: number; durationMs: number; text: string };
 // indeksi, '.' = kapalı.
 export type EditorBitmap = { palette: string[]; rows: string[] };
 
+// Bitmap yerleştirme penceresi (normalize yatay×dikey; null = tüm mekân).
+export type EditorArea = { u0: number; w0: number; u1: number; w1: number };
+
 export type EditorScreenStep = {
   atMs: number;
   durationMs: number; // 0 = sekans sonuna dek
   color: string; // #rrggbb
   flashHz: number; // 0 = sabit yanar (efekt seçiliyken yok sayılır)
   // Uzamsal efekt (F4.2): "" = düz renk.
-  effectKind: "" | "wave" | "gradient" | "bitmap";
-  effectAxis: "u" | "v" | "w";
+  effectKind: "" | "wave" | "gradient" | "bitmap" | "cycle";
+  effectAxis: "u" | "v" | "w" | "ring"; // ring = stadyum turu
   effectReverse: boolean;
-  effectPeriodMs: number; // dalga: bir tam süpürme (≥334 ms, sunucu doğrular)
+  effectPeriodMs: number; // dalga süpürme / cycle adım süresi (≥334 ms)
   effectWidth: number; // dalga bandı, 0..1
   effectColor2: string; // dalga arka planı ("" = kapalı) / gradyan bitişi
   effectScrollMs: number; // bitmap: kaydırma dönemi (0 = sabit; ≥ sütun×334)
   effectBitmap: EditorBitmap | null; // bitmap: üreticiden (F4.3b) ya da JSON'dan
+  effectBlocks: string[]; // yalnız bu bloklar oynar (boş = herkes)
+  effectArea: EditorArea | null; // bitmap yerleştirme penceresi
+  effectColors: string[]; // cycle renkleri
+  effectLyricSync: boolean; // cycle: renk söz satırını izler (period 0)
 };
 
 export function emptyScreenStep(atMs: number): EditorScreenStep {
@@ -50,6 +57,10 @@ export function emptyScreenStep(atMs: number): EditorScreenStep {
     effectColor2: "",
     effectScrollMs: 0,
     effectBitmap: null,
+    effectBlocks: [],
+    effectArea: null,
+    effectColors: ["#d92b2b", "#ffffff"],
+    effectLyricSync: true,
   };
 }
 
@@ -57,7 +68,28 @@ export type EditorTorchStep = {
   atMs: number;
   durationMs: number;
   flashHz: number;
+  // Fener dalgası (F4.5-3.tur): fenerler de meksika dalgasına katılır.
+  effectKind: "" | "wave";
+  effectAxis: "u" | "v" | "w" | "ring";
+  effectReverse: boolean;
+  effectPeriodMs: number;
+  effectWidth: number;
+  effectBlocks: string[];
 };
+
+export function emptyTorchStep(atMs: number): EditorTorchStep {
+  return {
+    atMs,
+    durationMs: 0,
+    flashHz: 1,
+    effectKind: "",
+    effectAxis: "ring",
+    effectReverse: false,
+    effectPeriodMs: 4000,
+    effectWidth: 0.2,
+    effectBlocks: [],
+  };
+}
 
 export type EditorSequence = {
   id: string;
@@ -169,6 +201,9 @@ type ManifestEffect = {
   width?: number;
   color2?: string;
   bitmap?: { palette?: string[]; rows?: string[] };
+  blocks?: string[];
+  area?: EditorArea;
+  colors?: string[];
 };
 type ManifestCue = {
   at_ms: number;
@@ -212,8 +247,11 @@ export function toManifest(show: EditorShow): ManifestJson {
             if (kind) {
               // Efekt ve flash_hz birlikte yasak (ışık güvenliği) — efekt kazanır.
               const eff: ManifestEffect = { kind };
-              if (st.effectAxis !== "u") eff.axis = st.effectAxis;
-              if (st.effectReverse) eff.reverse = true;
+              if (kind !== "cycle") {
+                // cycle uzamsal değildir; sunucu axis taşımasını reddeder.
+                if (st.effectAxis !== "u") eff.axis = st.effectAxis;
+                if (st.effectReverse) eff.reverse = true;
+              }
               if (kind === "wave") {
                 eff.period_ms = st.effectPeriodMs;
                 eff.width = st.effectWidth;
@@ -223,7 +261,13 @@ export function toManifest(show: EditorShow): ManifestJson {
               } else if (kind === "bitmap" && st.effectBitmap) {
                 if (st.effectScrollMs > 0) eff.period_ms = st.effectScrollMs;
                 eff.bitmap = { palette: st.effectBitmap.palette, rows: st.effectBitmap.rows };
+                if (st.effectArea) eff.area = { ...st.effectArea };
+              } else if (kind === "cycle") {
+                eff.colors = [...st.effectColors];
+                // Söz izleme = period 0 (motor kuralı); değilse adım süresi.
+                if (!st.effectLyricSync) eff.period_ms = st.effectPeriodMs;
               }
+              if (st.effectBlocks.length > 0) eff.blocks = [...st.effectBlocks];
               cue.effect = eff;
             } else if (st.flashHz > 0) {
               cue.flash_hz = st.flashHz;
@@ -240,7 +284,20 @@ export function toManifest(show: EditorShow): ManifestJson {
           .sort((a, b) => a.atMs - b.atMs)
           .map((st) => {
             const cue: ManifestCue = { at_ms: st.atMs, duration_ms: st.durationMs };
-            if (st.flashHz > 0) cue.flash_hz = st.flashHz;
+            if (st.effectKind === "wave") {
+              // Fener dalgası: fenerler bantta yanar, dışında söner.
+              const eff: ManifestEffect = {
+                kind: "wave",
+                period_ms: st.effectPeriodMs,
+                width: st.effectWidth,
+              };
+              if (st.effectAxis !== "u") eff.axis = st.effectAxis;
+              if (st.effectReverse) eff.reverse = true;
+              if (st.effectBlocks.length > 0) eff.blocks = [...st.effectBlocks];
+              cue.effect = eff;
+            } else if (st.flashHz > 0) {
+              cue.flash_hz = st.flashHz;
+            }
             return cue;
           }),
       });
@@ -311,17 +368,25 @@ export function fromManifest(m: unknown): { show?: EditorShow; reason?: string }
         sq.screen = [];
         for (const c of lane.cues ?? []) {
           const eff = c.effect;
-          if (eff && eff.kind !== "wave" && eff.kind !== "gradient" && eff.kind !== "bitmap") {
+          if (
+            eff &&
+            eff.kind !== "wave" &&
+            eff.kind !== "gradient" &&
+            eff.kind !== "bitmap" &&
+            eff.kind !== "cycle"
+          ) {
             return { reason: `"${seq.id}" sekansında editörün taşımadığı efekt türü (${eff.kind})` };
           }
           const isBitmap = eff?.kind === "bitmap";
+          const isCycle = eff?.kind === "cycle";
           sq.screen.push({
             atMs: c.at_ms || 0,
             durationMs: c.duration_ms || 0,
             color: c.color || "#ffffff",
             flashHz: c.flash_hz || 0,
-            effectKind: (eff?.kind as "wave" | "gradient" | "bitmap" | undefined) ?? "",
-            effectAxis: eff?.axis === "v" || eff?.axis === "w" ? eff.axis : "u",
+            effectKind: (eff?.kind as EditorScreenStep["effectKind"] | undefined) ?? "",
+            effectAxis:
+              eff?.axis === "v" || eff?.axis === "w" || eff?.axis === "ring" ? eff.axis : "u",
             effectReverse: !!eff?.reverse,
             effectPeriodMs: (!isBitmap && eff?.period_ms) || 2000,
             effectWidth: eff?.width || 0.2,
@@ -331,19 +396,33 @@ export function fromManifest(m: unknown): { show?: EditorShow; reason?: string }
               isBitmap && eff?.bitmap
                 ? { palette: eff.bitmap.palette ?? [], rows: eff.bitmap.rows ?? [] }
                 : null,
+            effectBlocks: eff?.blocks ? [...eff.blocks] : [],
+            effectArea: eff?.area ? { ...eff.area } : null,
+            effectColors: eff?.colors?.length ? [...eff.colors] : ["#d92b2b", "#ffffff"],
+            effectLyricSync: isCycle ? !eff?.period_ms : true,
           });
         }
       } else if (lane.kind === "torch") {
         if (torchSeen) return { reason: `"${seq.id}" sekansında birden çok fener şeridi var` };
         torchSeen = true;
-        if ((lane.cues ?? []).some((c) => c.effect)) {
-          return { reason: `"${seq.id}" sekansında efektli fener kuesi var (editör taşımaz)` };
+        if ((lane.cues ?? []).some((c) => c.effect && c.effect.kind !== "wave")) {
+          return { reason: `"${seq.id}" sekansında editörün taşımadığı fener efekti var` };
         }
-        sq.torch = (lane.cues ?? []).map((c) => ({
-          atMs: c.at_ms || 0,
-          durationMs: c.duration_ms || 0,
-          flashHz: c.flash_hz || 0,
-        }));
+        sq.torch = (lane.cues ?? []).map((c) => {
+          const eff = c.effect;
+          return {
+            ...emptyTorchStep(c.at_ms || 0),
+            durationMs: c.duration_ms || 0,
+            flashHz: c.flash_hz || 0,
+            effectKind: (eff?.kind === "wave" ? "wave" : "") as "" | "wave",
+            effectAxis:
+              eff?.axis === "v" || eff?.axis === "w" || eff?.axis === "ring" ? eff.axis : "u",
+            effectReverse: !!eff?.reverse,
+            effectPeriodMs: eff?.period_ms || 4000,
+            effectWidth: eff?.width || 0.2,
+            effectBlocks: eff?.blocks ? [...eff.blocks] : [],
+          };
+        });
       } else if (lane.kind === "audio") {
         const cues = lane.cues ?? [];
         if (audioSeen || cues.length > 1) return { reason: `"${seq.id}" sekansında birden çok ses kuesi var` };

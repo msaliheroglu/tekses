@@ -5,6 +5,7 @@ import { imageToBitmap, textToBitmap } from "@/lib/bitmapGen";
 import {
   emptyScreenStep,
   emptySequence,
+  emptyTorchStep,
   type EditorSequence,
 } from "@/lib/manifestEditor";
 
@@ -25,6 +26,8 @@ export default function QuickAdd({ onAdd }: { onAdd: (seq: EditorSequence) => vo
   const [kind, setKind] = useState<Kind>("wave");
   const [color, setColor] = useState("#d92b2b");
   const [speed, setSpeed] = useState(1);
+  const [dir, setDir] = useState<"ring+" | "ring-" | "u+">("ring+");
+  const [withTorch, setWithTorch] = useState(true);
   const [text, setText] = useState("");
   const [durationSec, setDurationSec] = useState(30);
   const [err, setErr] = useState("");
@@ -39,16 +42,33 @@ export default function QuickAdd({ onAdd }: { onAdd: (seq: EditorSequence) => vo
   function add() {
     setErr("");
     if (kind === "wave") {
+      const axis = dir.startsWith("ring") ? ("ring" as const) : ("u" as const);
+      const reverse = dir === "ring-";
       const seq = baseSequence("Meksika dalgası");
       seq.screen = [
         {
           ...emptyScreenStep(0),
           color,
           effectKind: "wave",
+          effectAxis: axis,
+          effectReverse: reverse,
           effectPeriodMs: SPEEDS[speed].periodMs,
           effectWidth: 0.2,
         },
       ];
+      if (withTorch) {
+        // Fenerler de dalgaya katılır: aynı yön/hızla açılıp söner.
+        seq.torch = [
+          {
+            ...emptyTorchStep(0),
+            effectKind: "wave",
+            effectAxis: axis,
+            effectReverse: reverse,
+            effectPeriodMs: SPEEDS[speed].periodMs,
+            effectWidth: 0.2,
+          },
+        ];
+      }
       onAdd(seq);
       return;
     }
@@ -135,14 +155,35 @@ export default function QuickAdd({ onAdd }: { onAdd: (seq: EditorSequence) => vo
           </div>
         )}
         {kind === "wave" && (
-          <div>
-            <label>Hız</label>
-            <select value={speed} onChange={(e) => setSpeed(Number(e.target.value))}>
-              {SPEEDS.map((s, i) => (
-                <option key={i} value={i}>{s.label}</option>
-              ))}
-            </select>
-          </div>
+          <>
+            <div>
+              <label>Yön</label>
+              <select value={dir} onChange={(e) => setDir(e.target.value as typeof dir)}>
+                <option value="ring+">stadyum turu ↺</option>
+                <option value="ring-">stadyum turu ↻</option>
+                <option value="u+">düz — soldan sağa</option>
+              </select>
+            </div>
+            <div>
+              <label>Hız</label>
+              <select value={speed} onChange={(e) => setSpeed(Number(e.target.value))}>
+                {SPEEDS.map((s, i) => (
+                  <option key={i} value={i}>{s.label}</option>
+                ))}
+              </select>
+            </div>
+            <div style={{ flex: "0 0 auto", alignSelf: "flex-end", paddingBottom: 10 }}>
+              <label style={{ display: "inline-flex", gap: 6, alignItems: "center", margin: 0 }}>
+                <input
+                  type="checkbox"
+                  checked={withTorch}
+                  onChange={(e) => setWithTorch(e.target.checked)}
+                  style={{ width: "auto" }}
+                />
+                fenerler de katılsın
+              </label>
+            </div>
+          </>
         )}
         {kind === "slogan" && (
           <div style={{ flex: "2 1 200px" }}>
