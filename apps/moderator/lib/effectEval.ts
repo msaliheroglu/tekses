@@ -86,7 +86,71 @@ export function evalEffect(
 
 // --- kare mantığı (telefonun screen şeridi kuralları) ---
 
-type SeqJson = ManifestJson["sequences"][number];
+export type SeqJson = ManifestJson["sequences"][number];
+
+function seqById(m: ManifestJson, id: string): SeqJson | undefined {
+  return m.sequences.find((s) => s.id === id);
+}
+
+// cue_id → o anki hedef sekans + sekans içi süre. "program" gömülü otomatik
+// akışı açar (öğeler artan sıralı; telefonun ProgramEngine'i gibi öğeler
+// arası boşlukta karanlık beklenir → null).
+export function resolveTarget(
+  m: ManifestJson,
+  cueId: string,
+  elapsedMs: number,
+): { seq: SeqJson; seqElapsedMs: number } | null {
+  if (cueId === "program") {
+    let cur: { sequence_id: string; at_offset_ms: number } | null = null;
+    for (const it of m.program ?? []) {
+      if ((it.at_offset_ms || 0) <= elapsedMs) cur = it;
+    }
+    if (!cur) return null;
+    const seq = seqById(m, cur.sequence_id);
+    if (!seq) return null;
+    const e = elapsedMs - (cur.at_offset_ms || 0);
+    return e < seq.duration_ms ? { seq, seqElapsedMs: e } : null;
+  }
+  const seq = seqById(m, cueId);
+  return seq ? { seq, seqElapsedMs: elapsedMs } : null;
+}
+
+export function manifestScreenColorAt(
+  m: ManifestJson,
+  cueId: string,
+  elapsedMs: number,
+  u: number,
+  v: number,
+  w: number,
+): string {
+  const t = resolveTarget(m, cueId, elapsedMs);
+  return t ? screenColorAt(t.seq, t.seqElapsedMs, u, v, w) : "";
+}
+
+export function manifestLyricAt(m: ManifestJson, cueId: string, elapsedMs: number): string {
+  const t = resolveTarget(m, cueId, elapsedMs);
+  if (!t) return "";
+  let lyric = "";
+  for (const l of t.seq.lyric_lines ?? []) {
+    const end = l.duration_ms ? l.at_ms + l.duration_ms : t.seq.duration_ms;
+    if (t.seqElapsedMs >= l.at_ms && t.seqElapsedMs < end) lyric = l.text;
+  }
+  return lyric;
+}
+
+// Koşunun toplam süresi (önizleme ilerleme çubuğu): program → son öğenin
+// bitişi, sekans → kendi süresi, tanınmayan kimlik → 0.
+export function manifestCueDurationMs(m: ManifestJson, cueId: string): number {
+  if (cueId === "program") {
+    let end = 0;
+    for (const it of m.program ?? []) {
+      const seq = seqById(m, it.sequence_id);
+      if (seq) end = Math.max(end, (it.at_offset_ms || 0) + seq.duration_ms);
+    }
+    return end;
+  }
+  return seqById(m, cueId)?.duration_ms ?? 0;
+}
 
 // O koltuğun o anki ekran rengi ('' = karanlık). Çakışmada son kue kazanır,
 // flaş fazı floor((e−at)·hz/500) — telefon/tarayıcıyla aynı.
