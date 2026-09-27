@@ -450,8 +450,21 @@ parametre taşır, telefon rengini/zamanını (mekân geometrisi + kendi koltuğ
   birebir, scratchpad Chromium koşumuyla sınandı) + ekran şeridi kare
   kuralları. Sekans seçici, oynat/duraklat, zaman kaydırıcı.
   **Panel doğrulaması kullanıcıda.**
-- [ ] **F4.5 Arayüz cilası:** telefon katılım akışı + panel; madde listesi
-  kullanıcıdan alınacak.
+- [x] **F4.5 Arayüz cilası — panel (2026-09-27, kullanıcının 4 maddesi):**
+  (1) açık/kurumsal tema: aydınlık zemin, gölgeli beyaz kartlar, yükselme/
+  hover animasyonları (prefers-reduced-motion'a saygılı), yapışkan üst çubuk
+  aktif bölüm vurgulu; sahne yüzeyleri (mekân editörü, 3B) bilinçli koyu.
+  (2) akış netliği: 4 adımlı Flow şeridi her sayfada (Etkinlik&Oda →
+  Tasarla → Yayınla&Etkinleştir → Canlı yönet), ana sayfa akışı anlatan
+  pano, kavram açıklamaları + bölüm numaraları, oda kartından Gösteriler'e
+  bağlantı. (3) akordeon sekans kartları: özet rozetli başlık (süre/müzik/
+  söz/ekran/fener/programda), tıklayınca açılır; taşı/sil'de durum taşınır,
+  yeni sekans açık gelir. (4) canlı konsol: GO sonrası LivePreview kartı —
+  geri sayım, ilerleme, telefon maketi (renk+söz) ve mekân planlı gösteride
+  3B tribün takibi (SeatCloudCanvas ortak bileşeni; effectEval'e program/
+  söz/süre yardımcıları); hedefe göre adlanan GO, alt yazılı müdahale
+  düğmeleri. **Panel doğrulaması kullanıcıda; yeni cila maddeleri geldikçe
+  bu adım yeniden açılır.**
 - [ ] **F4.6 Uçtan uca prova:** birkaç telefon farklı koltuk kimlikleriyle —
   dalganın sırayla geçtiği kamerayla doğrulanır. (Telefonlar toplanınca;
   F3.5 fener kalibrasyonuyla aynı oturumda yapılabilir.)
