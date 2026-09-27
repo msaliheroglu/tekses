@@ -5,6 +5,8 @@
 /// sekansın ne zaman başlayacağını CueStart söyler.
 library;
 
+import 'venue.dart';
+
 /// Ayrılmış kue kimliği: bu kimlikle gelen CueStart, manifestin içine gömülü
 /// otomatik programı başlatır (packages/manifest ProgramCueID ile aynı).
 const String programCueId = 'program';
@@ -14,6 +16,7 @@ class ShowManifest {
     required this.title,
     required this.sequences,
     this.program = const [],
+    this.venue,
   });
 
   final String title;
@@ -23,6 +26,10 @@ class ShowManifest {
   /// anında kendi sekansını oynatır. Sunucu tarafı doğrulanmıştır
   /// (artan sırada, üst üste binmez, var olan sekanslara işaret eder).
   final List<ProgramItem> program;
+
+  /// İsteğe bağlı mekân modeli (Faz 4, koltuk bazlı koreografi). Yoksa
+  /// gösteri bugünkü gibi konumdan bağımsız oynar.
+  final Venue? venue;
 
   ShowSequence? sequenceById(String id) {
     for (final seq in sequences) {
@@ -41,6 +48,9 @@ class ShowManifest {
           for (final p in (j['program'] as List? ?? const []))
             ProgramItem.fromJson(p as Map<String, dynamic>),
         ],
+        venue: j['venue'] == null
+            ? null
+            : Venue.fromJson(j['venue'] as Map<String, dynamic>),
       );
 }
 
