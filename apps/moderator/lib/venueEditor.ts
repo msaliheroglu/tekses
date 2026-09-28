@@ -394,10 +394,9 @@ function seatWorld3(b: EditorBlock, row: number, seat: number): [number, number,
   ];
 }
 
-// maxSeats üstünde her stride'ıncı koltuk örneklenir (çizim bütçesi).
-// Sınır kutusu blok kontürlerinden (yay dahil) — normalize u/v/w telefonla
-// aynı kalsın diye z uçları da uç sıralardan alınır.
-export function seatPoints(v: EditorVenue, maxSeats: number): { points: SeatPoint[]; stride: number } {
+// Mekânın 3B sınır kutusu (normalize u/v/w'nin paydası) — blok kontürlerinden
+// (yay dahil); z uçları uç sıralardan. packages/manifest Bounds aynası.
+function normBounds3(v: EditorVenue) {
   let minX = Infinity, minY = Infinity, minZ = Infinity;
   let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
   for (const b of v.blocks) {
@@ -410,7 +409,17 @@ export function seatPoints(v: EditorVenue, maxSeats: number): { points: SeatPoin
       minZ = Math.min(minZ, z); maxZ = Math.max(maxZ, z);
     }
   }
-  const norm = (p: number, lo: number, hi: number) => (hi - lo < 0.001 ? 0.5 : (p - lo) / (hi - lo));
+  return { minX, minY, minZ, maxX, maxY, maxZ };
+}
+
+// Sıfır genişlikli eksen 0.5 (packages/manifest normAxis kuralı).
+const normAxis = (p: number, lo: number, hi: number) =>
+  hi - lo < 0.001 ? 0.5 : (p - lo) / (hi - lo);
+
+// maxSeats üstünde her stride'ıncı koltuk örneklenir (çizim bütçesi).
+export function seatPoints(v: EditorVenue, maxSeats: number): { points: SeatPoint[]; stride: number } {
+  const { minX, minY, minZ, maxX, maxY, maxZ } = normBounds3(v);
+  const norm = normAxis;
   const total = totalSeats(v);
   const stride = Math.max(1, Math.ceil(total / maxSeats));
   const points: SeatPoint[] = [];
@@ -432,6 +441,77 @@ export function seatPoints(v: EditorVenue, maxSeats: number): { points: SeatPoin
     }
   }
   return { points, stride };
+}
+
+// --- desen yerleştirme (bayrak/slogan TEK tribüne otursun) ---
+
+// Bir bloğun bitmap efekt yerleşimi: hangi eksen yatay okunur, yön (sahadan
+// bakan seyirci soldan sağa okumalı), bloğu tam kaplayan area penceresi,
+// bloğun koltuk çözünürlüğü ve hücre en-boy oranı (koltuk aralığı dar, sıra
+// adımı geniştir — oran düzeltilmezse bayrak dikeyde yamulur).
+export type BlockPlacement = {
+  axis: "u" | "v";
+  reverse: boolean;
+  area: { u0: number; w0: number; u1: number; w1: number };
+  cols: number; // bloğun en geniş sırasındaki koltuk sayısı
+  rows: number;
+  cellAspect: number; // hücre genişliği / hücre yüksekliği (metre)
+};
+
+export function blockPlacement(v: EditorVenue, blockId: string): BlockPlacement | null {
+  const b = v.blocks.find((x) => x.id === blockId);
+  if (!b) return null;
+  const nb = normBounds3(v);
+  // Blok uçları: kontür (yayda 90° katları dahil — telefon normalizasyonuyla
+  // birebir) + uç sıraların z'si.
+  const cs = blockCorners(b);
+  let bMinX = Infinity, bMinY = Infinity, bMaxX = -Infinity, bMaxY = -Infinity;
+  let cx = 0, cy = 0;
+  for (const [x, y] of cs) {
+    bMinX = Math.min(bMinX, x); bMaxX = Math.max(bMaxX, x);
+    bMinY = Math.min(bMinY, y); bMaxY = Math.max(bMaxY, y);
+    cx += x; cy += y;
+  }
+  cx /= cs.length; cy /= cs.length;
+  const zLo = b.z, zHi = b.z + b.rake * (b.rows - 1);
+  // Yatay eksen: bloğun dünyada geniş yayıldığı eksen (kuzey/güney → u,
+  // doğu/batı → v; yay köşede geniş olan).
+  const axis: "u" | "v" = bMaxX - bMinX >= bMaxY - bMinY ? "u" : "v";
+  // Yön: sahadan/sahneden (yoksa mekân merkezinden) bloğa bakışta "sağ" =
+  // (bakış.y, −bakış.x); eksen artışı o yöne düşmüyorsa reverse — desen
+  // karşıdan bakan seyirci için soldan sağa doğru okunur.
+  const vx = v.landmark ? v.landmark.x : (nb.minX + nb.maxX) / 2;
+  const vy = v.landmark ? v.landmark.y : (nb.minY + nb.maxY) / 2;
+  const fx = cx - vx;
+  const fy = cy - vy;
+  const reverse = axis === "u" ? fy < 0 : -fx < 0;
+  // Pencere: bloğun normalize uçları; reverse eksende koordinat da tersine
+  // çevrilir (evalEffect pencereyi tersinmiş p üzerinde uygular). Kenar
+  // koltuklar pencere sınırının tam üstünde kalsın diye dışa yuvarlanır.
+  const lo3 = (x: number) => Math.max(0, Math.floor(x * 1000) / 1000);
+  const hi3 = (x: number) => Math.min(1, Math.ceil(x * 1000) / 1000);
+  let p0: number, p1: number;
+  if (axis === "u") {
+    p0 = normAxis(bMinX, nb.minX, nb.maxX);
+    p1 = normAxis(bMaxX, nb.minX, nb.maxX);
+  } else {
+    p0 = normAxis(bMinY, nb.minY, nb.maxY);
+    p1 = normAxis(bMaxY, nb.minY, nb.maxY);
+  }
+  if (reverse) [p0, p1] = [1 - p1, 1 - p0];
+  const w0 = normAxis(Math.min(zLo, zHi), nb.minZ, nb.maxZ);
+  const w1 = normAxis(Math.max(zLo, zHi), nb.minZ, nb.maxZ);
+  // Çözünürlük: bir koltuk ≈ bir piksel (bitmap sınırları manifest'ten).
+  const widest = Math.max(seatsInRowOf(b, 1), seatsInRowOf(b, b.rows));
+  const rowH = Math.hypot(b.rowStep, b.rake) || 0.9;
+  return {
+    axis,
+    reverse,
+    area: { u0: lo3(p0), w0: lo3(w0), u1: hi3(p1), w1: hi3(w1) },
+    cols: Math.min(256, Math.max(1, widest)), // maxBitmapCols/Rows aynası
+    rows: Math.min(64, Math.max(1, b.rows)),
+    cellAspect: (b.seatStep || 0.5) / rowH,
+  };
 }
 
 export function uniqueBlockId(base: string, blocks: EditorBlock[]): string {

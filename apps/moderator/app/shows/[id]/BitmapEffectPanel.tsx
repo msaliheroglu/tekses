@@ -9,7 +9,7 @@ import {
   textToBitmap,
 } from "@/lib/bitmapGen";
 import type { EditorArea, EditorBitmap, EditorScreenStep } from "@/lib/manifestEditor";
-import { seatPoints, venueBounds, type EditorVenue } from "@/lib/venueEditor";
+import { blockPlacement, seatPoints, venueBounds, type EditorVenue } from "@/lib/venueEditor";
 
 // Bayrak/slogan paneli (F4.3b + F4.5-3.tur): desen üretimi, tribün
 // çözünürlüğüne otomatik uydurma ve fareyle YERLEŞTİRME. Yerleştirme
@@ -202,29 +202,74 @@ export default function BitmapEffectPanel({
   const cols = bm && bm.rows.length > 0 ? bm.rows[0].length : 0;
   const minScroll = cols * MIN_SCROLL_MS_PER_COL;
 
+  // Adım tek bloğa hedefliyse yerleşim/çözünürlük/oran O bloğun grid'inden
+  // gelir — bayrak tribüne bire bir oturur.
+  const singlePl = useMemo(
+    () =>
+      venue && step.effectBlocks.length === 1
+        ? blockPlacement(venue, step.effectBlocks[0])
+        : null,
+    [venue, step.effectBlocks],
+  );
+
+  // Hücre en-boy oranı (koltuk aralığı / sıra adımı): oran korumalı sığdırma
+  // ve harflerin ön-germesi için. Blok yoksa mekân ortalaması.
+  const cellAspect = useMemo(() => {
+    if (singlePl) return singlePl.cellAspect;
+    if (!venue || venue.blocks.length === 0) return 1;
+    const n = venue.blocks.length;
+    const sStep = venue.blocks.reduce((s, x) => s + (x.seatStep || 0.5), 0) / n;
+    const rowH =
+      venue.blocks.reduce((s, x) => s + Math.hypot(x.rowStep || 0.8, x.rake || 0), 0) / n;
+    return rowH > 0 ? sStep / rowH : 1;
+  }, [venue, singlePl]);
+
   // Tribün çözünürlüğü: pencere kaç koltuk kaplıyorsa o kadar piksel —
   // "bir koltuk bir piksel" hedefi (item 4: resim alana OTOMATİK uyar).
   const suggested = useMemo(() => {
     if (!venue || venue.blocks.length === 0) return null;
+    const uSpan = step.effectArea ? step.effectArea.u1 - step.effectArea.u0 : 1;
+    const wSpan = step.effectArea ? step.effectArea.w1 - step.effectArea.w0 : 1;
+    if (singlePl) {
+      // Pencere blok penceresinin ne kadarını kaplıyorsa piksel de o oranda.
+      const puSpan = Math.max(0.01, singlePl.area.u1 - singlePl.area.u0);
+      const pwSpan = Math.max(0.01, singlePl.area.w1 - singlePl.area.w0);
+      return {
+        cols: Math.min(MAX_BITMAP_COLS, Math.max(4, Math.round((singlePl.cols * uSpan) / puSpan))),
+        rows: Math.min(MAX_BITMAP_ROWS, Math.max(2, Math.round((singlePl.rows * wSpan) / pwSpan))),
+      };
+    }
     const b = venueBounds(venue);
     const widthM = Math.max(1, b.maxX - b.minX);
     const maxRows = Math.max(...venue.blocks.map((x) => x.rows));
     const meanStep =
       venue.blocks.reduce((s, x) => s + (x.seatStep || 0.5), 0) / venue.blocks.length || 0.5;
-    const uSpan = step.effectArea ? step.effectArea.u1 - step.effectArea.u0 : 1;
-    const wSpan = step.effectArea ? step.effectArea.w1 - step.effectArea.w0 : 1;
     return {
       cols: Math.min(MAX_BITMAP_COLS, Math.max(4, Math.round((widthM * uSpan) / meanStep))),
       rows: Math.min(MAX_BITMAP_ROWS, Math.max(2, Math.round(maxRows * wSpan))),
     };
-  }, [venue, step.effectArea]);
+  }, [venue, step.effectArea, singlePl]);
 
   const effCols = venue && autoRes && suggested ? suggested.cols : imgCols;
   const effRows = venue && autoRes && suggested ? suggested.rows : imgRows;
 
+  // Tek tık tribün yerleşimi: eksen/yön/blok filtresi/pencere bloğa kurulur.
+  function placeOnBlock(blockId: string) {
+    if (!venue) return;
+    const pl = blockPlacement(venue, blockId);
+    if (!pl) return;
+    onPatch({
+      effectAxis: pl.axis,
+      effectReverse: pl.reverse,
+      effectBlocks: [blockId],
+      effectArea: { ...pl.area },
+    });
+  }
+
   function makeText() {
     setErr("");
-    const r = textToBitmap(text, textColor);
+    // Harf oranı tribün hücresinde korunur (yatay ön-germe).
+    const r = textToBitmap(text, textColor, 9, cellAspect > 0 ? 1 / cellAspect : 1);
     if (!r.bitmap) {
       setErr(r.error ?? "üretilemedi");
       return;
@@ -243,7 +288,7 @@ export default function BitmapEffectPanel({
     const img = new Image();
     img.onload = () => {
       URL.revokeObjectURL(url);
-      const r = imageToBitmap(img, effCols, effRows);
+      const r = imageToBitmap(img, effCols, effRows, cellAspect);
       if (!r.bitmap) {
         setErr(r.error ?? "üretilemedi");
         return;
@@ -259,6 +304,46 @@ export default function BitmapEffectPanel({
 
   return (
     <div style={{ margin: "4px 0 12px", padding: "8px 12px", borderLeft: "3px solid var(--border)" }}>
+      {venue && venue.blocks.length > 0 && (
+        <div style={{ marginBottom: 8 }}>
+          <label>
+            Nereye? — tıklanan tribüne yerleşir (yön, pencere ve çözünürlük
+            otomatik kurulur; desen ötekilerde oynamaz)
+          </label>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+            {venue.blocks.map((b) => {
+              const active = step.effectBlocks.length === 1 && step.effectBlocks[0] === b.id;
+              return (
+                <button
+                  key={b.id}
+                  type="button"
+                  className="secondary"
+                  style={{
+                    padding: "4px 10px",
+                    ...(active ? { outline: "2px solid var(--accent)" } : {}),
+                  }}
+                  onClick={() => placeOnBlock(b.id)}
+                >
+                  {b.id}
+                </button>
+              );
+            })}
+            <button
+              type="button"
+              className="secondary"
+              style={{
+                padding: "4px 10px",
+                ...(step.effectBlocks.length === 0 && !step.effectArea
+                  ? { outline: "2px solid var(--accent)" }
+                  : {}),
+              }}
+              onClick={() => onPatch({ effectBlocks: [], effectArea: null })}
+            >
+              tüm mekân
+            </button>
+          </div>
+        </div>
+      )}
       <div className="row">
         <div style={{ flex: "2 1 220px" }}>
           <label>Slogan metni</label>

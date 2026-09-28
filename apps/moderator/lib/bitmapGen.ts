@@ -18,6 +18,34 @@ export const MIN_SCROLL_MS_PER_COL = 334;
 const hex2 = (v: number) => v.toString(16).padStart(2, "0").toUpperCase();
 const toHex = (r: number, g: number, b: number) => `#${hex2(r)}${hex2(g)}${hex2(b)}`;
 
+// Contain sığdırma, hücre oranı düzeltmeli: tribün hücresi kare DEĞİLDİR
+// (koltuk aralığı ~0.5 m, sıra adımı ~0.9 m) — oran piksel sayısında değil
+// metre uzayında korunmalı, yoksa bayrak dikeyde yamulur. cellAspect =
+// hücre genişliği / hücre yüksekliği. Dönen dikdörtgen hücre birimindedir.
+export function containFit(
+  iw: number,
+  ih: number,
+  cols: number,
+  rows: number,
+  cellAspect = 1,
+): { w: number; h: number; x: number; y: number } {
+  const ca = cellAspect > 0 ? cellAspect : 1;
+  const s = Math.min((cols * ca) / iw, rows / ih); // metre / görüntü pikseli
+  const w = (iw * s) / ca;
+  const h = ih * s;
+  return { w, h, x: (cols - w) / 2, y: (rows - h) / 2 };
+}
+
+// Bitmap'i sağdan saydam sütunlarla en az minCols'a genişletir: kayan yazıda
+// desen pencereye SIKIŞTIRILMADAN (1 koltuk ≈ 1 sütun) tur atsın diye.
+export function padBitmapCols(bm: GenBitmap, minCols: number): GenBitmap {
+  const cols = bm.rows.length > 0 ? bm.rows[0].length : 0;
+  const target = Math.min(MAX_BITMAP_COLS, Math.max(cols, minCols));
+  if (target <= cols) return bm;
+  const pad = ".".repeat(target - cols);
+  return { palette: bm.palette, rows: bm.rows.map((r) => r + pad) };
+}
+
 // --- median-cut nicemleme (saf; canvas'tan bağımsız test edilebilir) ---
 
 // Girdi: [r,g,b] üçlüleri. Çıktı: en çok maxColors renk. Kova, en geniş
@@ -105,29 +133,35 @@ export function rgbaToBitmap(data: Uint8ClampedArray, cols: number, rows: number
 
 // Metin → tek renkli bitmap. Tarayıcı fontu küçük boyda çizilir ve alfa
 // eşiğiyle pikselleştirilir; kayan slogan için genişlik sütun sınırını
-// aşarsa hata metni döner.
+// aşarsa hata metni döner. stretchX: yatay ön-germe — tribün hücresi
+// dikdörtgen olduğundan (dar/uzun) harfler germesiz basık görünür; hücre
+// oranının tersi verilirse (≈1/cellAspect) tribünde normal okunur.
 export function textToBitmap(
   text: string,
   color: string,
   rows = 9,
+  stretchX = 1,
 ): { bitmap?: GenBitmap; error?: string } {
   const t = text.trim();
   if (!t) return { error: "metin boş" };
+  const sx = stretchX > 0 ? stretchX : 1;
   const canvas = document.createElement("canvas");
   const ctx = canvas.getContext("2d");
   if (!ctx) return { error: "canvas desteklenmiyor" };
   const font = `bold ${rows}px "Arial Black", Arial, sans-serif`;
   ctx.font = font;
-  const cols = Math.ceil(ctx.measureText(t).width) + 2;
+  const cols = Math.ceil((ctx.measureText(t).width + 2) * sx);
   if (cols > MAX_BITMAP_COLS) {
     return { error: `metin çok uzun (${cols} sütun; sınır ${MAX_BITMAP_COLS}) — kısaltın` };
   }
   canvas.width = cols;
   canvas.height = rows;
   ctx.font = font; // boyut değişince font sıfırlanır
+  ctx.setTransform(sx, 0, 0, 1, 0, 0);
   ctx.textBaseline = "middle";
   ctx.fillStyle = "#ffffff";
   ctx.fillText(t, 1, rows / 2 + 1);
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
   const data = ctx.getImageData(0, 0, cols, rows).data;
   const out: string[] = [];
   let any = false;
@@ -144,11 +178,14 @@ export function textToBitmap(
   return { bitmap: { palette: [color.toUpperCase()], rows: out } };
 }
 
-// Görüntü → cols×rows bitmap (küçültme + nicemleme).
+// Görüntü → cols×rows bitmap (küçültme + nicemleme). cellAspect: hedef
+// hücrenin en-boy oranı (koltuk aralığı / sıra adımı) — oran tribün
+// duvarında korunur, piksel sayısında değil.
 export function imageToBitmap(
   img: HTMLImageElement,
   cols: number,
   rows: number,
+  cellAspect = 1,
 ): { bitmap?: GenBitmap; error?: string } {
   if (cols < 1 || cols > MAX_BITMAP_COLS || rows < 1 || rows > MAX_BITMAP_ROWS) {
     return { error: `boyut 1..${MAX_BITMAP_COLS} × 1..${MAX_BITMAP_ROWS} olmalı` };
@@ -164,10 +201,8 @@ export function imageToBitmap(
   const iw = img.naturalWidth || img.width;
   const ih = img.naturalHeight || img.height;
   if (!iw || !ih) return { error: "görüntü boyutu okunamadı" };
-  const scale = Math.min(cols / iw, rows / ih);
-  const w = iw * scale;
-  const h = ih * scale;
-  ctx.drawImage(img, (cols - w) / 2, (rows - h) / 2, w, h);
+  const fit = containFit(iw, ih, cols, rows, cellAspect);
+  ctx.drawImage(img, fit.x, fit.y, fit.w, fit.h);
   const data = ctx.getImageData(0, 0, cols, rows).data;
   return { bitmap: rgbaToBitmap(data, cols, rows) };
 }
