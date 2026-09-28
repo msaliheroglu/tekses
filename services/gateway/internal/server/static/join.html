@@ -198,6 +198,18 @@ function parseSeatRef(s) {
 const seatRefStr = (r) => r.block + "-" + r.row + "-" + r.seat;
 
 function seatWorld(b, row, seat) {
+  if (b.kind === "arc") {
+    // Yay blok (köşe/oval tribün): koltuklar merkez etrafında yaya dizilir.
+    const r = (b.radius || 0) + (row - 1) * (b.row_step || 0);
+    const th = ((b.angle_start_deg || 0) * Math.PI) / 180 +
+      ((seat - 1) * (b.seat_step || 0)) / r;
+    const c = b.center || {};
+    return {
+      x: (c.x || 0) + r * Math.cos(th),
+      y: (c.y || 0) + r * Math.sin(th),
+      z: (c.z || 0) + (row - 1) * (b.rake || 0),
+    };
+  }
   const o = b.origin || {}, rv = b.row_vec || {}, sv = b.seat_vec || {};
   const r = row - 1, s = seat - 1;
   return {
@@ -207,25 +219,62 @@ function seatWorld(b, row, seat) {
   };
 }
 
-// Konum doğrusal olduğundan sınır kutusunun uçları blok köşelerindedir.
+// O sıradaki koltuk sayısı: grid'de sabit, yayda yay uzunluğundan
+// (Go Block.SeatsInRow ile birebir).
+function seatsInRow(b, row) {
+  if (b.kind !== "arc") return b.seats_per_row || 0;
+  const step = b.seat_step || 0;
+  if (step <= 0) return 1;
+  const r = (b.radius || 0) + (row - 1) * (b.row_step || 0);
+  const span = (((b.angle_end_deg || 0) - (b.angle_start_deg || 0)) * Math.PI) / 180;
+  const n = Math.floor((r * span) / step) + 1;
+  return n < 1 ? 1 : n;
+}
+
+// Sınır kutusunu geren noktalar: grid'de dört köşe; yayda uç sıralar ×
+// (uç açılar + aradaki 90° katları) — kosinüs/sinüs uçları eksen katlarında.
+function boundsSamples(b) {
+  if (b.kind !== "arc") {
+    return [
+      seatWorld(b, 1, 1),
+      seatWorld(b, 1, b.seats_per_row || 1),
+      seatWorld(b, b.rows || 1, 1),
+      seatWorld(b, b.rows || 1, b.seats_per_row || 1),
+    ];
+  }
+  const a0 = b.angle_start_deg || 0, a1 = b.angle_end_deg || 0;
+  const angles = [a0, a1];
+  for (let k = Math.ceil(a0 / 90); k * 90 < a1; k++) {
+    if (k * 90 > a0) angles.push(k * 90);
+  }
+  const c = b.center || {};
+  const out = [];
+  for (const row of [1, b.rows || 1]) {
+    const r = (b.radius || 0) + (row - 1) * (b.row_step || 0);
+    const z = (c.z || 0) + (row - 1) * (b.rake || 0);
+    for (const deg of angles) {
+      const th = (deg * Math.PI) / 180;
+      out.push({ x: (c.x || 0) + r * Math.cos(th), y: (c.y || 0) + r * Math.sin(th), z });
+    }
+  }
+  return out;
+}
+
 function resolveSeat(venue, ref) {
   const blocks = (venue && venue.blocks) || [];
   const blk = blocks.find((b) => b.id === ref.block);
   if (!blk) return null;
   if (ref.row < 1 || ref.row > (blk.rows || 0)) return null;
-  if (ref.seat < 1 || ref.seat > (blk.seats_per_row || 0)) return null;
+  if (ref.seat < 1 || ref.seat > seatsInRow(blk, ref.row)) return null;
   const p = seatWorld(blk, ref.row, ref.seat);
   let first = true;
   let min = { x: 0, y: 0, z: 0 }, max = { x: 0, y: 0, z: 0 };
   for (const b of blocks) {
-    for (const row of [1, b.rows || 1]) {
-      for (const seat of [1, b.seats_per_row || 1]) {
-        const c = seatWorld(b, row, seat);
-        if (first) { min = { ...c }; max = { ...c }; first = false; continue; }
-        min.x = Math.min(min.x, c.x); max.x = Math.max(max.x, c.x);
-        min.y = Math.min(min.y, c.y); max.y = Math.max(max.y, c.y);
-        min.z = Math.min(min.z, c.z); max.z = Math.max(max.z, c.z);
-      }
+    for (const c of boundsSamples(b)) {
+      if (first) { min = { ...c }; max = { ...c }; first = false; continue; }
+      min.x = Math.min(min.x, c.x); max.x = Math.max(max.x, c.x);
+      min.y = Math.min(min.y, c.y); max.y = Math.max(max.y, c.y);
+      min.z = Math.min(min.z, c.z); max.z = Math.max(max.z, c.z);
     }
   }
   const norm = (v, lo, hi) => (hi - lo < 0.001 ? 0.5 : (v - lo) / (hi - lo));
@@ -251,6 +300,12 @@ function effectAxisPos(eff, u, v, w) {
   let p = u;
   if (eff.axis === "v") p = v;
   if (eff.axis === "w") p = w;
+  if (eff.axis === "ring") {
+    // Mekân merkezinin etrafındaki açı payı (0..1; saat yönünün tersine):
+    // meksika dalgası ve kayan yazı tribünden tribüne sırayla turlar.
+    p = Math.atan2(v - 0.5, u - 0.5) / (2 * Math.PI);
+    if (p < 0) p += 1;
+  }
   return eff.reverse ? 1 - p : p;
 }
 
@@ -263,9 +318,14 @@ function lerpColor(c1, c2, t) {
     hex2(Math.round(ch(c1, 5) + (ch(c2, 5) - ch(c1, 5)) * t));
 }
 
-// Efektin (u,v,w) konumuna kue başlangıcından sinceMs sonra basacağı renk;
-// "" = kapalı. Bozuk/bilinmeyen efekt de "" (savunmacı; doğrulama sunucuda).
-function evalEffect(eff, cueColor, u, v, w, sinceMs) {
+// Efektin (u,v,w) konumuna, block bloğundaki istemciye kue başlangıcından
+// sinceMs sonra basacağı renk; "" = kapalı. Bozuk/bilinmeyen efekt de ""
+// (savunmacı; doğrulama sunucuda). cycle'da period_ms=0 (söz izleme)
+// kare mantığında işlenir.
+function evalEffect(eff, cueColor, u, v, w, block, sinceMs) {
+  if (eff.blocks && eff.blocks.length > 0 && !eff.blocks.includes(block)) {
+    return ""; // blok filtresi: kapsam dışı (koltuksuz istemci dahil)
+  }
   if (eff.kind === "wave") {
     if (!eff.period_ms || eff.period_ms <= 0) return "";
     const p = effectAxisPos(eff, u, v, w);
@@ -278,11 +338,25 @@ function evalEffect(eff, cueColor, u, v, w, sinceMs) {
     if (!eff.color2 || eff.color2.length !== 7 || cueColor.length !== 7) return "";
     return lerpColor(cueColor, eff.color2, effectAxisPos(eff, u, v, w));
   }
+  if (eff.kind === "cycle") {
+    const cs = eff.colors || [];
+    if (!cs.length) return "";
+    if (!eff.period_ms || eff.period_ms <= 0) return cs[0];
+    return cs[Math.floor(sinceMs / eff.period_ms) % cs.length];
+  }
   if (eff.kind === "bitmap") {
     const b = eff.bitmap;
     if (!b || !b.rows || !b.rows.length || !b.rows[0].length) return "";
     const cols = b.rows[0].length;
     let p = effectAxisPos(eff, u, v, w);
+    let q = w; // dikey daima w
+    const a = eff.area;
+    if (a) {
+      // Yerleştirme penceresi: dışı kapalı, içi 0..1'e haritalanır.
+      if (p < a.u0 || p > a.u1 || q < a.w0 || q > a.w1) return "";
+      p = (p - a.u0) / (a.u1 - a.u0);
+      q = (q - a.w0) / (a.w1 - a.w0);
+    }
     if (eff.period_ms > 0) {
       // Kaydırma: desen p ekseninde sola akar, dönem başına bir tam tur.
       p += (sinceMs % eff.period_ms) / eff.period_ms;
@@ -292,7 +366,7 @@ function evalEffect(eff, cueColor, u, v, w, sinceMs) {
     if (col >= cols) col = cols - 1; // p=1 ucu son sütuna yapışır
     if (col < 0) col = 0;
     const nrows = b.rows.length;
-    let rowIdx = Math.floor((1 - w) * nrows); // ilk satır = tepe (w=1)
+    let rowIdx = Math.floor((1 - q) * nrows); // ilk satır = tepe
     if (rowIdx >= nrows) rowIdx = nrows - 1;
     if (rowIdx < 0) rowIdx = 0;
     const row = b.rows[rowIdx];
@@ -303,6 +377,15 @@ function evalEffect(eff, cueColor, u, v, w, sinceMs) {
     return b.palette[idx];
   }
   return "";
+}
+
+// Söz izleyen renk döngüsü (cycle, period_ms=0): başlamış söz satırı sayısı
+// mod renk sayısı — kural telefon motoru ve panel önizlemesiyle birebirdir.
+function cycleLyricColor(eff, block, lyricsStarted) {
+  if (eff.blocks && eff.blocks.length > 0 && !eff.blocks.includes(block)) return "";
+  const cs = eff.colors || [];
+  if (!cs.length) return "";
+  return cs[lyricsStarted % cs.length];
 }
 
 const IDLE_FRAME = { done: false, lyric: "", nextLyric: "", screenColor: "", screenLit: false };
@@ -360,7 +443,18 @@ function seqFrameAt(seq, e) {
         const pu = seatPos ? seatPos.u : 0.5;
         const pv = seatPos ? seatPos.v : 0.5;
         const pw = seatPos ? seatPos.w : 0.5;
-        const c = evalEffect(eff, activeCue.color || "", pu, pv, pw, e - activeCue.at_ms);
+        const blk = seatRef ? seatRef.block : "";
+        let c;
+        if (eff.kind === "cycle" && (!eff.period_ms || eff.period_ms <= 0)) {
+          // Söz izleyen döngü: başlamış söz satırı sayısı rengi seçer.
+          let started = 0;
+          for (const line of seq.lyric_lines || []) {
+            if ((line.at_ms || 0) <= e) started++;
+          }
+          c = cycleLyricColor(eff, blk, started);
+        } else {
+          c = evalEffect(eff, activeCue.color || "", pu, pv, pw, blk, e - activeCue.at_ms);
+        }
         screenColor = c;
         screenLit = c !== "";
       }

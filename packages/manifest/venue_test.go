@@ -51,10 +51,30 @@ var goldenSeats = []string{
 	"SAHNE-1-1", "SAHNE-1-5",
 }
 
+// Yay (arc) bloğu ayrı bir altın mekânda sınanır: goldenVenue'nun el
+// hesaplı sınır kutusu değişmesin. Çeyrek daire köşe tribünü.
+func goldenArcVenue() Venue {
+	return Venue{
+		Name: "Yay Testi",
+		Blocks: []Block{
+			{
+				ID: "KOSE", Kind: BlockArc, Rows: 10,
+				Center: &Vec3{X: 25, Y: 0, Z: 0},
+				Radius: 10, RowStep: 0.8, Rake: 0.4,
+				AngleStartDeg: 0, AngleEndDeg: 90, SeatStep: 0.5,
+			},
+		},
+	}
+}
+
+var goldenArcSeats = []string{"KOSE-1-1", "KOSE-1-32", "KOSE-10-1", "KOSE-10-55"}
+
 type venueVectors struct {
-	Comment string        `json:"comment"`
-	Venue   Venue         `json:"venue"`
-	Cases   []venueVector `json:"cases"`
+	Comment  string        `json:"comment"`
+	Venue    Venue         `json:"venue"`
+	Cases    []venueVector `json:"cases"`
+	ArcVenue Venue         `json:"arc_venue"`
+	ArcCases []venueVector `json:"arc_cases"`
 }
 
 type venueVector struct {
@@ -69,24 +89,30 @@ type venueVector struct {
 
 func TestVenueGolden(t *testing.T) {
 	if *updateVenue {
-		v := goldenVenue()
 		out := venueVectors{
-			Comment: "üretici: go test ./packages/manifest -run TestVenueGolden -update",
-			Venue:   v,
+			Comment:  "üretici: go test ./packages/manifest -run TestVenueGolden -update",
+			Venue:    goldenVenue(),
+			ArcVenue: goldenArcVenue(),
 		}
-		for _, s := range goldenSeats {
-			ref, err := ParseSeatRef(s)
-			if err != nil {
-				t.Fatal(err)
+		gen := func(v Venue, seats []string) []venueVector {
+			var cases []venueVector
+			for _, s := range seats {
+				ref, err := ParseSeatRef(s)
+				if err != nil {
+					t.Fatal(err)
+				}
+				pos, err := v.Resolve(ref)
+				if err != nil {
+					t.Fatalf("%s: %v", s, err)
+				}
+				cases = append(cases, venueVector{
+					Seat: s, X: pos.X, Y: pos.Y, Z: pos.Z, U: pos.U, V: pos.V, W: pos.W,
+				})
 			}
-			pos, err := v.Resolve(ref)
-			if err != nil {
-				t.Fatal(err)
-			}
-			out.Cases = append(out.Cases, venueVector{
-				Seat: s, X: pos.X, Y: pos.Y, Z: pos.Z, U: pos.U, V: pos.V, W: pos.W,
-			})
+			return cases
 		}
+		out.Cases = gen(out.Venue, goldenSeats)
+		out.ArcCases = gen(out.ArcVenue, goldenArcSeats)
 		data, err := json.MarshalIndent(out, "", "  ")
 		if err != nil {
 			t.Fatal(err)
@@ -107,25 +133,66 @@ func TestVenueGolden(t *testing.T) {
 	if err := json.Unmarshal(data, &in); err != nil {
 		t.Fatal(err)
 	}
-	if len(in.Cases) == 0 {
-		t.Fatal("altın vektör dosyası boş")
+	if len(in.Cases) == 0 || len(in.ArcCases) == 0 {
+		t.Fatal("altın vektör dosyası eksik")
 	}
-	for _, c := range in.Cases {
-		ref, err := ParseSeatRef(c.Seat)
-		if err != nil {
-			t.Fatal(err)
-		}
-		pos, err := in.Venue.Resolve(ref)
-		if err != nil {
-			t.Fatalf("%s: %v", c.Seat, err)
-		}
-		got := [6]float64{pos.X, pos.Y, pos.Z, pos.U, pos.V, pos.W}
-		want := [6]float64{c.X, c.Y, c.Z, c.U, c.V, c.W}
-		for i := range got {
-			if math.Abs(got[i]-want[i]) > 1e-12 {
-				t.Errorf("%s: bileşen %d = %v, altın %v", c.Seat, i, got[i], want[i])
+	check := func(v Venue, cases []venueVector) {
+		for _, c := range cases {
+			ref, err := ParseSeatRef(c.Seat)
+			if err != nil {
+				t.Fatal(err)
+			}
+			pos, err := v.Resolve(ref)
+			if err != nil {
+				t.Fatalf("%s: %v", c.Seat, err)
+			}
+			got := [6]float64{pos.X, pos.Y, pos.Z, pos.U, pos.V, pos.W}
+			want := [6]float64{c.X, c.Y, c.Z, c.U, c.V, c.W}
+			for i := range got {
+				if math.Abs(got[i]-want[i]) > 1e-12 {
+					t.Errorf("%s: bileşen %d = %v, altın %v", c.Seat, i, got[i], want[i])
+				}
 			}
 		}
+	}
+	check(in.Venue, in.Cases)
+	check(in.ArcVenue, in.ArcCases)
+}
+
+// Yay bloğu el hesapları — altın dosyadan bağımsız.
+func TestArcBlockHand(t *testing.T) {
+	v := goldenArcVenue()
+	b := v.Blocks[0]
+	// 1. sıra yayı: 10·(π/2) ≈ 15.708 m → 31 aralık + 1 = 32 koltuk.
+	if n := b.SeatsInRow(1); n != 32 {
+		t.Fatalf("SeatsInRow(1) = %d, beklenen 32", n)
+	}
+	// 10. sıra: r = 10 + 9·0.8 = 17.2 → yay 27.017 m → 55 koltuk.
+	if n := b.SeatsInRow(10); n != 55 {
+		t.Fatalf("SeatsInRow(10) = %d, beklenen 55", n)
+	}
+	// KOSE-1-1: açı 0 → (merkez.x + r, 0, 0) = (35, 0, 0).
+	pos, err := v.Resolve(SeatRef{Block: "KOSE", Row: 1, Seat: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if math.Abs(pos.X-35) > 1e-9 || math.Abs(pos.Y) > 1e-9 || math.Abs(pos.Z) > 1e-9 {
+		t.Fatalf("KOSE-1-1 = (%v,%v,%v), beklenen (35,0,0)", pos.X, pos.Y, pos.Z)
+	}
+	// KOSE-10-1: açı 0, r = 17.2, z = 9·0.4 = 3.6 → (42.2, 0, 3.6).
+	pos, err = v.Resolve(SeatRef{Block: "KOSE", Row: 10, Seat: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if math.Abs(pos.X-42.2) > 1e-9 || math.Abs(pos.Z-3.6) > 1e-9 {
+		t.Fatalf("KOSE-10-1 = (%v,%v,%v)", pos.X, pos.Y, pos.Z)
+	}
+	// Sıra kapasitesi aşımı reddedilir; son koltuk çözülür.
+	if _, err := v.Resolve(SeatRef{Block: "KOSE", Row: 10, Seat: 56}); err == nil {
+		t.Fatal("10. sırada 56. koltuk için hata bekleniyordu")
+	}
+	if _, err := v.Resolve(SeatRef{Block: "KOSE", Row: 10, Seat: 55}); err != nil {
+		t.Fatalf("10. sırada 55. koltuk çözülmeliydi: %v", err)
 	}
 }
 
@@ -224,6 +291,15 @@ func TestManifestVenueValidation(t *testing.T) {
 		t.Fatal("mekân çözülmedi")
 	}
 
+	// Yay bloklu mekân geçerli biçimde kabul edilir.
+	arcRaw, err := json.Marshal(goldenArcVenue())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Parse(venueManifestJSON(string(arcRaw))); err != nil {
+		t.Fatalf("geçerli arc mekân reddedildi: %v", err)
+	}
+
 	// Landmark (saha/sahne) isteğe bağlıdır ve geçerli biçimde kabul edilir.
 	m2, err := Parse(venueManifestJSON(`{"blocks": [
 		{"id": "A", "rows": 1, "seats_per_row": 1}],
@@ -254,6 +330,17 @@ func TestManifestVenueValidation(t *testing.T) {
 		{"koltuk üst sınırı", `{"blocks": [
 			{"id": "A", "rows": 1000, "seats_per_row": 1000,
 			 "row_vec": {"y": 0.8}, "seat_vec": {"x": 0.5}}]}`},
+		{"arc merkezi eksik", `{"blocks": [{"id": "A", "kind": "arc", "rows": 2,
+			"radius": 10, "row_step": 0.8, "seat_step": 0.5,
+			"angle_start_deg": 0, "angle_end_deg": 90}]}`},
+		{"arc yarıçapı küçük", `{"blocks": [{"id": "A", "kind": "arc", "rows": 2,
+			"center": {"x": 0, "y": 0, "z": 0}, "radius": 0.5, "row_step": 0.8,
+			"seat_step": 0.5, "angle_start_deg": 0, "angle_end_deg": 90}]}`},
+		{"arc açı aralığı geçersiz", `{"blocks": [{"id": "A", "kind": "arc", "rows": 2,
+			"center": {"x": 0, "y": 0, "z": 0}, "radius": 10, "row_step": 0.8,
+			"seat_step": 0.5, "angle_start_deg": 90, "angle_end_deg": 90}]}`},
+		{"bilinmeyen blok türü", `{"blocks": [{"id": "A", "kind": "hex", "rows": 1,
+			"seats_per_row": 1}]}`},
 		{"geçersiz landmark türü", `{"blocks": [
 			{"id": "A", "rows": 1, "seats_per_row": 1}],
 			"landmark": {"kind": "pool", "x": 0, "y": 0, "w": 10, "d": 5}}`},

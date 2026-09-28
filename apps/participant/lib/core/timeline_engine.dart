@@ -56,10 +56,15 @@ abstract interface class FrameSource {
   /// eksenlerini kullanır. null = koltuksuz telefon → mekânın ortası
   /// (0.5) sayılır; herkes katılır, kimse sessizce dışarıda kalmaz.
   abstract SeatPos? seatPos;
+
+  /// Koltuğun blok kimliği ('' = koltuksuz): blok filtreli efektler yalnız
+  /// kapsamdaki bloklarda oynar; koltuksuz telefon filtreli efektte kapalıdır.
+  abstract String seatBlock;
 }
 
 class TimelineEngine implements FrameSource {
-  TimelineEngine(this.sequence, {this.disableFlash = false, this.seatPos});
+  TimelineEngine(this.sequence,
+      {this.disableFlash = false, this.seatPos, this.seatBlock = ''});
 
   final ShowSequence sequence;
 
@@ -68,6 +73,9 @@ class TimelineEngine implements FrameSource {
 
   @override
   SeatPos? seatPos;
+
+  @override
+  String seatBlock;
 
   bool _lit(ShowCue cue, int elapsedMs) {
     if (disableFlash || cue.flashHz == 0) return true;
@@ -124,7 +132,19 @@ class TimelineEngine implements FrameSource {
             screenColor = cue.color;
             screenLit = true;
           } else {
-            final c = evalEffect(eff, cue.color, u, v, w, elapsedMs - cue.atMs);
+            final String c;
+            if (eff.kind == effectCycle && eff.periodMs == 0) {
+              // Söz izleyen döngü: başlamış söz satırı sayısı rengi seçer
+              // (marş arka planı satırla birlikte değişir).
+              var started = 0;
+              for (final line in sequence.lyricLines) {
+                if (line.atMs <= elapsedMs) started++;
+              }
+              c = cycleLyricColor(eff, seatBlock, started);
+            } else {
+              c = evalEffect(
+                  eff, cue.color, u, v, w, seatBlock, elapsedMs - cue.atMs);
+            }
             screenColor = c;
             screenLit = c.isNotEmpty;
           }
@@ -133,7 +153,8 @@ class TimelineEngine implements FrameSource {
           torchOn = effT == null
               ? _lit(cue, elapsedMs)
               : disableFlash ||
-                  evalEffect(effT, '#FFFFFF', u, v, w, elapsedMs - cue.atMs)
+                  evalEffect(effT, '#FFFFFF', u, v, w, seatBlock,
+                          elapsedMs - cue.atMs)
                       .isNotEmpty;
         case 'audio':
           // Zamanlanmış ses Faz 2'de native kanalla gelecek.
@@ -158,23 +179,38 @@ class TimelineEngine implements FrameSource {
 /// öğenin sekansı bitince done olur. Bu da SAFTIR ve birim testlidir.
 class ProgramEngine implements FrameSource {
   ProgramEngine(ShowManifest manifest,
-      {bool disableFlash = false, SeatPos? seatPos})
+      {bool disableFlash = false, SeatPos? seatPos, String seatBlock = ''})
       : _items = [
           for (final item in manifest.program)
             if (manifest.sequenceById(item.sequenceId) != null)
               (
                 atOffsetMs: item.atOffsetMs,
                 engine: TimelineEngine(manifest.sequenceById(item.sequenceId)!,
-                    disableFlash: disableFlash, seatPos: seatPos),
+                    disableFlash: disableFlash,
+                    seatPos: seatPos,
+                    seatBlock: seatBlock),
               ),
         ],
         _disableFlash = disableFlash,
-        _seatPos = seatPos;
+        _seatPos = seatPos,
+        _seatBlock = seatBlock;
 
   final List<({int atOffsetMs, TimelineEngine engine})> _items;
 
   bool _disableFlash;
   SeatPos? _seatPos;
+  String _seatBlock;
+
+  @override
+  String get seatBlock => _seatBlock;
+
+  @override
+  set seatBlock(String value) {
+    _seatBlock = value;
+    for (final item in _items) {
+      item.engine.seatBlock = value;
+    }
+  }
 
   @override
   bool get disableFlash => _disableFlash;

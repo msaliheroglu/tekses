@@ -43,7 +43,8 @@ export default function VenuePreview3D({ show }: { show: EditorShow }) {
   const durationMs = seq?.duration_ms ?? 0;
 
   const colorFor = useCallback(
-    (p: SeatPoint, t: number) => (seq ? screenColorAt(seq, t, p.u, p.v, p.w) : ""),
+    (p: SeatPoint, t: number) =>
+      seq ? screenColorAt(seq, t, p.u, p.v, p.w, p.block) : "",
     [seq],
   );
 

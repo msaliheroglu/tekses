@@ -17,6 +17,7 @@ import {
   defaultShow,
   emptyScreenStep,
   emptySequence,
+  emptyTorchStep,
   fmtTime,
   fromManifest,
   parseTime,
@@ -75,16 +76,19 @@ function TimeField({
   );
 }
 
-// Efekt yönü: normalize mekân eksenleri (u = enine, v = derinlemesine,
-// w = yükseklik). Ters yön aynı eksenin öbür ucundan başlatır.
+// Efekt yönü: "stadyum turu" mekân merkezinin etrafında döner (meksika
+// dalgası tribünden tribüne sırayla ilerler); u/v/w düz eksenlerdir
+// (u = enine, v = derinlemesine, w = yükseklik).
+type EffectAxis = "u" | "v" | "w" | "ring";
+
 function EffectDirSelect({
   axis,
   reverse,
   onChange,
 }: {
-  axis: "u" | "v" | "w";
+  axis: EffectAxis;
   reverse: boolean;
-  onChange: (axis: "u" | "v" | "w", reverse: boolean) => void;
+  onChange: (axis: EffectAxis, reverse: boolean) => void;
 }) {
   const val = axis + (reverse ? "-" : "+");
   return (
@@ -92,9 +96,11 @@ function EffectDirSelect({
       value={val}
       onChange={(e) => {
         const v = e.target.value;
-        onChange(v[0] as "u" | "v" | "w", v[1] === "-");
+        onChange(v.slice(0, -1) as EffectAxis, v.endsWith("-"));
       }}
     >
+      <option value="ring+">stadyum turu ↺ (saat tersi)</option>
+      <option value="ring-">stadyum turu ↻ (saat yönü)</option>
       <option value="u+">enine → (u)</option>
       <option value="u-">enine ← (u ters)</option>
       <option value="v+">derinlemesine → (v)</option>
@@ -102,6 +108,136 @@ function EffectDirSelect({
       <option value="w+">yukarı (w)</option>
       <option value="w-">aşağı (w ters)</option>
     </select>
+  );
+}
+
+// Blok hedefleme: hiçbiri seçili değilse efekt tüm mekânda oynar; seçim
+// yapılırsa yalnız o bloklar oynar (tek tribün koreografisi).
+function BlockPicker({
+  all,
+  selected,
+  onChange,
+}: {
+  all: string[];
+  selected: string[];
+  onChange: (blocks: string[]) => void;
+}) {
+  if (all.length === 0) return null;
+  return (
+    <div style={{ flexBasis: "100%" }}>
+      <label>
+        Hangi bloklarda oynasın? {selected.length === 0 ? "(seçim yok = tüm mekân)" : `(${selected.length} blok)`}
+      </label>
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+        {all.map((id) => {
+          const on = selected.includes(id);
+          return (
+            <button
+              key={id}
+              type="button"
+              className={on ? "secondary" : "ghost"}
+              style={{ margin: 0, padding: "6px 10px", fontSize: 12 }}
+              onClick={() =>
+                onChange(on ? selected.filter((x) => x !== id) : [...selected, id])
+              }
+            >
+              {id}
+            </button>
+          );
+        })}
+        {selected.length > 0 && (
+          <button
+            type="button"
+            className="ghost"
+            style={{ margin: 0, padding: "6px 10px", fontSize: 12 }}
+            onClick={() => onChange([])}
+          >
+            tümünü temizle
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// Renk döngüsü ayarları: renk sırası + değişim kuralı (söz satırı / sabit
+// aralık). Marş arka planı sözle birlikte renk değiştirsin diye var.
+function CyclePanel({
+  step,
+  onPatch,
+}: {
+  step: EditorScreenStep;
+  onPatch: (patch: Partial<EditorScreenStep>) => void;
+}) {
+  return (
+    <div style={{ margin: "4px 0 12px", padding: "8px 12px", borderLeft: "3px solid var(--border)" }}>
+      <div className="row">
+        <div>
+          <label>Renk ne zaman değişsin?</label>
+          <select
+            value={step.effectLyricSync ? "lyric" : "period"}
+            onChange={(e) => onPatch({ effectLyricSync: e.target.value === "lyric" })}
+          >
+            <option value="lyric">her söz satırında sıradaki renk</option>
+            <option value="period">sabit aralıkla</option>
+          </select>
+        </div>
+        {!step.effectLyricSync && (
+          <div style={{ flex: "0 1 130px" }}>
+            <label>Aralık (sn; en az 0,4)</label>
+            <input
+              type="number"
+              min={0.4}
+              step={0.1}
+              value={Math.round(step.effectPeriodMs / 100) / 10}
+              onChange={(e) => {
+                const sec = Number(e.target.value) || 0.4;
+                onPatch({ effectPeriodMs: Math.max(334, Math.round(sec * 1000)) });
+              }}
+            />
+          </div>
+        )}
+      </div>
+      <label>Renk sırası (2..16)</label>
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+        {step.effectColors.map((c, k) => (
+          <span key={k} style={{ display: "inline-flex", alignItems: "center", gap: 2 }}>
+            <input
+              type="color"
+              value={c}
+              style={{ width: 42, height: 36, padding: 2 }}
+              onChange={(e) =>
+                onPatch({
+                  effectColors: step.effectColors.map((x, m) => (m === k ? e.target.value : x)),
+                })
+              }
+            />
+            {step.effectColors.length > 2 && (
+              <button
+                type="button"
+                className="ghost"
+                style={{ margin: 0, padding: "2px 7px" }}
+                onClick={() =>
+                  onPatch({ effectColors: step.effectColors.filter((_, m) => m !== k) })
+                }
+              >
+                ×
+              </button>
+            )}
+          </span>
+        ))}
+        {step.effectColors.length < 16 && (
+          <button
+            type="button"
+            className="secondary"
+            style={{ margin: 0, padding: "8px 12px" }}
+            onClick={() => onPatch({ effectColors: [...step.effectColors, "#ffffff"] })}
+          >
+            + Renk
+          </button>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -211,6 +347,17 @@ export default function ShowDetailPage({ params }: { params: Promise<{ id: strin
       else n.add(i);
       return n;
     });
+  }
+
+  function patchTorch(i: number, j: number, patch: Partial<EditorTorchStep>) {
+    setShow((s) => ({
+      ...s,
+      sequences: s.sequences.map((sq, ii) =>
+        ii === i
+          ? { ...sq, torch: sq.torch.map((x, k) => (k === j ? { ...x, ...patch } : x)) }
+          : sq,
+      ),
+    }));
   }
 
   function moveSeq(i: number, dir: -1 | 1) {
@@ -662,6 +809,7 @@ export default function ShowDetailPage({ params }: { params: Promise<{ id: strin
                         <option value="wave">dalga (koltuğa göre)</option>
                         <option value="gradient">gradyan (koltuğa göre)</option>
                         <option value="bitmap">bayrak/slogan (koltuğa göre)</option>
+                        <option value="cycle">renk döngüsü (söz/tempo)</option>
                       </select>
                     </div>
                     {st.effectKind === "" && (
@@ -673,7 +821,7 @@ export default function ShowDetailPage({ params }: { params: Promise<{ id: strin
                         />
                       </div>
                     )}
-                    {st.effectKind !== "" && (
+                    {st.effectKind !== "" && st.effectKind !== "cycle" && (
                       <div>
                         <label>Yön</label>
                         <EffectDirSelect
@@ -754,7 +902,23 @@ export default function ShowDetailPage({ params }: { params: Promise<{ id: strin
                     </div>
                   </div>
                   {st.effectKind === "bitmap" && (
-                    <BitmapEffectPanel step={st} onPatch={(patch) => patchScreen(i, j, patch)} />
+                    <BitmapEffectPanel
+                      step={st}
+                      venue={show.venue}
+                      onPatch={(patch) => patchScreen(i, j, patch)}
+                    />
+                  )}
+                  {st.effectKind === "cycle" && (
+                    <CyclePanel step={st} onPatch={(patch) => patchScreen(i, j, patch)} />
+                  )}
+                  {st.effectKind !== "" && (show.venue?.blocks.length ?? 0) > 0 && (
+                    <div style={{ padding: "0 12px 8px" }}>
+                      <BlockPicker
+                        all={show.venue!.blocks.map((b) => b.id)}
+                        selected={st.effectBlocks}
+                        onChange={(blocks) => patchScreen(i, j, { effectBlocks: blocks })}
+                      />
+                    </div>
                   )}
                   </div>
                 ))}
@@ -792,14 +956,62 @@ export default function ShowDetailPage({ params }: { params: Promise<{ id: strin
                       />
                     </div>
                     <div>
-                      <label>Flaş</label>
-                      <FlashSelect
-                        hz={st.flashHz}
-                        onChange={(hz) =>
-                          patchSeq(i, { torch: sq.torch.map((x, k) => (k === j ? { ...x, flashHz: hz } : x)) })
+                      <label>Efekt</label>
+                      <select
+                        value={st.effectKind}
+                        onChange={(e) =>
+                          patchTorch(i, j, { effectKind: e.target.value as "" | "wave" })
                         }
-                      />
+                      >
+                        <option value="">yanıp sönme / sabit</option>
+                        <option value="wave">fener dalgası (koltuğa göre)</option>
+                      </select>
                     </div>
+                    {st.effectKind === "" && (
+                      <div>
+                        <label>Flaş</label>
+                        <FlashSelect
+                          hz={st.flashHz}
+                          onChange={(hz) => patchTorch(i, j, { flashHz: hz })}
+                        />
+                      </div>
+                    )}
+                    {st.effectKind === "wave" && (
+                      <>
+                        <div>
+                          <label>Yön</label>
+                          <EffectDirSelect
+                            axis={st.effectAxis}
+                            reverse={st.effectReverse}
+                            onChange={(axis, reverse) =>
+                              patchTorch(i, j, { effectAxis: axis, effectReverse: reverse })
+                            }
+                          />
+                        </div>
+                        <div>
+                          <label>Süpürme süresi</label>
+                          <TimeField
+                            ms={st.effectPeriodMs}
+                            onChange={(ms) =>
+                              patchTorch(i, j, { effectPeriodMs: Math.max(334, ms) })
+                            }
+                          />
+                        </div>
+                        <div style={{ flex: "0 1 90px" }}>
+                          <label>Bant (%)</label>
+                          <input
+                            type="number"
+                            min={1}
+                            max={100}
+                            value={Math.round(st.effectWidth * 100)}
+                            onChange={(e) => {
+                              const pct = Math.min(100, Math.max(1, Number(e.target.value) || 1));
+                              patchTorch(i, j, { effectWidth: pct / 100 });
+                            }}
+                          />
+                        </div>
+                      </>
+                    )}
                     <div style={{ flex: "0 0 auto" }}>
                       <button
                         type="button"
@@ -809,15 +1021,19 @@ export default function ShowDetailPage({ params }: { params: Promise<{ id: strin
                         Sil
                       </button>
                     </div>
+                    {st.effectKind === "wave" && (show.venue?.blocks.length ?? 0) > 0 && (
+                      <BlockPicker
+                        all={show.venue!.blocks.map((b) => b.id)}
+                        selected={st.effectBlocks}
+                        onChange={(blocks) => patchTorch(i, j, { effectBlocks: blocks })}
+                      />
+                    )}
                   </div>
                 ))}
                 <button
                   type="button"
                   className="secondary"
-                  onClick={() => {
-                    const step: EditorTorchStep = { atMs: 0, durationMs: 0, flashHz: 1 };
-                    patchSeq(i, { torch: [...sq.torch, step] });
-                  }}
+                  onClick={() => patchSeq(i, { torch: [...sq.torch, emptyTorchStep(0)] })}
                 >
                   + Fener adımı
                 </button>

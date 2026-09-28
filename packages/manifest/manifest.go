@@ -134,6 +134,15 @@ func (m Manifest) Validate() error {
 		return fmt.Errorf("sekans sayısı %d üst sınırı aşıyor", maxSequences)
 	}
 
+	// Efektlerin blok filtresi mekân planındaki kimliklerle doğrulanır.
+	var venueBlocks map[string]bool
+	if m.Venue != nil {
+		venueBlocks = map[string]bool{}
+		for _, b := range m.Venue.Blocks {
+			venueBlocks[b.ID] = true
+		}
+	}
+
 	seqIDs := map[string]bool{}
 	seqDur := map[string]int{}
 	for i, seq := range m.Sequences {
@@ -181,7 +190,7 @@ func (m Manifest) Validate() error {
 				return fmt.Errorf("%s: kue sayısı üst sınırı aşıyor", laneWhere)
 			}
 			for k, cue := range lane.Cues {
-				if err := validateCue(lane.Kind, cue, seq.DurationMs); err != nil {
+				if err := validateCue(lane.Kind, cue, seq.DurationMs, venueBlocks); err != nil {
 					return fmt.Errorf("%s.cues[%d]: %w", laneWhere, k, err)
 				}
 			}
@@ -209,7 +218,7 @@ func (m Manifest) Validate() error {
 	return m.validateVenue()
 }
 
-func validateCue(kind string, c Cue, seqDurationMs int) error {
+func validateCue(kind string, c Cue, seqDurationMs int, venueBlocks map[string]bool) error {
 	if c.AtMs < 0 || c.AtMs > seqDurationMs {
 		return fmt.Errorf("at_ms sekansın dışında")
 	}
@@ -233,7 +242,7 @@ func validateCue(kind string, c Cue, seqDurationMs int) error {
 			return fmt.Errorf("screen kuesi asset_id taşıyamaz")
 		}
 		if c.Effect != nil {
-			if err := c.Effect.validate(kind); err != nil {
+			if err := c.Effect.validate(kind, venueBlocks); err != nil {
 				return err
 			}
 		}
@@ -245,7 +254,7 @@ func validateCue(kind string, c Cue, seqDurationMs int) error {
 			return fmt.Errorf("torch kuesi color/asset_id taşıyamaz")
 		}
 		if c.Effect != nil {
-			if err := c.Effect.validate(kind); err != nil {
+			if err := c.Effect.validate(kind, venueBlocks); err != nil {
 				return err
 			}
 		}

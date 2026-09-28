@@ -17,12 +17,20 @@ export type EffectJson = {
   width?: number;
   color2?: string;
   bitmap?: { palette?: string[]; rows?: string[] };
+  blocks?: string[];
+  area?: { u0: number; w0: number; u1: number; w1: number };
+  colors?: string[];
 };
 
 function axisPos(eff: EffectJson, u: number, v: number, w: number): number {
   let p = u;
   if (eff.axis === "v") p = v;
   if (eff.axis === "w") p = w;
+  if (eff.axis === "ring") {
+    // Mekân merkezinin etrafındaki açı payı (0..1; saat yönünün tersine).
+    p = Math.atan2(v - 0.5, u - 0.5) / (2 * Math.PI);
+    if (p < 0) p += 1;
+  }
   return eff.reverse ? 1 - p : p;
 }
 
@@ -45,8 +53,12 @@ export function evalEffect(
   u: number,
   v: number,
   w: number,
+  block: string,
   sinceMs: number,
 ): string {
+  if (eff.blocks && eff.blocks.length > 0 && !eff.blocks.includes(block)) {
+    return ""; // blok filtresi: kapsam dışı (koltuksuz istemci dahil)
+  }
   if (eff.kind === "wave") {
     if (!eff.period_ms || eff.period_ms <= 0) return "";
     const p = axisPos(eff, u, v, w);
@@ -59,11 +71,25 @@ export function evalEffect(
     if (!eff.color2 || eff.color2.length !== 7 || cueColor.length !== 7) return "";
     return lerpColor(cueColor, eff.color2, axisPos(eff, u, v, w));
   }
+  if (eff.kind === "cycle") {
+    const cs = eff.colors ?? [];
+    if (cs.length === 0) return "";
+    if (!eff.period_ms || eff.period_ms <= 0) return cs[0]; // söz modu motorda
+    return cs[Math.floor(sinceMs / eff.period_ms) % cs.length];
+  }
   if (eff.kind === "bitmap") {
     const b = eff.bitmap;
     if (!b || !b.rows || b.rows.length === 0 || b.rows[0].length === 0) return "";
     const cols = b.rows[0].length;
     let p = axisPos(eff, u, v, w);
+    let q = w; // dikey daima w
+    const a = eff.area;
+    if (a) {
+      // Yerleştirme penceresi: dışı kapalı, içi 0..1'e haritalanır.
+      if (p < a.u0 || p > a.u1 || q < a.w0 || q > a.w1) return "";
+      p = (p - a.u0) / (a.u1 - a.u0);
+      q = (q - a.w0) / (a.w1 - a.w0);
+    }
     if (eff.period_ms && eff.period_ms > 0) {
       p += (sinceMs % eff.period_ms) / eff.period_ms;
       if (p >= 1) p -= 1;
@@ -72,7 +98,7 @@ export function evalEffect(
     if (col >= cols) col = cols - 1;
     if (col < 0) col = 0;
     const nrows = b.rows.length;
-    let rowIdx = Math.floor((1 - w) * nrows); // ilk satır = tepe (w=1)
+    let rowIdx = Math.floor((1 - q) * nrows); // ilk satır = tepe
     if (rowIdx >= nrows) rowIdx = nrows - 1;
     if (rowIdx < 0) rowIdx = 0;
     const row = b.rows[rowIdx];
@@ -82,6 +108,15 @@ export function evalEffect(
     return b.palette![idx];
   }
   return "";
+}
+
+// Söz izleyen renk döngüsü (cycle, period_ms=0): başlamış söz satırı sayısı
+// mod renk sayısı — kural telefon motoru ve /join JS'iyle birebirdir.
+export function cycleLyricColor(eff: EffectJson, block: string, lyricsStarted: number): string {
+  if (eff.blocks && eff.blocks.length > 0 && !eff.blocks.includes(block)) return "";
+  const cs = eff.colors ?? [];
+  if (cs.length === 0) return "";
+  return cs[lyricsStarted % cs.length];
 }
 
 // --- kare mantığı (telefonun screen şeridi kuralları) ---
@@ -122,9 +157,10 @@ export function manifestScreenColorAt(
   u: number,
   v: number,
   w: number,
+  block = "",
 ): string {
   const t = resolveTarget(m, cueId, elapsedMs);
-  return t ? screenColorAt(t.seq, t.seqElapsedMs, u, v, w) : "";
+  return t ? screenColorAt(t.seq, t.seqElapsedMs, u, v, w, block) : "";
 }
 
 export function seqLyricAt(seq: SeqJson, elapsedMs: number): string {
@@ -157,13 +193,15 @@ export function manifestCueDurationMs(m: ManifestJson, cueId: string): number {
 }
 
 // O koltuğun o anki ekran rengi ('' = karanlık). Çakışmada son kue kazanır,
-// flaş fazı floor((e−at)·hz/500) — telefon/tarayıcıyla aynı.
+// flaş fazı floor((e−at)·hz/500) — telefon/tarayıcıyla aynı. block, koltuğun
+// blok kimliğidir (blok filtreli efektler + söz izleyen döngü için).
 export function screenColorAt(
   seq: SeqJson,
   elapsedMs: number,
   u: number,
   v: number,
   w: number,
+  block = "",
 ): string {
   if (elapsedMs < 0 || elapsedMs >= seq.duration_ms) return "";
   let color = "";
@@ -180,7 +218,16 @@ export function screenColorAt(
     }
     const eff = (active as { effect?: EffectJson }).effect;
     if (eff) {
-      color = evalEffect(eff, active.color || "", u, v, w, elapsedMs - active.at_ms);
+      if (eff.kind === "cycle" && (!eff.period_ms || eff.period_ms <= 0)) {
+        // Söz izleyen döngü: başlamış söz satırı sayısı rengi seçer.
+        let started = 0;
+        for (const l of seq.lyric_lines ?? []) {
+          if ((l.at_ms || 0) <= elapsedMs) started++;
+        }
+        color = cycleLyricColor(eff, block, started);
+      } else {
+        color = evalEffect(eff, active.color || "", u, v, w, block, elapsedMs - active.at_ms);
+      }
     } else {
       const hz = active.flash_hz || 0;
       const lit = hz === 0 || Math.floor(((elapsedMs - active.at_ms) * hz) / 500) % 2 === 0;

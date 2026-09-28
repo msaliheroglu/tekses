@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   imageToBitmap,
   MAX_BITMAP_COLS,
@@ -8,12 +8,14 @@ import {
   MIN_SCROLL_MS_PER_COL,
   textToBitmap,
 } from "@/lib/bitmapGen";
-import type { EditorBitmap, EditorScreenStep } from "@/lib/manifestEditor";
+import type { EditorArea, EditorBitmap, EditorScreenStep } from "@/lib/manifestEditor";
+import { seatPoints, venueBounds, type EditorVenue } from "@/lib/venueEditor";
 
-// Bayrak/slogan üretici paneli (F4.3b): bitmap efektli ekran adımının
-// desen kaynağı. Metin tarayıcı fontuyla rasterleştirilir (kayan slogan),
-// görüntü küçültülüp ≤16 renge nicemlenir (bayrak). Desen tribüne koltuk
-// çözünürlüğünde çizilir — küçük ve yüksek kontrastlı desen en iyisidir.
+// Bayrak/slogan paneli (F4.3b + F4.5-3.tur): desen üretimi, tribün
+// çözünürlüğüne otomatik uydurma ve fareyle YERLEŞTİRME. Yerleştirme
+// tuvali tribün duvarını düzleştirir (yatay = efekt ekseni, dikey = w):
+// gri noktalar koltuklar, renkli dikdörtgen desenin oynayacağı penceredir —
+// içinden sürükleyerek taşınır, sağ alt köşesinden boyutlanır.
 
 function BitmapPreview({ bitmap }: { bitmap: EditorBitmap }) {
   const ref = useRef<HTMLCanvasElement>(null);
@@ -54,15 +56,144 @@ function BitmapPreview({ bitmap }: { bitmap: EditorBitmap }) {
   );
 }
 
+// Yerleştirme tuvali: koltuklar (yatayda efekt ekseni payı, dikeyde w) +
+// sürüklenebilir pencere. Fare desenin tribünde tam nereye düşeceğini seçer.
+function PlacementCanvas({
+  venue,
+  axis,
+  reverse,
+  area,
+  bitmap,
+  onChange,
+}: {
+  venue: EditorVenue;
+  axis: string;
+  reverse: boolean;
+  area: EditorArea | null;
+  bitmap: EditorBitmap | null;
+  onChange: (area: EditorArea) => void;
+}) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const drag = useRef<{ mode: "move" | "resize"; dx: number; dy: number } | null>(null);
+  const H = 200;
+
+  // Koltukların (yatay, dikey) izdüşümü — efekt ekseniyle aynı aritmetik.
+  const dots = useMemo(() => {
+    const pts = seatPoints(venue, 4000).points;
+    return pts.map((p) => {
+      let h = p.u;
+      if (axis === "v") h = p.v;
+      if (axis === "w") h = p.w;
+      if (axis === "ring") {
+        h = Math.atan2(p.v - 0.5, p.u - 0.5) / (2 * Math.PI);
+        if (h < 0) h += 1;
+      }
+      if (reverse) h = 1 - h;
+      return { h, w: p.w };
+    });
+  }, [venue, axis, reverse]);
+
+  const a: EditorArea = area ?? { u0: 0, w0: 0, u1: 1, w1: 1 };
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const dpr = window.devicePixelRatio || 1;
+    const W = canvas.clientWidth || 520;
+    if (canvas.width !== Math.round(W * dpr)) canvas.width = Math.round(W * dpr);
+    if (canvas.height !== Math.round(H * dpr)) canvas.height = Math.round(H * dpr);
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.fillStyle = "#0b0e13";
+    ctx.fillRect(0, 0, W, H);
+    // Koltuklar.
+    ctx.fillStyle = "#3a4557";
+    for (const d of dots) {
+      ctx.fillRect(d.h * W - 1, (1 - d.w) * H - 1, 2, 2);
+    }
+    // Pencere + desen hayaleti.
+    const rx = a.u0 * W, ry = (1 - a.w1) * H;
+    const rw = (a.u1 - a.u0) * W, rh = (a.w1 - a.w0) * H;
+    if (bitmap && bitmap.rows.length > 0 && bitmap.rows[0].length > 0) {
+      const cols = bitmap.rows[0].length, rows = bitmap.rows.length;
+      for (let y = 0; y < rows; y++) {
+        for (let x = 0; x < cols; x++) {
+          const ch = bitmap.rows[y][x];
+          if (ch === ".") continue;
+          const idx = parseInt(ch, 16);
+          ctx.fillStyle = (bitmap.palette[idx] ?? "#000") + "b0"; // yarı saydam
+          ctx.fillRect(rx + (x / cols) * rw, ry + (y / rows) * rh, rw / cols + 0.5, rh / rows + 0.5);
+        }
+      }
+    }
+    ctx.strokeStyle = "#ffb74d";
+    ctx.lineWidth = 2;
+    ctx.strokeRect(rx, ry, rw, rh);
+    // Boyutlandırma tutamacı (sağ alt).
+    ctx.fillStyle = "#ffb74d";
+    ctx.fillRect(rx + rw - 6, ry + rh - 6, 12, 12);
+  }, [dots, a, bitmap, H]);
+
+  function toNorm(e: React.PointerEvent): { x: number; y: number } {
+    const rect = (e.target as HTMLElement).getBoundingClientRect();
+    return {
+      x: Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width)),
+      y: Math.min(1, Math.max(0, (e.clientY - rect.top) / rect.height)),
+    };
+  }
+
+  return (
+    <canvas
+      ref={canvasRef}
+      style={{ width: "100%", maxWidth: 520, height: H, borderRadius: 6, touchAction: "none", cursor: "move", display: "block" }}
+      onPointerDown={(e) => {
+        const { x, y } = toNorm(e);
+        const nearCorner =
+          Math.abs(x - a.u1) < 0.05 && Math.abs(y - (1 - a.w0)) < 0.08;
+        drag.current = nearCorner
+          ? { mode: "resize", dx: 0, dy: 0 }
+          : { mode: "move", dx: x - a.u0, dy: y - (1 - a.w1) };
+        (e.target as Element).setPointerCapture?.(e.pointerId);
+      }}
+      onPointerMove={(e) => {
+        const d = drag.current;
+        if (!d) return;
+        const { x, y } = toNorm(e);
+        const r2 = (v: number) => Math.round(v * 100) / 100;
+        if (d.mode === "resize") {
+          onChange({
+            u0: a.u0,
+            w1: a.w1,
+            u1: r2(Math.max(a.u0 + 0.05, x)),
+            w0: r2(Math.min(a.w1 - 0.05, 1 - y)),
+          });
+        } else {
+          const uw = a.u1 - a.u0, wh = a.w1 - a.w0;
+          const u0 = r2(Math.min(1 - uw, Math.max(0, x - d.dx)));
+          const w1 = r2(Math.max(wh, Math.min(1, 1 - (y - d.dy))));
+          onChange({ u0, u1: r2(u0 + uw), w1, w0: r2(w1 - wh) });
+        }
+      }}
+      onPointerUp={() => {
+        drag.current = null;
+      }}
+    />
+  );
+}
+
 export default function BitmapEffectPanel({
   step,
+  venue,
   onPatch,
 }: {
   step: EditorScreenStep;
+  venue: EditorVenue | null;
   onPatch: (patch: Partial<EditorScreenStep>) => void;
 }) {
   const [text, setText] = useState("");
   const [textColor, setTextColor] = useState("#ffffff");
+  const [autoRes, setAutoRes] = useState(true);
   const [imgCols, setImgCols] = useState(48);
   const [imgRows, setImgRows] = useState(16);
   const [err, setErr] = useState("");
@@ -70,6 +201,26 @@ export default function BitmapEffectPanel({
   const bm = step.effectBitmap;
   const cols = bm && bm.rows.length > 0 ? bm.rows[0].length : 0;
   const minScroll = cols * MIN_SCROLL_MS_PER_COL;
+
+  // Tribün çözünürlüğü: pencere kaç koltuk kaplıyorsa o kadar piksel —
+  // "bir koltuk bir piksel" hedefi (item 4: resim alana OTOMATİK uyar).
+  const suggested = useMemo(() => {
+    if (!venue || venue.blocks.length === 0) return null;
+    const b = venueBounds(venue);
+    const widthM = Math.max(1, b.maxX - b.minX);
+    const maxRows = Math.max(...venue.blocks.map((x) => x.rows));
+    const meanStep =
+      venue.blocks.reduce((s, x) => s + (x.seatStep || 0.5), 0) / venue.blocks.length || 0.5;
+    const uSpan = step.effectArea ? step.effectArea.u1 - step.effectArea.u0 : 1;
+    const wSpan = step.effectArea ? step.effectArea.w1 - step.effectArea.w0 : 1;
+    return {
+      cols: Math.min(MAX_BITMAP_COLS, Math.max(4, Math.round((widthM * uSpan) / meanStep))),
+      rows: Math.min(MAX_BITMAP_ROWS, Math.max(2, Math.round(maxRows * wSpan))),
+    };
+  }, [venue, step.effectArea]);
+
+  const effCols = venue && autoRes && suggested ? suggested.cols : imgCols;
+  const effRows = venue && autoRes && suggested ? suggested.rows : imgRows;
 
   function makeText() {
     setErr("");
@@ -92,7 +243,7 @@ export default function BitmapEffectPanel({
     const img = new Image();
     img.onload = () => {
       URL.revokeObjectURL(url);
-      const r = imageToBitmap(img, imgCols, imgRows);
+      const r = imageToBitmap(img, effCols, effRows);
       if (!r.bitmap) {
         setErr(r.error ?? "üretilemedi");
         return;
@@ -134,33 +285,48 @@ export default function BitmapEffectPanel({
       </div>
       <div className="row">
         <div>
-          <label>Görüntüden (bayrak/logo)</label>
+          <label>Görüntüden (bayrak/logo; oran korunur)</label>
           <input type="file" accept="image/*" onChange={onPickImage} />
         </div>
-        <div style={{ flex: "0 1 90px" }}>
-          <label>Sütun</label>
-          <input
-            type="number"
-            min={1}
-            max={MAX_BITMAP_COLS}
-            value={imgCols}
-            onChange={(e) =>
-              setImgCols(Math.min(MAX_BITMAP_COLS, Math.max(1, Number(e.target.value) || 1)))
-            }
-          />
-        </div>
-        <div style={{ flex: "0 1 90px" }}>
-          <label>Satır</label>
-          <input
-            type="number"
-            min={1}
-            max={MAX_BITMAP_ROWS}
-            value={imgRows}
-            onChange={(e) =>
-              setImgRows(Math.min(MAX_BITMAP_ROWS, Math.max(1, Number(e.target.value) || 1)))
-            }
-          />
-        </div>
+        {venue && (
+          <div>
+            <label>Çözünürlük</label>
+            <select value={autoRes ? "auto" : "manual"} onChange={(e) => setAutoRes(e.target.value === "auto")}>
+              <option value="auto">
+                otomatik — tribüne uydur{suggested ? ` (${suggested.cols}×${suggested.rows})` : ""}
+              </option>
+              <option value="manual">elle</option>
+            </select>
+          </div>
+        )}
+        {(!venue || !autoRes) && (
+          <>
+            <div style={{ flex: "0 1 90px" }}>
+              <label>Sütun</label>
+              <input
+                type="number"
+                min={1}
+                max={MAX_BITMAP_COLS}
+                value={imgCols}
+                onChange={(e) =>
+                  setImgCols(Math.min(MAX_BITMAP_COLS, Math.max(1, Number(e.target.value) || 1)))
+                }
+              />
+            </div>
+            <div style={{ flex: "0 1 90px" }}>
+              <label>Satır</label>
+              <input
+                type="number"
+                min={1}
+                max={MAX_BITMAP_ROWS}
+                value={imgRows}
+                onChange={(e) =>
+                  setImgRows(Math.min(MAX_BITMAP_ROWS, Math.max(1, Number(e.target.value) || 1)))
+                }
+              />
+            </div>
+          </>
+        )}
         <div style={{ flex: "0 1 150px" }}>
           <label>Kaydırma (sn; 0 = sabit)</label>
           <input
@@ -187,9 +353,37 @@ export default function BitmapEffectPanel({
             {step.effectScrollMs > 0
               ? ` · tam tur ${Math.round(step.effectScrollMs / 1000)} sn (alt sınır ${Math.ceil(minScroll / 1000)} sn)`
               : " · sabit"}
-            {" — "}desen tribüne koltuk çözünürlüğünde çizilir; blok grid&apos;inden
-            kabaysa sadeleştirin.
           </p>
+          {venue && venue.blocks.length > 0 && (
+            <>
+              <label>
+                Yerleştirme — deseni tribünde fareyle konumlandırın (içinden
+                sürükleyin, sağ alt köşeden boyutlandırın)
+              </label>
+              <PlacementCanvas
+                venue={venue}
+                axis={step.effectAxis}
+                reverse={step.effectReverse}
+                area={step.effectArea}
+                bitmap={bm}
+                onChange={(area) => onPatch({ effectArea: area })}
+              />
+              <p className="muted" style={{ margin: "4px 0 0" }}>
+                {step.effectArea
+                  ? `pencere: yatay %${Math.round(step.effectArea.u0 * 100)}–${Math.round(step.effectArea.u1 * 100)}, dikey %${Math.round(step.effectArea.w0 * 100)}–${Math.round(step.effectArea.w1 * 100)} · `
+                  : "pencere: tüm mekân · "}
+                <a
+                  href="#"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    onPatch({ effectArea: null });
+                  }}
+                >
+                  tüm mekâna yay
+                </a>
+              </p>
+            </>
+          )}
         </>
       ) : (
         <p className="muted">Henüz desen yok — slogan üretin ya da görüntü seçin; üretmeden yayınlarsanız bu adım düz renk oynar.</p>

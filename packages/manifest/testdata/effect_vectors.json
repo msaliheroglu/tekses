@@ -175,6 +175,148 @@
       "w": 0.2,
       "since_ms": 668,
       "want": "#FFFFFF"
+    },
+    {
+      "name": "ring dalga: kuzey ucu çeyrek turda bant içinde",
+      "cue_color": "#FF0000",
+      "effect": {
+        "kind": "wave",
+        "axis": "ring",
+        "period_ms": 8000,
+        "width": 0.1
+      },
+      "u": 0.5,
+      "v": 1,
+      "w": 0.5,
+      "since_ms": 2000,
+      "want": "#FF0000"
+    },
+    {
+      "name": "ring dalga saat yönünde (reverse) aynı an bant dışı",
+      "cue_color": "#FF0000",
+      "effect": {
+        "kind": "wave",
+        "axis": "ring",
+        "reverse": true,
+        "period_ms": 8000,
+        "width": 0.1
+      },
+      "u": 0.5,
+      "v": 1,
+      "w": 0.5,
+      "since_ms": 2000,
+      "want": ""
+    },
+    {
+      "name": "blok filtresi kapsam içi",
+      "cue_color": "#00FF00",
+      "effect": {
+        "kind": "wave",
+        "period_ms": 2000,
+        "width": 1,
+        "blocks": [
+          "KUZEY",
+          "DOGU"
+        ]
+      },
+      "u": 0.5,
+      "v": 0.5,
+      "w": 0.5,
+      "block": "DOGU",
+      "since_ms": 1000,
+      "want": "#00FF00"
+    },
+    {
+      "name": "blok filtresi kapsam dışı (koltuksuz dahil)",
+      "cue_color": "#00FF00",
+      "effect": {
+        "kind": "wave",
+        "period_ms": 2000,
+        "width": 1,
+        "blocks": [
+          "KUZEY",
+          "DOGU"
+        ]
+      },
+      "u": 0.5,
+      "v": 0.5,
+      "w": 0.5,
+      "since_ms": 1000,
+      "want": ""
+    },
+    {
+      "name": "cycle ikinci renk",
+      "cue_color": "#FFFFFF",
+      "effect": {
+        "kind": "cycle",
+        "period_ms": 400,
+        "colors": [
+          "#FF0000",
+          "#00FF00",
+          "#0000FF"
+        ]
+      },
+      "u": 0.5,
+      "v": 0.5,
+      "w": 0.5,
+      "since_ms": 500,
+      "want": "#00FF00"
+    },
+    {
+      "name": "area penceresi içinde (yerel haritalama)",
+      "cue_color": "#FFFFFF",
+      "effect": {
+        "kind": "bitmap",
+        "bitmap": {
+          "palette": [
+            "#E30A17",
+            "#FFFFFF"
+          ],
+          "rows": [
+            "0000",
+            "111."
+          ]
+        },
+        "area": {
+          "u0": 0.25,
+          "w0": 0.25,
+          "u1": 0.75,
+          "w1": 0.75
+        }
+      },
+      "u": 0.5,
+      "v": 0,
+      "w": 0.7,
+      "since_ms": 0,
+      "want": "#E30A17"
+    },
+    {
+      "name": "area penceresi dışında kapalı",
+      "cue_color": "#FFFFFF",
+      "effect": {
+        "kind": "bitmap",
+        "bitmap": {
+          "palette": [
+            "#E30A17",
+            "#FFFFFF"
+          ],
+          "rows": [
+            "0000",
+            "111."
+          ]
+        },
+        "area": {
+          "u0": 0.25,
+          "w0": 0.25,
+          "u1": 0.75,
+          "w1": 0.75
+        }
+      },
+      "u": 0.1,
+      "v": 0,
+      "w": 0.7,
+      "since_ms": 0,
+      "want": ""
     }
   ],
   "comment": "üretici: go test ./packages/manifest -run TestEffectGolden -update"
