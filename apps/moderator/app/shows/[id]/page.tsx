@@ -674,6 +674,7 @@ export default function ShowDetailPage({ params }: { params: Promise<{ id: strin
             <VenuePreview3D show={show} />
 
             <QuickAdd
+              venue={show.venue}
               onAdd={(seq) => {
                 setOpenSeqs((s) => new Set(s).add(show.sequences.length));
                 setShow((s) => ({ ...s, sequences: [...s.sequences, seq] }));

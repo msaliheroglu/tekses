@@ -498,6 +498,28 @@ parametre taşır, telefon rengini/zamanını (mekân geometrisi + kendi koltuğ
   yenilendi (mekân dosyasına arc bölümü; efekt 17 örnek) — Go/Dart/JS/TS
   dördü birebir; Dart 49 test + Go tümü + E2E + panel build yeşil.
   **Cihaz/panel doğrulaması kullanıcıda (yeni APK tetiklendi).**
+  **4. tur (2026-09-28, kullanıcı ekran görüntüsüyle: 'Türk bayrağı stadyumu
+  şerit şerit sarıyor'):** kök neden — bitmap varsayılan olarak TÜM mekânın
+  u/w düzlemine yayılıyordu; tek tribüne oturtma eldeki blocks+area ile
+  mümkündü ama moderatörün elle kurması gerekiyordu. Düzeltme (yalnız panel;
+  şema/telefon değişmedi): `blockPlacement(venue, blokId)` (venueEditor) bir
+  blok için yatay ekseni (dünya x/y'de geniş olan → u/v), okuma yönünü
+  (sahadan/sahneden bakan seyirci soldan sağa okur; reverse pencere
+  koordinatını da tersine çevirir), bloğu tam kaplayan `area` penceresini,
+  koltuk çözünürlüğünü (en geniş sıra × sıra sayısı) ve hücre en-boy oranını
+  (koltuk aralığı / eğik sıra adımı ~0.5/0.894 — yoksa bayrak dikeyde
+  yamulur) üretir. Sihirbaza 'Nereye?' seçici (varsayılan en büyük tribün;
+  bayrak o bloğa oturur, slogan blok genişliğine yastıklanıp o blokta kayar
+  — 'çepeçevre' seçilirse ring turu); BitmapEffectPanel'e tek tık 'Nereye?'
+  tribün çipleri + tek bloklu adımda otomatik çözünürlük/oran o bloktan.
+  bitmapGen: `containFit` (hücre oranlı contain — oran metre uzayında
+  korunur), `padBitmapCols`, textToBitmap yatay ön-germe (harfler dar/uzun
+  hücrede basılmaz). Doğrulama: placement_test.mjs (eksen/yön/pencere
+  kapsaması el hesabıyla; koltuk noktalarıyla pencere içi/dışı), Chromium
+  bmgen testi (oranlı bayrakta saydam üst/alt bant + Go manifest doğrulaması
+  geçer), editor round-trip, next build. **Panelde görsel doğrulama
+  kullanıcıda; telefon/gateway değişmedi (APK gerekmez, yalnız moderator
+  yeniden derlenir).**
 - [ ] **F4.6 Uçtan uca prova:** birkaç telefon farklı koltuk kimlikleriyle —
   dalganın sırayla geçtiği kamerayla doğrulanır. (Telefonlar toplanınca;
   F3.5 fener kalibrasyonuyla aynı oturumda yapılabilir.)
